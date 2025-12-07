@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, flash, redirect, jsonify
 import pandas as pd
-
+import time
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, send_template
 from utils.logger import log_message
@@ -147,7 +147,7 @@ def index():
                 })
 
                 log_message(name, phone, str(params), status, resp)
-
+                time.sleep(1)
             flash(f"Template message '{template_name}' sent to {len(results)} contacts.")
 
             return render_template(
@@ -177,7 +177,7 @@ def index():
             })
 
             log_message(name, phone, personalized_msg, status, resp)
-
+            time.sleep(1)
         flash(f"Text message sent to {len(results)} contacts.")
 
     # ----------------------------------------------------------------
