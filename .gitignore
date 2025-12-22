@@ -1,7 +1,9 @@
 venv/
 
 *.log
+log.csv
 
 __pycache__/
 
+.env
 *.env
