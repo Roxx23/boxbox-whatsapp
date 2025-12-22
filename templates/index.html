@@ -258,6 +258,81 @@
       margin: 2rem 0;
     }
 
+    .scheduled-jobs-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 2rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      animation: fadeInUp 0.8s ease;
+    }
+
+    .scheduled-jobs-card h5 {
+      color: #fbbf24;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      font-size: 1.3rem;
+    }
+
+    .job-item {
+      background: rgba(102, 126, 234, 0.08);
+      border: 1px solid rgba(102, 126, 234, 0.2);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.3s ease;
+    }
+
+    .job-item:hover {
+      background: rgba(102, 126, 234, 0.12);
+      transform: translateX(5px);
+    }
+
+    .job-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .job-info strong {
+      color: #e2e8f0;
+      font-size: 1rem;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+
+    .job-info small {
+      color: #4ade80;
+      font-size: 0.9rem;
+    }
+
+    .btn-cancel {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      border: none;
+      border-radius: 8px;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-cancel:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.5);
+    }
+
+    .no-jobs {
+      text-align: center;
+      color: #a0aec0;
+      padding: 2rem;
+      font-style: italic;
+    }
+
     @keyframes fadeInDown {
       from {
         opacity: 0;
@@ -309,6 +384,24 @@
         padding: 1.5rem;
       }
     }
+    .create-template-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px;
+      color: white;
+      text-decoration: none;
+      margin-top: 1rem;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(74, 222, 128, 0.4);
+    }
+
+    .create-template-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(74, 222, 128, 0.6);
+      color: white;
+    }
   </style>
 </head>
 
@@ -318,6 +411,9 @@
   <div class="header">
     <h1>WhatsApp Bulk Sender 🚀</h1>
     <p>Send personalized messages to your contacts instantly</p>
+    <a href="/create-template" class="create-template-btn">
+      + Create New Template
+    </a>
   </div>
 
   {% with messages = get_flashed_messages() %}
@@ -329,7 +425,11 @@
       </div>
     {% endif %}
   {% endwith %}
-
+  <!-- Scheduled Jobs Section -->
+  <div class="scheduled-jobs-card mb-4" id="scheduledJobsSection" style="display: none;">
+    <h5>📅 Scheduled Jobs</h5>
+    <div id="jobsList"></div>
+  </div>
   <div class="main-card">
     <form method="POST" enctype="multipart/form-data">
 
@@ -361,6 +461,14 @@
             <option value="{{ t.name }}">{{ t.name }} ({{ t.category }})</option>
           {% endfor %}
         </select>
+      </div>
+      <!-- Header Image Upload -->
+      <div class="mb-3">
+        <label class="form-label">Header Image (required for IMAGE header templates)</label>
+        <input type="file" name="header_image" class="form-control" accept="image/*">
+        <div class="form-text text-light">
+          Upload once — the same image will be sent to everyone in this run.
+        </div>
       </div>
 
       <!-- Dynamic Parameter Box -->
@@ -479,6 +587,68 @@ document.getElementById("template_name").addEventListener("change", function () 
           paramBox.innerHTML = html;
       });
 });
+
+// Load scheduled jobs on page load
+function loadScheduledJobs() {
+    fetch('/scheduled-jobs')
+        .then(res => {
+            if (!res.ok) {
+                throw new Error('Failed to fetch scheduled jobs');
+            }
+            return res.json();
+        })
+        .then(data => {
+            const section = document.getElementById('scheduledJobsSection');
+            const jobsList = document.getElementById('jobsList');
+            
+            if (data.jobs && data.jobs.length > 0) {
+                section.style.display = 'block';
+                let html = '';
+                data.jobs.forEach(job => {
+                    html += `
+                        <div class="job-item">
+                            <div class="job-info">
+                                <strong>📤 ${job.function.replace('send_', '').replace('_', ' ').toUpperCase()}</strong>
+                                <small>⏰ Scheduled: ${job.next_run}</small>
+                            </div>
+                            <button class="btn-cancel" onclick="cancelJob('${job.id}')">✖ Cancel</button>
+                        </div>
+                    `;
+                });
+                jobsList.innerHTML = html;
+            } else {
+                section.style.display = 'none';
+            }
+        })
+        .catch(err => {
+            console.warn('Scheduled jobs not available:', err);
+            document.getElementById('scheduledJobsSection').style.display = 'none';
+        });
+}
+
+function cancelJob(jobId) {
+    if (confirm('Are you sure you want to cancel this scheduled job?')) {
+        fetch(`/cancel-job/${jobId}`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ ' + data.message);
+                }
+                loadScheduledJobs();
+            })
+            .catch(err => {
+                console.error('Error canceling job:', err);
+                alert('❌ Failed to cancel job');
+            });
+    }
+}
+
+// Load jobs on page load
+loadScheduledJobs();
+// Refresh every 30 seconds
+setInterval(loadScheduledJobs, 30000);
 </script>
 
 </body>

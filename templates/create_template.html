@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create WhatsApp Template</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #fff;
+      padding: 2rem 0;
+    }
+
+    .container {
+      max-width: 1100px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 3rem;
+      animation: fadeInDown 0.8s ease;
+    }
+
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+
+    .header p {
+      color: #a0aec0;
+      font-size: 1.1rem;
+    }
+
+    .back-btn {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px;
+      text-decoration: none;
+      margin-bottom: 2rem;
+      transition: all 0.3s ease;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .back-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      transform: translateX(-5px);
+      color: #fff;
+    }
+
+    .main-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 2.5rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      animation: fadeInUp 0.8s ease;
+    }
+
+    .form-label {
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-bottom: 0.5rem;
+      font-size: 0.95rem;
+      letter-spacing: 0.3px;
+    }
+
+    .form-control, .form-select {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      color: #fff;
+      padding: 0.75rem 1rem;
+      transition: all 0.3s ease;
+      font-size: 0.95rem;
+    }
+
+    .form-control:focus, .form-select:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+      color: #fff;
+      outline: none;
+    }
+
+    .form-control::placeholder {
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    select option {
+      background: #1a1a2e;
+      color: #fff;
+    }
+
+    textarea.form-control {
+      resize: vertical;
+      min-height: 120px;
+      font-family: monospace;
+    }
+
+    .file-upload-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+      width: 100%;
+    }
+
+    .file-upload-input {
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .file-upload-label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background: rgba(102, 126, 234, 0.1);
+      border: 2px dashed rgba(102, 126, 234, 0.4);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-align: center;
+    }
+
+    .file-upload-label:hover {
+      background: rgba(102, 126, 234, 0.15);
+      border-color: #667eea;
+      transform: translateY(-2px);
+    }
+
+    .preview-image {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 12px;
+      margin-top: 1rem;
+      display: none;
+    }
+
+    .btn-submit {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      border-radius: 12px;
+      padding: 1rem 2.5rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-top: 1.5rem;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-submit:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    }
+
+    .btn-add {
+      background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+      border: none;
+      border-radius: 8px;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 10px rgba(74, 222, 128, 0.3);
+    }
+
+    .btn-add:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(74, 222, 128, 0.5);
+    }
+
+    .info-box {
+      background: rgba(74, 222, 128, 0.1);
+      border: 1px solid rgba(74, 222, 128, 0.3);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      color: #4ade80;
+      font-size: 0.9rem;
+    }
+
+    .warning-box {
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      color: #fbbf24;
+      font-size: 0.9rem;
+    }
+
+    .section-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+      margin: 2rem 0;
+    }
+
+    .preview-section {
+      background: rgba(102, 126, 234, 0.08);
+      border: 1px solid rgba(102, 126, 234, 0.2);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .preview-title {
+      color: #fbbf24;
+      font-weight: 600;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+
+    .preview-content {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 1rem;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      font-family: 'Segoe UI', sans-serif;
+    }
+
+    .button-section {
+      margin-top: 1rem;
+    }
+
+    .button-item {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .btn-remove {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      border: none;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .btn-remove:hover {
+      transform: scale(1.05);
+    }
+
+    @keyframes fadeInDown {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+
+<body>
+<div class="container">
+  
+  <a href="/" class="back-btn">← Back to Dashboard</a>
+
+  <div class="header">
+    <h1>Create WhatsApp Template 📝</h1>
+    <p>Design professional message templates with images and buttons</p>
+  </div>
+
+  <div class="main-card">
+    <form method="POST" action="/submit-template" enctype="multipart/form-data" id="templateForm">
+      <div class="info-box">
+        💡 <strong>Tip:</strong> Templates must be approved by WhatsApp before use. Use {{1}}, {{2}} for dynamic variables.
+      </div>
+
+      <!-- Template Name -->
+      <div class="mb-4">
+        <label class="form-label">Template Name *</label>
+        <input type="text" name="template_name" class="form-control" required 
+               placeholder="e.g., welcome_message" pattern="[a-z0-9_]+" 
+               title="Only lowercase letters, numbers, and underscores">
+        <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
+          Only lowercase letters, numbers, and underscores allowed
+        </small>
+      </div>
+
+      <!-- Category -->
+      <div class="mb-4">
+        <label class="form-label">Category *</label>
+        <select name="category" class="form-select" required>
+          <option value="">-- Select Category --</option>
+          <option value="MARKETING">Marketing</option>
+          <option value="UTILITY">Utility</option>
+          <option value="AUTHENTICATION">Authentication</option>
+        </select>
+      </div>
+
+      <!-- Language -->
+      <div class="mb-4">
+        <label class="form-label">Language *</label>
+        <select name="language" class="form-select" required>
+          <option value="en">English</option>
+          <option value="en_US">English (US)</option>
+          <option value="hi">Hindi</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+        </select>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- Header Type -->
+      <div class="mb-4">
+        <label class="form-label">Header Type</label>
+        <select name="header_type" id="header_type" class="form-select">
+          <option value="NONE">No Header</option>
+          <option value="TEXT">Text Header</option>
+          <option value="IMAGE">Image Header</option>
+        </select>
+      </div>
+
+      <!-- Header Text (shows when TEXT selected) -->
+      <div class="mb-4" id="header_text_section" style="display: none;">
+        <label class="form-label">Header Text</label>
+        <input type="text" name="header_text" class="form-control" 
+               placeholder="e.g., Special Offer! {{1}}">
+        <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
+          Use {{1}} for dynamic variable
+        </small>
+      </div>
+
+      <!-- Header Image (shows when IMAGE selected) -->
+      <!-- Header Image (shows when IMAGE selected) -->
+      <div class="mb-4" id="header_image_section" style="display: none;">
+        <label class="form-label">Image URL</label>
+        <input type="text" name="header_image_url" class="form-control" 
+               placeholder="https://example.com/your-image.jpg">
+        <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
+          Provide a publicly accessible image URL (JPG or PNG, recommended 800x800px, max 5MB)
+        </small>
+        <small style="color: #fbbf24; display: block; margin-top: 0.25rem;">
+          💡 You can use services like <a href="https://imgbb.com/" target="_blank" style="color: #4ade80;">ImgBB</a> or <a href="https://imgur.com/" target="_blank" style="color: #4ade80;">Imgur</a> to host your image
+        </small>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- Body Text -->
+      <div class="mb-4">
+        <label class="form-label">Message Body *</label>
+        <textarea name="body_text" id="body_text" class="form-control" required
+                  placeholder="Hello {{1}}, your order {{2}} is confirmed!"></textarea>
+        <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
+          Use {{1}}, {{2}}, {{3}} etc. for variables. Max 1024 characters.
+        </small>
+      </div>
+
+      <!-- Footer -->
+      <div class="mb-4">
+        <label class="form-label">Footer (Optional)</label>
+        <input type="text" name="footer_text" class="form-control" 
+               placeholder="e.g., Thank you for choosing us!" maxlength="60">
+        <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
+          Max 60 characters
+        </small>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- Buttons Section -->
+      <div class="mb-4">
+        <label class="form-label">Call-to-Action Buttons (Optional)</label>
+        <div id="buttons_container"></div>
+        <button type="button" class="btn-add" onclick="addButton()">+ Add Button</button>
+      </div>
+
+      <div class="warning-box">
+        ⚠️ <strong>Note:</strong> After submission, your template will be pending approval by WhatsApp. 
+        This can take 24-48 hours.
+      </div>
+
+      <button type="submit" class="btn-submit">🚀 Create Template</button>
+
+    </form>
+
+    <!-- Preview Section -->
+    <div class="preview-section">
+      <div class="preview-title">📱 Template Preview</div>
+      <div class="preview-content" id="preview_content">
+        Your template preview will appear here...
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+let buttonCount = 0;
+
+// Header type change handler
+document.getElementById('header_type').addEventListener('change', function() {
+  const headerText = document.getElementById('header_text_section');
+  const headerImage = document.getElementById('header_image_section');
+  
+  headerText.style.display = 'none';
+  headerImage.style.display = 'none';
+  
+  if (this.value === 'TEXT') {
+    headerText.style.display = 'block';
+  } else if (this.value === 'IMAGE') {
+    headerImage.style.display = 'block';
+  }
+  
+  updatePreview();
+});
+
+// Image preview
+document.getElementById('header_image').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const preview = document.getElementById('image_preview');
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+// Add button function
+function addButton() {
+  if (buttonCount >= 3) {
+    alert('Maximum 3 buttons allowed');
+    return;
+  }
+  
+  buttonCount++;
+  const container = document.getElementById('buttons_container');
+  const buttonDiv = document.createElement('div');
+  buttonDiv.className = 'button-item';
+  buttonDiv.id = `button_${buttonCount}`;
+  
+  buttonDiv.innerHTML = `
+    <div style="flex: 1;">
+      <select name="button_type_${buttonCount}" class="form-select mb-2" required onchange="updatePreview()">
+        <option value="URL">URL Button</option>
+        <option value="PHONE_NUMBER">Call Button</option>
+      </select>
+      <input type="text" name="button_text_${buttonCount}" class="form-control mb-2" 
+             placeholder="Button Text" required maxlength="25" onkeyup="updatePreview()">
+      <input type="text" name="button_value_${buttonCount}" class="form-control" 
+             placeholder="URL or Phone Number" required onkeyup="updatePreview()">
+    </div>
+    <button type="button" class="btn-remove" onclick="removeButton(${buttonCount})">✖</button>
+  `;
+  
+  container.appendChild(buttonDiv);
+  updatePreview();
+}
+
+// Remove button function
+function removeButton(id) {
+  const button = document.getElementById(`button_${id}`);
+  if (button) {
+    button.remove();
+    buttonCount--;
+    updatePreview();
+  }
+}
+
+// Update preview
+function updatePreview() {
+  const headerType = document.getElementById('header_type').value;
+  const headerText = document.querySelector('[name="header_text"]').value;
+  const bodyText = document.getElementById('body_text').value;
+  const footerText = document.querySelector('[name="footer_text"]').value;
+  
+  let preview = '';
+  
+  if (headerType === 'TEXT' && headerText) {
+    preview += `📌 ${headerText}\n\n`;
+  } else if (headerType === 'IMAGE') {
+    preview += `🖼️ [Image Header]\n\n`;
+  }
+  
+  preview += bodyText || 'Your message body...';
+  
+  if (footerText) {
+    preview += `\n\n---\n${footerText}`;
+  }
+  
+  // Add buttons to preview
+  const buttons = document.querySelectorAll('[id^="button_"]');
+  if (buttons.length > 0) {
+    preview += '\n\n📌 Buttons:\n';
+    buttons.forEach((btn, idx) => {
+      const text = btn.querySelector('[name^="button_text_"]').value;
+      if (text) {
+        preview += `[${text}]\n`;
+      }
+    });
+  }
+  
+  document.getElementById('preview_content').textContent = preview;
+}
+
+// Update preview on body text change
+document.getElementById('body_text').addEventListener('keyup', updatePreview);
+document.querySelector('[name="header_text"]').addEventListener('keyup', updatePreview);
+document.querySelector('[name="footer_text"]').addEventListener('keyup', updatePreview);
+
+// Initialize preview
+updatePreview();
+</script>
+
+</body>
+</html>
