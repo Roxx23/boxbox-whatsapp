@@ -258,21 +258,58 @@
       margin: 2rem 0;
     }
 
+    /* ========== IMPROVED SCHEDULED JOBS SECTION ========== */
     .scheduled-jobs-card {
       background: rgba(255, 255, 255, 0.05);
       backdrop-filter: blur(10px);
       border-radius: 20px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       padding: 2rem;
+      margin-bottom: 2rem;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
       animation: fadeInUp 0.8s ease;
     }
 
-    .scheduled-jobs-card h5 {
+    .jobs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .jobs-title {
       color: #fbbf24;
       font-weight: 600;
-      margin-bottom: 1.5rem;
       font-size: 1.3rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .jobs-count {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .refresh-jobs-btn {
+      background: rgba(102, 126, 234, 0.15);
+      border: 1px solid rgba(102, 126, 234, 0.3);
+      color: #667eea;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .refresh-jobs-btn:hover {
+      background: rgba(102, 126, 234, 0.25);
+      transform: translateY(-2px);
     }
 
     .job-item {
@@ -281,8 +318,9 @@
       border-radius: 12px;
       padding: 1.25rem;
       margin-bottom: 1rem;
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 1rem;
       align-items: center;
       transition: all 0.3s ease;
     }
@@ -296,6 +334,34 @@
       margin-bottom: 0;
     }
 
+    .job-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5em;
+    }
+
+    .status-pending { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .status-waiting { 
+      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .status-sending { 
+      background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .status-completed { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+    .status-failed { background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); }
+    .status-cancelled { background: #6c757d; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
     .job-info strong {
       color: #e2e8f0;
       font-size: 1rem;
@@ -303,10 +369,36 @@
       margin-bottom: 0.5rem;
     }
 
-    .job-info small {
-      color: #4ade80;
-      font-size: 0.9rem;
+    .job-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      font-size: 0.85rem;
+      color: #a0aec0;
     }
+
+    .job-meta span {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .status-badge {
+      padding: 0.4rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+      display: inline-block;
+    }
+
+    .badge-pending { background: #f093fb; color: white; }
+    .badge-waiting { background: #4facfe; color: white; }
+    .badge-sending { background: #43e97b; color: white; }
+    .badge-completed { background: #11998e; color: white; }
+    .badge-failed { background: #eb3349; color: white; }
+    .badge-cancelled { background: #6c757d; color: white; }
 
     .btn-cancel {
       background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
@@ -319,11 +411,18 @@
       cursor: pointer;
       transition: all 0.3s ease;
       box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
+      white-space: nowrap;
     }
 
-    .btn-cancel:hover {
+    .btn-cancel:hover:not(:disabled) {
       transform: translateY(-2px);
       box-shadow: 0 4px 15px rgba(239, 68, 68, 0.5);
+    }
+
+    .btn-cancel:disabled {
+      background: #4a5568;
+      cursor: not-allowed;
+      opacity: 0.5;
     }
 
     .no-jobs {
@@ -331,6 +430,18 @@
       color: #a0aec0;
       padding: 2rem;
       font-style: italic;
+    }
+
+    .no-jobs-icon {
+      font-size: 3em;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
+    .loading-jobs {
+      text-align: center;
+      color: #a0aec0;
+      padding: 2rem;
     }
 
     @keyframes fadeInDown {
@@ -383,7 +494,17 @@
       .main-card {
         padding: 1.5rem;
       }
+
+      .job-item {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+
+      .job-meta {
+        justify-content: center;
+      }
     }
+
     .create-template-btn {
       display: inline-block;
       background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
@@ -425,11 +546,23 @@
       </div>
     {% endif %}
   {% endwith %}
-  <!-- Scheduled Jobs Section -->
-  <div class="scheduled-jobs-card mb-4" id="scheduledJobsSection" style="display: none;">
-    <h5>📅 Scheduled Jobs</h5>
-    <div id="jobsList"></div>
+
+  <!-- IMPROVED Scheduled Jobs Section -->
+  <div class="scheduled-jobs-card" id="scheduledJobsSection">
+    <div class="jobs-header">
+      <div class="jobs-title">
+        📅 Scheduled Jobs
+        <span class="jobs-count" id="jobsCount">0</span>
+      </div>
+      <button class="refresh-jobs-btn" onclick="loadScheduledJobs()">
+        🔄 Refresh
+      </button>
+    </div>
+    <div id="jobsList">
+      <div class="loading-jobs">⏳ Loading scheduled jobs...</div>
+    </div>
   </div>
+
   <div class="main-card">
     <form method="POST" enctype="multipart/form-data">
 
@@ -462,9 +595,10 @@
           {% endfor %}
         </select>
       </div>
+
       <!-- Header Image Upload -->
       <div class="mb-3">
-        <label class="form-label">Header Image (required for IMAGE header templates)</label>
+        <label class="form-label">🖼️ Header Image (required for IMAGE header templates)</label>
         <input type="file" name="header_image" class="form-control" accept="image/*">
         <div class="form-text text-light">
           Upload once — the same image will be sent to everyone in this run.
@@ -588,67 +722,121 @@ document.getElementById("template_name").addEventListener("change", function () 
       });
 });
 
-// Load scheduled jobs on page load
+// ========== IMPROVED SCHEDULED JOBS LOADING ==========
 function loadScheduledJobs() {
     fetch('/scheduled-jobs')
         .then(res => {
-            if (!res.ok) {
-                throw new Error('Failed to fetch scheduled jobs');
-            }
+            if (!res.ok) throw new Error('Failed to fetch');
             return res.json();
         })
         .then(data => {
-            const section = document.getElementById('scheduledJobsSection');
             const jobsList = document.getElementById('jobsList');
+            const jobsCount = document.getElementById('jobsCount');
+            const jobs = data.jobs || [];
             
-            if (data.jobs && data.jobs.length > 0) {
-                section.style.display = 'block';
-                let html = '';
-                data.jobs.forEach(job => {
-                    html += `
-                        <div class="job-item">
-                            <div class="job-info">
-                                <strong>📤 ${job.function.replace('send_', '').replace('_', ' ').toUpperCase()}</strong>
-                                <small>⏰ Scheduled: ${job.next_run}</small>
-                            </div>
-                            <button class="btn-cancel" onclick="cancelJob('${job.id}')">✖ Cancel</button>
+            // Update count
+            const activeJobs = jobs.filter(j => !['completed', 'failed', 'cancelled'].includes(j.status));
+            jobsCount.textContent = activeJobs.length;
+            
+            if (jobs.length === 0) {
+                jobsList.innerHTML = `
+                    <div class="no-jobs">
+                        <div class="no-jobs-icon">📭</div>
+                        <div>No scheduled jobs</div>
+                        <div style="font-size: 0.9em; margin-top: 0.5rem; opacity: 0.7;">
+                            Schedule a message to see it here
                         </div>
-                    `;
-                });
-                jobsList.innerHTML = html;
-            } else {
-                section.style.display = 'none';
+                    </div>
+                `;
+                return;
             }
+            
+            // Sort jobs
+            jobs.sort((a, b) => {
+                const statusOrder = {
+                    'sending': 0, 'waiting': 1, 'pending': 2,
+                    'completed': 3, 'failed': 4, 'cancelled': 5
+                };
+                return statusOrder[a.status] - statusOrder[b.status];
+            });
+            
+            let html = '';
+            jobs.forEach(job => {
+                const statusIcons = {
+                    'pending': '⏸️',
+                    'waiting': '⏰',
+                    'sending': '📤',
+                    'completed': '✅',
+                    'failed': '❌',
+                    'cancelled': '🚫'
+                };
+                
+                const icon = statusIcons[job.status] || '📋';
+                const jobName = job.template_name || 'Text Message';
+                const canCancel = ['pending', 'waiting'].includes(job.status);
+                
+                html += `
+                    <div class="job-item">
+                        <div class="job-icon status-${job.status}">${icon}</div>
+                        
+                        <div>
+                            <span class="status-badge badge-${job.status}">${job.status}</span>
+                            <strong>${jobName}</strong>
+                            <div class="job-meta">
+                                <span>🕐 ${job.scheduled_time}</span>
+                                <span>👥 ${job.contact_count} contacts</span>
+                                <span>📅 ${job.created_at}</span>
+                            </div>
+                            ${job.error ? `<div style="color: #ef4444; font-size: 0.85em; margin-top: 0.5rem;">Error: ${job.error}</div>` : ''}
+                        </div>
+                        
+                        <button 
+                            class="btn-cancel" 
+                            onclick="cancelJob('${job.job_id}')"
+                            ${!canCancel ? 'disabled' : ''}
+                        >
+                            ${canCancel ? '🗑️ Cancel' : '⚫ Done'}
+                        </button>
+                    </div>
+                `;
+            });
+            
+            jobsList.innerHTML = html;
         })
         .catch(err => {
-            console.warn('Scheduled jobs not available:', err);
-            document.getElementById('scheduledJobsSection').style.display = 'none';
+            console.warn('Error loading jobs:', err);
+            document.getElementById('jobsList').innerHTML = `
+                <div class="no-jobs">
+                    <div style="color: #ef4444;">❌ Error loading jobs</div>
+                </div>
+            `;
         });
 }
 
 function cancelJob(jobId) {
-    if (confirm('Are you sure you want to cancel this scheduled job?')) {
-        fetch(`/cancel-job/${jobId}`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    alert('✅ ' + data.message);
-                } else {
-                    alert('❌ ' + data.message);
-                }
-                loadScheduledJobs();
-            })
-            .catch(err => {
-                console.error('Error canceling job:', err);
-                alert('❌ Failed to cancel job');
-            });
+    if (!confirm('Are you sure you want to cancel this scheduled job?')) {
+        return;
     }
+    
+    fetch(`/cancel-job/${jobId}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.message);
+            } else {
+                alert('❌ ' + data.message);
+            }
+            loadScheduledJobs();
+        })
+        .catch(err => {
+            console.error('Error canceling job:', err);
+            alert('❌ Failed to cancel job');
+        });
 }
 
-// Load jobs on page load
+// Load jobs on page load and refresh every 5 seconds
 loadScheduledJobs();
-// Refresh every 30 seconds
-setInterval(loadScheduledJobs, 30000);
+setInterval(loadScheduledJobs, 5000);
 </script>
 
 </body>

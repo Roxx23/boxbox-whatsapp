@@ -1,132 +1,250 @@
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.date import DateTrigger
+import time
+import threading
 from datetime import datetime, timedelta
-import pandas as pd
-from utils.whatsapp import send_text, send_template
-from utils.logger import log_message
-from utils.personalize import personalize
+from utils.whatsapp import send_text, send_template, get_templates
 
-# Initialize background scheduler
-scheduler = BackgroundScheduler()
-scheduler.start()
+# Import personalize if you have it
+try:
+    from utils.personalize import personalize
+except ImportError:
+    def personalize(template, row_dict, idx):
+        """Fallback personalize function"""
+        result = template
+        for key, value in row_dict.items():
+            result = result.replace(f"{{{key}}}", str(value))
+        return result
 
-def schedule_message_job(
-    df,
-    template_name=None,
-    template_language="en",
-    template_params_mapping=None,
-    message_template=None,
-    send_time_str=None
-):
-    """Schedule messages to be sent at a specific time"""
+# Global storage for scheduled jobs
+scheduled_jobs = []
+job_id_counter = 0
+
+# Global reference to message_queue (will be set by app.py)
+_message_queue = None
+
+def set_message_queue(queue):
+    """Called by app.py to set the message queue reference"""
+    global _message_queue
+    _message_queue = queue
+    print("✅ Background scheduler connected to message queue")
+
+
+# WABA_ID should be imported from your config
+WABA_ID = "2252354741929132"
+
+
+def wait_until(send_time_str: str):
+    """Block until HH:MM (24h format)."""
+    try:
+        now = datetime.now()
+        hour, minute = map(int, send_time_str.split(":"))
+        
+        # Validate time format
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError("Invalid time format. Use HH:MM (00:00 to 23:59)")
+
+        send_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        if send_time <= now:
+            send_time += timedelta(days=1)
+            print(f"⏰ Scheduled for tomorrow at {send_time_str}")
+        else:
+            print(f"⏰ Scheduled for today at {send_time_str}")
+
+        wait_seconds = (send_time - now).total_seconds()
+        print(f"⏳ Waiting {int(wait_seconds)} seconds until {send_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        while datetime.now() < send_time:
+            time.sleep(1)
+        
+        print("✅ Time reached! Starting to send messages...")
+        
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        raise
+
+
+def check_template_needs_image(template_name):
+    """
+    Check if a template requires an IMAGE header
+    Returns: (needs_image: bool, template_language: str)
+    """
+    templates = get_templates(WABA_ID)
+    selected_template = next((t for t in templates if t["name"] == template_name), None)
     
-    # Parse send time
-    now = datetime.now()
-    hour, minute = map(int, send_time_str.split(":"))
+    if not selected_template:
+        return False, "en"
     
-    send_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    template_language = selected_template.get("language", "en")
     
-    # If time has passed today, DON'T schedule for tomorrow - show error
-    if send_time <= now:
-        return False, "Selected time has already passed today. Please choose a future time."
+    # Check for IMAGE header
+    header_component = next(
+        (c for c in selected_template["components"] if c["type"] == "HEADER"),
+        None
+    )
     
-    # Schedule the job
-    job_id = f"bulk_send_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    needs_image = header_component and header_component.get("format") == "IMAGE"
     
+    return needs_image, template_language
+
+
+def schedule_message_job(df, template_name=None, template_language="en", 
+                         template_params_mapping=None, message_template=None, 
+                         send_time_str=None, header_media_id=None):
+    """
+    Schedule a message sending job
+    
+    Args:
+        df: DataFrame with contacts
+        template_name: WhatsApp template name (if using template)
+        template_language: Template language code
+        template_params_mapping: List of column names for template parameters
+        message_template: Free text message (if not using template)
+        send_time_str: Time to send (HH:MM format)
+        header_media_id: Media ID for image header (if template needs it)
+    """
+    global job_id_counter, scheduled_jobs
+    
+    job_id_counter += 1
+    job_id = f"job_{job_id_counter}"
+    
+    # Validate
+    if not send_time_str:
+        return False, "Send time is required"
+    
+    # Check if template needs image
     if template_name:
-        # Schedule template messages
-        scheduler.add_job(
-            func=send_template_messages,
-            trigger=DateTrigger(run_date=send_time),
-            args=[df, template_name, template_language, template_params_mapping],
-            id=job_id,
-            replace_existing=True
-        )
-    else:
-        # Schedule text messages
-        scheduler.add_job(
-            func=send_text_messages,
-            trigger=DateTrigger(run_date=send_time),
-            args=[df, message_template],
-            id=job_id,
-            replace_existing=True
-        )
+        needs_image, detected_language = check_template_needs_image(template_name)
+        
+        if needs_image and not header_media_id:
+            return False, f"Template '{template_name}' requires an IMAGE header. Please upload an image."
+        
+        # Use detected language if not provided
+        if template_language == "en":
+            template_language = detected_language
     
-    return True, f"Messages scheduled for {send_time.strftime('%I:%M %p')} today. Job ID: {job_id}"
-
-
-def send_template_messages(df, template_name, template_language, params_mapping):
-    """Background task to send template messages"""
-    print(f"🚀 Starting scheduled template message batch: {template_name}")
+    # Create job info
+    job_info = {
+        'job_id': job_id,
+        'scheduled_time': send_time_str,
+        'status': 'pending',
+        'template_name': template_name,
+        'message_template': message_template,
+        'contact_count': len(df),
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
     
-    for idx, row in df.iterrows():
-        row_dict = row.to_dict()
-        name = row_dict.get("Name", "")
-        phone = str(row_dict.get("Phone"))
-        
-        # Build parameters
-        params = []
-        for col in params_mapping:
-            val = row_dict.get(col)
-            params.append(str(val) if val is not None else "")
-        
-        # Send message
-        status, resp = send_template(phone, template_name, params, template_language)
-        
-        # Log
-        log_message(name, phone, f"TEMPLATE: {template_name} → {params}", status, resp)
-        
-        # Small delay to avoid rate limits
-        import time
-        time.sleep(1)
+    scheduled_jobs.append(job_info)
     
-    print(f"✅ Completed scheduled batch: {template_name} ({len(df)} messages)")
-
-
-def send_text_messages(df, message_template):
-    """Background task to send text messages"""
-    print(f"🚀 Starting scheduled text message batch")
+    # Start background thread
+    def job_worker():
+        try:
+            # Update status
+            job_info['status'] = 'waiting'
+            
+            # Wait until scheduled time
+            wait_until(send_time_str)
+            
+            # Update status
+            job_info['status'] = 'sending'
+            
+            # Use the global message_queue reference (set by app.py)
+            message_queue = _message_queue
+            
+            # Send messages
+            if template_name:
+                # Template messages
+                for idx, row in df.iterrows():
+                    row_dict = row.to_dict()
+                    phone = str(row_dict.get("Phone"))
+                    
+                    # Build parameters
+                    params = []
+                    for col_name in template_params_mapping:
+                        val = row_dict.get(col_name)
+                        if val is None:
+                            print(f"⚠️ Column '{col_name}' missing for {phone}")
+                            continue
+                        params.append(str(val))
+                    
+                    # Send with queue if available, otherwise send directly
+                    if message_queue:
+                        message_queue.add_message(
+                            send_template,
+                            phone,
+                            template_name,
+                            params,
+                            template_language,
+                            header_media_id=header_media_id
+                        )
+                    else:
+                        # Send directly without queue
+                        print("⚠️ Message queue not available, sending directly")
+                        send_template(
+                            phone,
+                            template_name,
+                            params,
+                            template_language,
+                            header_media_id=header_media_id
+                        )
+                        time.sleep(1)  # Basic rate limiting
+                    
+                print(f"✅ Completed scheduled batch: {template_name} ({len(df)} messages)")
+            
+            else:
+                # Free text messages
+                for idx, row in df.iterrows():
+                    row_dict = row.to_dict()
+                    phone = str(row_dict.get("Phone")).strip()
+                    
+                    personalized_msg = personalize(message_template, row_dict, idx + 1)
+                    
+                    if message_queue:
+                        message_queue.add_message(send_text, phone, personalized_msg)
+                    else:
+                        print("⚠️ Message queue not available, sending directly")
+                        send_text(phone, personalized_msg)
+                        time.sleep(1)
+                
+                print(f"✅ Completed scheduled batch: text messages ({len(df)} messages)")
+            
+            # Update status
+            job_info['status'] = 'completed'
+            job_info['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+        except Exception as e:
+            print(f"❌ Scheduled job error: {e}")
+            import traceback
+            traceback.print_exc()
+            job_info['status'] = 'failed'
+            job_info['error'] = str(e)
     
-    for idx, row in df.iterrows():
-        row_dict = row.to_dict()
-        name = row_dict.get("Name", "")
-        phone = str(row_dict.get("Phone")).strip()
-        
-        # Personalize message
-        personalized_msg = personalize(message_template, row_dict, idx + 1)
-        
-        # Send message
-        status, resp = send_text(phone, personalized_msg)
-        
-        # Log
-        log_message(name, phone, personalized_msg, status, resp)
-        
-        # Small delay to avoid rate limits
-        import time
-        time.sleep(1)
+    thread = threading.Thread(target=job_worker, daemon=True)
+    thread.start()
     
-    print(f"✅ Completed scheduled batch ({len(df)} messages)")
+    return True, f"Messages scheduled for {send_time_str} (Job ID: {job_id})"
 
 
 def get_scheduled_jobs():
-    """Get list of all scheduled jobs"""
-    jobs = scheduler.get_jobs()
-    job_list = []
-    
-    for job in jobs:
-        job_list.append({
-            "id": job.id,
-            "next_run": job.next_run_time.strftime("%Y-%m-%d %I:%M %p") if job.next_run_time else "N/A",
-            "function": job.func.__name__
-        })
-    
-    return job_list
+    """Return list of all scheduled jobs"""
+    return scheduled_jobs
 
 
 def cancel_job(job_id):
     """Cancel a scheduled job"""
-    try:
-        scheduler.remove_job(job_id)
-        return True, f"Job {job_id} cancelled successfully"
-    except:
-        return False, f"Job {job_id} not found"
+    global scheduled_jobs
+    
+    job = next((j for j in scheduled_jobs if j['job_id'] == job_id), None)
+    
+    if not job:
+        return False, "Job not found"
+    
+    if job['status'] in ['completed', 'failed']:
+        return False, f"Cannot cancel {job['status']} job"
+    
+    if job['status'] == 'sending':
+        return False, "Cannot cancel job that is already sending"
+    
+    job['status'] = 'cancelled'
+    job['cancelled_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    return True, f"Job {job_id} cancelled successfully"
