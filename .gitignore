@@ -1,9 +1,46 @@
 venv/
+env/
 
 *.log
 log.csv
+logs.csv
 
 __pycache__/
+*.pyc
+*.pyo
 
+# Environment variables (NEVER commit these!)
 .env
 *.env
+!.env.example
+
+# User database
+users.json
+
+# Campaign database
+whatsapp_dashboard.db
+*.db
+
+# Upload directory for temporary images
+uploads/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

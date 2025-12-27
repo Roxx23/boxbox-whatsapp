@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campaigns - WhatsApp Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: #f8f9fa;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .campaign-card {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+        
+        .campaign-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .status-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .progress {
+            height: 8px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-paper-plane me-2"></i>WhatsApp Dashboard
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="fas fa-home me-1"></i>Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">
+                            <i class="fas fa-chart-line me-1"></i>Analytics
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('campaigns_page') }}">
+                            <i class="fas fa-bullhorn me-1"></i>Campaigns
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('activity_log_page') }}">
+                            <i class="fas fa-history me-1"></i>Activity
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('create_template_page') }}">
+                            <i class="fas fa-file-alt me-1"></i>Templates
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i>{{ current_user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" style="background: rgba(30, 30, 60, 0.95); border: 1px solid rgba(255,255,255,0.1);">
+                            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
+                            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                            <li><hr class="dropdown-divider" style="border-color: rgba(255,255,255,0.1);"></li>
+                            <li><a class="dropdown-item text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <h2 class="mb-4">All Campaigns</h2>
+                
+                {% for campaign in campaigns %}
+                <div class="campaign-card">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h5>{{ campaign.campaign_name or 'Unnamed Campaign' }}</h5>
+                            <p class="text-muted mb-2">
+                                <i class="fas fa-tag me-1"></i>{{ campaign.campaign_type }}
+                                {% if campaign.template_name %}
+                                    <i class="fas fa-file-alt ms-2 me-1"></i>{{ campaign.template_name }}
+                                {% endif %}
+                            </p>
+                            <small class="text-muted">
+                                <i class="fas fa-calendar me-1"></i>{{ campaign.created_at[:16] }}
+                                {% if campaign.scheduled_time %}
+                                    <br><i class="fas fa-clock me-1 text-info"></i>Scheduled: {{ campaign.scheduled_time }}
+                                {% endif %}
+                            </small>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <h6 class="mb-1">{{ campaign.recipient_count }}</h6>
+                                <small class="text-muted">Recipients</small>
+                            </div>
+                            <div class="progress mt-2">
+                                <div class="progress-bar bg-success" style="width: {{ (campaign.success_count / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
+                                <div class="progress-bar bg-danger" style="width: {{ (campaign.failed_count / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <small class="text-success">✓ {{ campaign.success_count }}</small>
+                                <small class="text-danger">✗ {{ campaign.failed_count }}</small>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 text-end">
+                            {% if campaign.status == 'completed' %}
+                                <span class="status-badge bg-success text-white">Completed</span>
+                            {% elif campaign.status == 'running' %}
+                                <span class="status-badge bg-primary text-white">Running</span>
+                            {% elif campaign.status == 'scheduled' %}
+                                <span class="status-badge bg-info text-white">
+                                    <i class="fas fa-clock me-1"></i>Scheduled
+                                </span>
+                            {% elif campaign.status == 'failed' %}
+                                <span class="status-badge bg-danger text-white">Failed</span>
+                            {% else %}
+                                <span class="status-badge bg-secondary text-white">{{ campaign.status.capitalize() }}</span>
+                            {% endif %}
+                            
+                            <div class="mt-2">
+                                <a href="{{ url_for('campaign_details', campaign_id=campaign.id) }}" 
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye me-1"></i>Details
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+                
+                {% if not campaigns %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>No campaigns yet. Start sending messages to see them here!
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

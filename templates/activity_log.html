@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activity Log - WhatsApp Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: #f8f9fa;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .activity-card {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .timeline-item {
+            border-left: 3px solid #667eea;
+            padding-left: 1.5rem;
+            padding-bottom: 1.5rem;
+            margin-left: 1rem;
+            position: relative;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -8px;
+            top: 0;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: #667eea;
+        }
+        
+        .timeline-item:last-child {
+            border-left-color: transparent;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-paper-plane me-2"></i>WhatsApp Dashboard
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="fas fa-home me-1"></i>Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">
+                            <i class="fas fa-chart-line me-1"></i>Analytics
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('campaigns_page') }}">
+                            <i class="fas fa-bullhorn me-1"></i>Campaigns
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('activity_log_page') }}">
+                            <i class="fas fa-history me-1"></i>Activity
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('create_template_page') }}">
+                            <i class="fas fa-file-alt me-1"></i>Templates
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i>{{ current_user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" style="background: rgba(30, 30, 60, 0.95); border: 1px solid rgba(255,255,255,0.1);">
+                            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
+                            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                            <li><hr class="dropdown-divider" style="border-color: rgba(255,255,255,0.1);"></li>
+                            <li><a class="dropdown-item text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="activity-card">
+                    <h4 class="mb-4"><i class="fas fa-history me-2"></i>Your Activity</h4>
+                    
+                    <div class="timeline">
+                        {% for activity in activities %}
+                        <div class="timeline-item">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h6 class="mb-1">{{ activity.action }}</h6>
+                                    {% if activity.details %}
+                                    <p class="text-muted mb-1">{{ activity.details }}</p>
+                                    {% endif %}
+                                    <small class="text-muted">
+                                        <i class="fas fa-clock me-1"></i>
+                                        {{ activity.timestamp }}
+                                    </small>
+                                </div>
+                                {% if activity.ip_address %}
+                                <div>
+                                    <small class="text-muted">
+                                        <i class="fas fa-globe me-1"></i>{{ activity.ip_address }}
+                                    </small>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        
+                        {% if not activities %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>No activity recorded yet.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

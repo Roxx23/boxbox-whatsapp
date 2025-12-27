@@ -16,10 +16,12 @@ except ImportError:
 
 # Global storage for scheduled jobs
 scheduled_jobs = []
+jobs_lock = threading.Lock()  # Thread safety for job modifications
 job_id_counter = 0
 
 # Global reference to message_queue (will be set by app.py)
 _message_queue = None
+_waba_id = None
 
 def set_message_queue(queue):
     """Called by app.py to set the message queue reference"""
@@ -27,22 +29,72 @@ def set_message_queue(queue):
     _message_queue = queue
     print("✅ Background scheduler connected to message queue")
 
-
-# WABA_ID should be imported from your config
-WABA_ID = "2252354741929132"
+def set_waba_id(waba_id):
+    """Called by app.py to set the WABA ID"""
+    global _waba_id
+    _waba_id = waba_id
+    print(f"✅ Background scheduler using WABA ID: {waba_id}")
 
 
 def wait_until(send_time_str: str):
-    """Block until HH:MM (24h format)."""
+    """Block until specified date and time.
+    
+    Supports two formats:
+    - HH:MM (24h format) - for same day or next day
+    - YYYY-MM-DD HH:MM - for specific date and time
+    """
     try:
         now = datetime.now()
-        hour, minute = map(int, send_time_str.split(":"))
         
-        # Validate time format
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            raise ValueError("Invalid time format. Use HH:MM (00:00 to 23:59)")
+        # Check if it's a full datetime or just time
+        if " " in send_time_str:
+            # Full datetime format: "YYYY-MM-DD HH:MM"
+            try:
+                send_time = datetime.strptime(send_time_str, "%Y-%m-%d %H:%M")
+            except ValueError:
+                raise ValueError("Invalid datetime format. Use YYYY-MM-DD HH:MM")
+            
+            if send_time <= now:
+                raise ValueError("Scheduled time must be in the future")
+                
+        else:
+            # Just time format: "HH:MM"
+            hour, minute = map(int, send_time_str.split(":"))
+            
+            # Validate time format
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError("Invalid time format. Use HH:MM (00:00 to 23:59)")
 
-        send_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            send_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            if send_time <= now:
+                send_time += timedelta(days=1)
+                print(f"⏰ Scheduled for tomorrow at {send_time_str}")
+            else:
+                print(f"⏰ Scheduled for today at {send_time_str}")
+
+        wait_seconds = (send_time - now).total_seconds()
+        days = int(wait_seconds // 86400)
+        hours = int((wait_seconds % 86400) // 3600)
+        minutes = int((wait_seconds % 3600) // 60)
+        
+        if days > 0:
+            time_msg = f"{days} day(s), {hours} hour(s), {minutes} minute(s)"
+        elif hours > 0:
+            time_msg = f"{hours} hour(s), {minutes} minute(s)"
+        else:
+            time_msg = f"{minutes} minute(s)"
+        
+        print(f"⏳ Waiting {time_msg} until {send_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        while datetime.now() < send_time:
+            time.sleep(60)  # Check every minute
+        
+        print("✅ Time reached! Starting to send messages...")
+        
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        raise
 
         if send_time <= now:
             send_time += timedelta(days=1)
@@ -68,7 +120,11 @@ def check_template_needs_image(template_name):
     Check if a template requires an IMAGE header
     Returns: (needs_image: bool, template_language: str)
     """
-    templates = get_templates(WABA_ID)
+    if not _waba_id:
+        print("⚠️ WABA_ID not set in scheduler")
+        return False, "en"
+    
+    templates = get_templates(_waba_id)
     selected_template = next((t for t in templates if t["name"] == template_name), None)
     
     if not selected_template:
@@ -89,7 +145,7 @@ def check_template_needs_image(template_name):
 
 def schedule_message_job(df, template_name=None, template_language="en", 
                          template_params_mapping=None, message_template=None, 
-                         send_time_str=None, header_media_id=None):
+                         send_time_str=None, header_media_id=None, user_id=None, username=None):
     """
     Schedule a message sending job
     
@@ -101,6 +157,8 @@ def schedule_message_job(df, template_name=None, template_language="en",
         message_template: Free text message (if not using template)
         send_time_str: Time to send (HH:MM format)
         header_media_id: Media ID for image header (if template needs it)
+        user_id: User ID for tracking
+        username: Username for tracking
     """
     global job_id_counter, scheduled_jobs
     
@@ -110,6 +168,9 @@ def schedule_message_job(df, template_name=None, template_language="en",
     # Validate
     if not send_time_str:
         return False, "Send time is required"
+    
+    if not _waba_id:
+        return False, "WABA_ID not configured in scheduler"
     
     # Check if template needs image
     if template_name:
@@ -133,16 +194,78 @@ def schedule_message_job(df, template_name=None, template_language="en",
         'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     
-    scheduled_jobs.append(job_info)
+    # Thread-safe job addition
+    with jobs_lock:
+        scheduled_jobs.append(job_info)
+    
+    # Create campaign record immediately when scheduled
+    campaign_id = None
+    if user_id:
+        try:
+            from utils.database import Database
+            db = Database()
+            
+            campaign_name = f"Scheduled Campaign {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            campaign_type = 'Template' if template_name else 'Text'
+            
+            # Create campaign with 'scheduled' status
+            campaign_id = db.create_campaign(
+                user_id=user_id,
+                username=username or 'System',
+                campaign_name=campaign_name,
+                campaign_type=campaign_type,
+                template_name=template_name,
+                recipient_count=len(df),
+                scheduled_time=send_time_str
+            )
+            db.update_campaign_status(campaign_id, 'scheduled')
+            
+            # Store campaign_id in job_info
+            job_info['campaign_id'] = campaign_id
+            
+            # Log scheduling activity
+            message_type = f"Template ({template_name})" if template_name else "Text Message"
+            db.log_activity(
+                user_id=user_id,
+                username=username or 'System',
+                action='Message Scheduled',
+                details=f"Scheduled {len(df)} {message_type} messages for {send_time_str}",
+                ip_address='127.0.0.1'
+            )
+        except Exception as e:
+            print(f"Failed to create campaign or log scheduling activity: {e}")
     
     # Start background thread
     def job_worker():
+        # Get campaign_id from job_info
+        campaign_id = job_info.get('campaign_id')
+        
         try:
             # Update status
             job_info['status'] = 'waiting'
             
             # Wait until scheduled time
             wait_until(send_time_str)
+            
+            # Update campaign to running when execution starts
+            if user_id and campaign_id:
+                from utils.database import Database
+                db = Database()
+                
+                db.update_campaign_status(campaign_id, 'running')
+                
+                # Log campaign start
+                campaign = db.get_campaign(campaign_id)
+                campaign_name = campaign.get('campaign_name', 'Scheduled Campaign')
+                campaign_type = campaign.get('campaign_type', 'Unknown')
+                
+                db.log_activity(
+                    user_id=user_id,
+                    username=username or 'System',
+                    action='Scheduled Campaign Started',
+                    details=f"Campaign: {campaign_name}, Recipients: {len(df)}, Type: {campaign_type}",
+                    ip_address='127.0.0.1'
+                )
             
             # Update status
             job_info['status'] = 'sending'
@@ -156,6 +279,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                 for idx, row in df.iterrows():
                     row_dict = row.to_dict()
                     phone = str(row_dict.get("Phone"))
+                    name = row_dict.get("Name", "")
                     
                     # Build parameters
                     params = []
@@ -166,6 +290,24 @@ def schedule_message_job(df, template_name=None, template_language="en",
                             continue
                         params.append(str(val))
                     
+                    # Create message record in database
+                    message_id = None
+                    if user_id and campaign_id:
+                        try:
+                            from utils.database import Database
+                            db = Database()
+                            message_id = db.add_message(
+                                campaign_id=campaign_id,
+                                user_id=user_id,
+                                phone_number=phone,
+                                recipient_name=name,
+                                message_content=f"Template: {template_name}",
+                                template_name=template_name,
+                                status='queued'
+                            )
+                        except Exception as e:
+                            print(f"Error creating message record: {e}")
+                    
                     # Send with queue if available, otherwise send directly
                     if message_queue:
                         message_queue.add_message(
@@ -174,7 +316,11 @@ def schedule_message_job(df, template_name=None, template_language="en",
                             template_name,
                             params,
                             template_language,
-                            header_media_id=header_media_id
+                            header_media_id=header_media_id,
+                            user_id=user_id,
+                            username=username,
+                            campaign_id=campaign_id,
+                            message_id=message_id
                         )
                     else:
                         # Send directly without queue
@@ -195,11 +341,37 @@ def schedule_message_job(df, template_name=None, template_language="en",
                 for idx, row in df.iterrows():
                     row_dict = row.to_dict()
                     phone = str(row_dict.get("Phone")).strip()
+                    name = row_dict.get("Name", "")
                     
                     personalized_msg = personalize(message_template, row_dict, idx + 1)
                     
+                    # Create message record in database
+                    message_id = None
+                    if user_id and campaign_id:
+                        try:
+                            from utils.database import Database
+                            db = Database()
+                            message_id = db.add_message(
+                                campaign_id=campaign_id,
+                                user_id=user_id,
+                                phone_number=phone,
+                                recipient_name=name,
+                                message_content=personalized_msg,
+                                status='queued'
+                            )
+                        except Exception as e:
+                            print(f"Error creating message record: {e}")
+                    
                     if message_queue:
-                        message_queue.add_message(send_text, phone, personalized_msg)
+                        message_queue.add_message(
+                            send_text,
+                            phone,
+                            personalized_msg,
+                            user_id=user_id,
+                            username=username,
+                            campaign_id=campaign_id,
+                            message_id=message_id
+                        )
                     else:
                         print("⚠️ Message queue not available, sending directly")
                         send_text(phone, personalized_msg)
@@ -211,12 +383,46 @@ def schedule_message_job(df, template_name=None, template_language="en",
             job_info['status'] = 'completed'
             job_info['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
+            # Log completion
+            if user_id:
+                try:
+                    from utils.database import Database
+                    db = Database()
+                    
+                    message_type = f"Template ({template_name})" if template_name else "Text"
+                    db.log_activity(
+                        user_id=user_id,
+                        username=username or 'System',
+                        action='Scheduled Campaign Completed',
+                        details=f"Completed sending {len(df)} {message_type} messages",
+                        ip_address='127.0.0.1'
+                    )
+                except Exception as log_error:
+                    print(f"Failed to log completion: {log_error}")
+            
         except Exception as e:
             print(f"❌ Scheduled job error: {e}")
             import traceback
             traceback.print_exc()
             job_info['status'] = 'failed'
             job_info['error'] = str(e)
+            
+            # Log failure
+            if user_id:
+                try:
+                    from utils.database import Database
+                    db = Database()
+                    
+                    message_type = f"Template ({template_name})" if template_name else "Text"
+                    db.log_activity(
+                        user_id=user_id,
+                        username=username or 'System',
+                        action='Scheduled Campaign Failed',
+                        details=f"Failed to send {len(df)} {message_type} messages: {str(e)}",
+                        ip_address='127.0.0.1'
+                    )
+                except Exception as log_error:
+                    print(f"Failed to log failure: {log_error}")
     
     thread = threading.Thread(target=job_worker, daemon=True)
     thread.start()
@@ -230,21 +436,22 @@ def get_scheduled_jobs():
 
 
 def cancel_job(job_id):
-    """Cancel a scheduled job"""
+    """Cancel a scheduled job (thread-safe)"""
     global scheduled_jobs
     
-    job = next((j for j in scheduled_jobs if j['job_id'] == job_id), None)
-    
-    if not job:
-        return False, "Job not found"
-    
-    if job['status'] in ['completed', 'failed']:
-        return False, f"Cannot cancel {job['status']} job"
-    
-    if job['status'] == 'sending':
-        return False, "Cannot cancel job that is already sending"
-    
-    job['status'] = 'cancelled'
-    job['cancelled_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    return True, f"Job {job_id} cancelled successfully"
+    with jobs_lock:
+        job = next((j for j in scheduled_jobs if j['job_id'] == job_id), None)
+        
+        if not job:
+            return False, "Job not found"
+        
+        if job['status'] in ['completed', 'failed']:
+            return False, f"Cannot cancel {job['status']} job"
+        
+        if job['status'] == 'sending':
+            return False, "Cannot cancel job that is already sending"
+        
+        job['status'] = 'cancelled'
+        job['cancelled_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        return True, f"Job {job_id} cancelled successfully"
