@@ -74,6 +74,7 @@ class Database:
                     delivered_at TEXT,
                     read_at TEXT,
                     replied_at TEXT,
+                    reply_text TEXT,
                     clicked_at TEXT,
                     whatsapp_message_id TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -239,7 +240,7 @@ class Database:
                     WHERE id = ?
                 ''', (status, error_message, sent_at, message_id))
     
-    def update_message_engagement(self, whatsapp_message_id, engagement_type, timestamp=None):
+    def update_message_engagement(self, whatsapp_message_id, engagement_type, timestamp=None, reply_text=None):
         """
         Update message engagement metrics
         
@@ -247,6 +248,7 @@ class Database:
             whatsapp_message_id: WhatsApp message ID
             engagement_type: 'delivered', 'read', 'replied', 'clicked'
             timestamp: ISO timestamp (defaults to now)
+            reply_text: Text of the reply (for 'replied' engagement)
         """
         if timestamp is None:
             timestamp = datetime.now().isoformat()
@@ -266,12 +268,21 @@ class Database:
             if not column:
                 return
             
-            # Try to update message by whatsapp_message_id
-            cursor.execute(f'''
-                UPDATE messages 
-                SET {column} = ?
-                WHERE whatsapp_message_id = ? AND {column} IS NULL
-            ''', (timestamp, whatsapp_message_id))
+            # Build update query
+            if engagement_type == 'replied' and reply_text:
+                # Update both replied_at and reply_text
+                cursor.execute(f'''
+                    UPDATE messages 
+                    SET {column} = ?, reply_text = ?
+                    WHERE whatsapp_message_id = ? AND {column} IS NULL
+                ''', (timestamp, reply_text, whatsapp_message_id))
+            else:
+                # Update only the timestamp
+                cursor.execute(f'''
+                    UPDATE messages 
+                    SET {column} = ?
+                    WHERE whatsapp_message_id = ? AND {column} IS NULL
+                ''', (timestamp, whatsapp_message_id))
             
             rows_updated = cursor.rowcount
             

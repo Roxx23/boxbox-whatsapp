@@ -145,7 +145,8 @@ def check_template_needs_image(template_name):
 
 def schedule_message_job(df, template_name=None, template_language="en", 
                          template_params_mapping=None, message_template=None, 
-                         send_time_str=None, header_media_id=None, user_id=None, username=None):
+                         send_time_str=None, header_media_id=None, button_params=None,
+                         user_id=None, username=None):
     """
     Schedule a message sending job
     
@@ -157,10 +158,14 @@ def schedule_message_job(df, template_name=None, template_language="en",
         message_template: Free text message (if not using template)
         send_time_str: Time to send (HH:MM format)
         header_media_id: Media ID for image header (if template needs it)
+        button_params: Dict with button parameters (e.g., {"copy_code": "SAVE20"})
         user_id: User ID for tracking
         username: Username for tracking
     """
     global job_id_counter, scheduled_jobs
+    
+    # Debug: Print what button_params we received
+    print(f"🔍 schedule_message_job called with button_params: {button_params}")
     
     job_id_counter += 1
     job_id = f"job_{job_id_counter}"
@@ -191,7 +196,8 @@ def schedule_message_job(df, template_name=None, template_language="en",
         'template_name': template_name,
         'message_template': message_template,
         'contact_count': len(df),
-        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'button_params': button_params  # Store button params with job
     }
     
     # Thread-safe job addition
@@ -237,8 +243,12 @@ def schedule_message_job(df, template_name=None, template_language="en",
     
     # Start background thread
     def job_worker():
-        # Get campaign_id from job_info
+        # Get data from job_info
         campaign_id = job_info.get('campaign_id')
+        stored_button_params = job_info.get('button_params')
+        
+        # Debug: Check if button_params is accessible
+        print(f"🔍 Scheduler worker starting with button_params: {stored_button_params}")
         
         try:
             # Update status
@@ -317,6 +327,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                             params,
                             template_language,
                             header_media_id=header_media_id,
+                            button_params=stored_button_params,
                             user_id=user_id,
                             username=username,
                             campaign_id=campaign_id,
@@ -330,7 +341,8 @@ def schedule_message_job(df, template_name=None, template_language="en",
                             template_name,
                             params,
                             template_language,
-                            header_media_id=header_media_id
+                            header_media_id=header_media_id,
+                            button_params=stored_button_params
                         )
                         time.sleep(1)  # Basic rate limiting
                     

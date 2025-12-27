@@ -1,7 +1,14 @@
 import requests
 import time
 import re
-from config import ACCESS_TOKEN, PHONE_NUMBER_ID
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
+PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+WABA_ID = os.getenv("WABA_ID")
 
 
 def format_phone_number(number: str) -> str:
@@ -24,8 +31,21 @@ def get_templates(waba_id):
         return []
 
 
-def send_template(number, template_name, params, lang="en_US", header_media_id=None):
-    """Send a WhatsApp template message"""
+def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None):
+    """Send a WhatsApp template message
+    
+    Args:
+        number: Phone number to send to
+        template_name: Name of the template
+        params: Body text parameters
+        lang: Language code (default: en_US)
+        header_media_id: Optional media ID for image header
+        button_params: Optional dict with button parameters, e.g.:
+            {"copy_code": "SAVE20"} for coupon code button
+            {"url_index_0": "param1"} for dynamic URL button parameters
+            Or specify index explicitly:
+            {"copy_code": "SAVE20", "copy_code_index": 1}
+    """
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
 
     formatted_number = format_phone_number(number)
@@ -48,6 +68,72 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             "type": "body",
             "parameters": [{"type": "text", "text": str(p)} for p in params]
         })
+    
+    # BUTTON PARAMETERS (for copy_code, dynamic URLs, etc.)
+    if button_params:
+        button_components = []
+        
+        # Debug: Print what we received
+        print(f"🔍 Button params received: {button_params}")
+        
+        # Handle copy_code button (utility button for coupons)
+        if "copy_code" in button_params:
+            # Allow explicit index specification, otherwise try to detect from template
+            if "copy_code_index" in button_params:
+                index = str(button_params["copy_code_index"])
+            else:
+                # Try to auto-detect button index from template
+                index = "0"  # Default assumption
+                
+                # If we have WABA_ID, try to detect correct index
+                if WABA_ID:
+                    try:
+                        templates = get_templates(WABA_ID)
+                        template = next((t for t in templates if t["name"] == template_name), None)
+                        
+                        if template:
+                            buttons_comp = next((c for c in template["components"] if c["type"] == "BUTTONS"), None)
+                            if buttons_comp and "buttons" in buttons_comp:
+                                # Find COPY_CODE button index
+                                for idx, btn in enumerate(buttons_comp["buttons"]):
+                                    if btn.get("type") == "COPY_CODE":
+                                        index = str(idx)
+                                        print(f"🔍 Auto-detected COPY_CODE button at index {index}")
+                                        break
+                    except Exception as e:
+                        print(f"⚠️  Could not auto-detect button index: {e}")
+                        pass
+            
+            print(f"📋 Adding COPY_CODE button: index={index}, code={button_params['copy_code']}")
+            button_components.append({
+                "type": "button",
+                "sub_type": "copy_code",
+                "index": index,
+                "parameters": [{
+                    "type": "coupon_code",
+                    "coupon_code": str(button_params["copy_code"])
+                }]
+            })
+        else:
+            print("⚠️  No 'copy_code' found in button_params!")
+        
+        # Handle dynamic URL parameters (for URL buttons with variables)
+        for key, value in button_params.items():
+            if key.startswith("url_index_"):
+                index = key.split("_")[-1]
+                button_components.append({
+                    "type": "button",
+                    "sub_type": "url",
+                    "index": index,
+                    "parameters": [{
+                        "type": "text",
+                        "text": str(value)
+                    }]
+                })
+        
+        components.extend(button_components)
+    else:
+        print("⚠️  button_params is None or empty!")
 
     payload = {
         "messaging_product": "whatsapp",

@@ -777,11 +777,14 @@
       <!-- Header Image Upload -->
       <div class="mb-3">
         <label class="form-label">🖼️ Header Image (required for IMAGE header templates)</label>
-        <input type="file" name="header_image" class="form-control" accept="image/*">
+        <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*">
         <div class="form-text text-light">
           Upload once — the same image will be sent to everyone in this run.
         </div>
       </div>
+
+      <!-- Template Requirements Info (dynamically shown) -->
+      <div id="template_requirements" style="display: none; margin-bottom: 1rem;"></div>
 
       <!-- Dynamic Parameter Box -->
       <div id="param_box"></div>
@@ -905,44 +908,143 @@ document.getElementById("csv_file").addEventListener("change", function(e) {
 document.getElementById("template_name").addEventListener("change", function () {
     const selected = this.value;
     const paramBox = document.getElementById("param_box");
+    const requirementsBox = document.getElementById("template_requirements");
 
     if (selected === "none") {
         paramBox.innerHTML = "";
+        requirementsBox.style.display = "none";
         return;
     }
 
     if (csvColumns.length === 0) {
         paramBox.innerHTML = '<div class="warning-badge">⚠️ Please upload CSV file first</div>';
+        requirementsBox.style.display = "none";
         return;
     }
 
     fetch("/template-info?name=" + selected)
       .then(res => res.json())
       .then(data => {
-          if (data.count === 0) {
-              paramBox.innerHTML = '<div class="info-badge">ℹ️ This template has no parameters</div>';
-              return;
+          let html = '';
+          let requirements = '';
+          
+          // Check for special requirements
+          let hasImageHeader = false;
+          let hasButtons = data.buttons && data.buttons.length > 0;
+          
+          // Try to detect IMAGE header from templates list
+          const templates = {{ templates | tojson }};
+          const templateObj = templates.find(t => t.name === selected);
+          if (templateObj && templateObj.components) {
+              const headerComp = templateObj.components.find(c => c.type === 'HEADER');
+              if (headerComp && headerComp.format === 'IMAGE') {
+                  hasImageHeader = true;
+              }
           }
-
-          let html = '<div class="param-section">';
-          html += '<div class="param-header">🔗 Map Template Parameters to CSV Columns</div>';
-
-          for (let i = 1; i <= data.count; i++) {
-              html += `
-                <div class="param-item">
-                  <label class="form-label">Parameter ${i}</label>
-                  <select name="param${i}" class="form-select" required>
-                    <option value="">-- Select CSV Column --</option>
-              `;
+          
+          // Show requirements banner
+          if (hasImageHeader || hasButtons) {
+              requirements += '<div class="alert alert-info" style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 1rem; color: #93c5fd;">';
+              requirements += '<div style="font-weight: 600; margin-bottom: 0.5rem;"><i class="fas fa-info-circle"></i> Template Requirements:</div>';
+              requirements += '<ul style="margin: 0; padding-left: 1.5rem;">';
               
-              csvColumns.forEach(col => {
-                  html += `<option value="${col}">${col}</option>`;
+              if (hasImageHeader) {
+                  requirements += '<li><strong>IMAGE Header:</strong> Upload an image above (same image for all recipients)</li>';
+              }
+              
+              if (hasButtons) {
+                  const copyCodeBtn = data.buttons.find(b => b.type === 'COPY_CODE');
+                  if (copyCodeBtn) {
+                      requirements += '<li><strong>Copy Code Button:</strong> Enter a coupon code below (same for all recipients)</li>';
+                  }
+                  const urlBtn = data.buttons.find(b => b.type === 'URL' && b.requires);
+                  if (urlBtn) {
+                      requirements += '<li><strong>Dynamic URL Button:</strong> Map a CSV column for URL parameters below</li>';
+                  }
+              }
+              
+              requirements += '</ul></div>';
+              requirementsBox.innerHTML = requirements;
+              requirementsBox.style.display = 'block';
+          } else {
+              requirementsBox.style.display = 'none';
+          }
+          
+          // Body parameters section
+          if (data.count > 0) {
+              html += '<div class="param-section">';
+              html += '<div class="param-header">🔗 Map Template Parameters to CSV Columns</div>';
+
+              for (let i = 1; i <= data.count; i++) {
+                  html += `
+                    <div class="param-item">
+                      <label class="form-label">Parameter ${i}</label>
+                      <select name="param${i}" class="form-select" required>
+                        <option value="">-- Select CSV Column --</option>
+                  `;
+                  
+                  csvColumns.forEach(col => {
+                      html += `<option value="${col}">${col}</option>`;
+                  });
+                  
+                  html += `</select></div>`;
+              }
+
+              html += '</div>';
+          }
+          
+          // Button parameters section
+          if (data.buttons && data.buttons.length > 0) {
+              html += '<div class="param-section" style="margin-top: 1rem;">';
+              html += '<div class="param-header">🔘 Button Parameters</div>';
+              
+              data.buttons.forEach(btn => {
+                  if (btn.type === 'COPY_CODE') {
+                      html += `
+                        <div class="param-item">
+                          <label class="form-label">
+                            <i class="fas fa-copy"></i> ${btn.text || 'Copy Code Button'} - Coupon Code
+                          </label>
+                          <input 
+                            type="text" 
+                            name="button_coupon_code_${btn.index}" 
+                            class="form-control" 
+                            placeholder="Enter coupon code (same for all recipients)"
+                            required
+                          >
+                          <small class="form-text text-light">
+                            <i class="fas fa-info-circle"></i> This code will be sent to ALL recipients (e.g., SAVE20, NEWYEAR2025)
+                          </small>
+                        </div>`;
+                  } else if (btn.type === 'URL' && btn.requires === 'url_parameter') {
+                      html += `
+                        <div class="param-item">
+                          <label class="form-label">
+                            <i class="fas fa-link"></i> ${btn.text || 'URL Button'} - Dynamic Parameter
+                          </label>
+                          <select name="button_url_param_${btn.index}" class="form-select" required>
+                            <option value="">-- Select URL Parameter Column --</option>
+                      `;
+                      
+                      csvColumns.forEach(col => {
+                          html += `<option value="${col}">${col}</option>`;
+                      });
+                      
+                      html += `</select>
+                          <small class="form-text text-light">
+                            <i class="fas fa-info-circle"></i> This value will be inserted into the button URL (unique per recipient)
+                          </small>
+                        </div>`;
+                  }
               });
               
-              html += `</select></div>`;
+              html += '</div>';
           }
-
-          html += '</div>';
+          
+          if (html === '') {
+              html = '<div class="info-badge">ℹ️ This template has no parameters</div>';
+          }
+          
           paramBox.innerHTML = html;
       });
 });

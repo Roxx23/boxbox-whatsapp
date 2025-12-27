@@ -321,19 +321,44 @@ def get_csv_columns():
 @app.route("/template-info")
 @login_required
 def template_info():
-    """Get template parameter count"""
+    """Get template parameter count and button information"""
     template_name = request.args.get("name")
     templates = get_templates(WABA_ID)
 
     selected = next((t for t in templates if t["name"] == template_name), None)
 
     count = 0
+    buttons = []
+    
     if selected:
         body = next((c for c in selected["components"] if c["type"] == "BODY"), None)
         if body and "text" in body:
             count = body["text"].count("{{")
+        
+        # Check for buttons component
+        buttons_component = next((c for c in selected["components"] if c["type"] == "BUTTONS"), None)
+        if buttons_component and "buttons" in buttons_component:
+            for idx, btn in enumerate(buttons_component["buttons"]):
+                btn_type = btn.get("type", "")
+                btn_text = btn.get("text", "")
+                
+                # Map button types to required parameters
+                if btn_type == "COPY_CODE":
+                    buttons.append({
+                        "index": idx,
+                        "type": "COPY_CODE",
+                        "text": btn_text,
+                        "requires": "coupon_code"
+                    })
+                elif btn_type == "URL" and "{{1}}" in btn.get("url", ""):
+                    buttons.append({
+                        "index": idx,
+                        "type": "URL",
+                        "text": btn_text,
+                        "requires": "url_parameter"
+                    })
 
-    return jsonify({"count": count})
+    return jsonify({"count": count, "buttons": buttons})
 
 
 @app.route("/queue-stats")
@@ -460,6 +485,7 @@ def index():
         # Get template info
         selected_template = next((t for t in templates if t["name"] == template_name), None)
         template_language = "en"
+        template_buttons = []
 
         if selected_template:
             template_language = selected_template.get("language", "en")
@@ -469,7 +495,29 @@ def index():
             )
             if body_component and "text" in body_component:
                 template_param_count = body_component["text"].count("{{")
-        
+            
+            # Extract button information
+            buttons_component = next(
+                (c for c in selected_template["components"] if c["type"] == "BUTTONS"),
+                None
+            )
+            if buttons_component and "buttons" in buttons_component:
+                for idx, btn in enumerate(buttons_component["buttons"]):
+                    btn_type = btn.get("type", "")
+                    if btn_type == "COPY_CODE":
+                        template_buttons.append({
+                            "index": idx,
+                            "type": "COPY_CODE",
+                            "text": btn.get("text", ""),
+                            "form_key": f"button_coupon_code_{idx}"
+                        })
+                    elif btn_type == "URL" and "{{1}}" in btn.get("url", ""):
+                        template_buttons.append({
+                            "index": idx,
+                            "type": "URL",
+                            "text": btn.get("text", ""),
+                            "form_key": f"button_url_param_{idx}"
+                        })
         # ----------------------------
         # Check for IMAGE header
         # ----------------------------
@@ -547,6 +595,21 @@ def index():
                         return redirect("/")
                     params_mapping.append(col)
                 
+                # Extract button parameters for scheduled messages
+                scheduled_button_params = {}
+                for btn in template_buttons:
+                    if btn["type"] == "COPY_CODE":
+                        coupon_code = request.form.get(btn["form_key"])
+                        if coupon_code:
+                            scheduled_button_params["copy_code"] = str(coupon_code)
+                            scheduled_button_params["copy_code_index"] = btn["index"]
+                    elif btn["type"] == "URL":
+                        url_param_col = request.form.get(btn["form_key"])
+                        if url_param_col:
+                            # For scheduled messages, we'll need to pass the column name
+                            # and extract value per recipient during sending
+                            scheduled_button_params[f"url_column_{btn['index']}"] = url_param_col
+                
                 success, message = schedule_message_job(
                     df=df,
                     template_name=template_name,
@@ -554,6 +617,7 @@ def index():
                     template_params_mapping=params_mapping,
                     send_time_str=schedule_datetime_str,
                     header_media_id=header_media_id,
+                    button_params=scheduled_button_params if scheduled_button_params else None,
                     user_id=current_user.id,
                     username=current_user.username
                 )
@@ -633,6 +697,23 @@ def index():
                         return redirect("/")
 
                     params.append(str(val))
+                
+                # Prepare button parameters if template has buttons
+                button_params = {}
+                for btn in template_buttons:
+                    if btn["type"] == "COPY_CODE":
+                        # Get coupon code directly from form (same for all recipients)
+                        coupon_code = request.form.get(btn["form_key"])
+                        if coupon_code:
+                            button_params["copy_code"] = str(coupon_code)
+                            button_params["copy_code_index"] = btn["index"]  # Add button index
+                    elif btn["type"] == "URL":
+                        # Get URL parameter from CSV column (unique per recipient)
+                        url_param_col = request.form.get(btn["form_key"])
+                        if url_param_col:
+                            url_value = row_dict.get(url_param_col)
+                            if url_value:
+                                button_params[f"url_index_{btn['index']}"] = str(url_value)
 
                 # Add message record to database
                 message_id = db.add_message(
@@ -652,6 +733,7 @@ def index():
                     params,
                     template_language,
                     header_media_id=header_media_id,
+                    button_params=button_params if button_params else None,
                     user_id=current_user.id,
                     username=current_user.username,
                     campaign_id=campaign_id,
@@ -929,12 +1011,29 @@ def process_incoming_message(message_data):
         # Log full message data for debugging
         logger.info(f"🔍 Full message data: {message_data}")
         
+        # Extract reply text based on message type
+        reply_text = None
+        if message_type == "text":
+            reply_text = message_data.get("text", {}).get("body", "")
+        elif message_type == "image":
+            reply_text = "[Image]"
+        elif message_type == "video":
+            reply_text = "[Video]"
+        elif message_type == "audio":
+            reply_text = "[Audio]"
+        elif message_type == "document":
+            reply_text = "[Document]"
+        elif message_type == "button":
+            reply_text = message_data.get("button", {}).get("text", "[Button Click]")
+        
+        logger.info(f"💬 Reply text: {reply_text}")
+        
         # Check if this is a reply to our message (has context)
         context = message_data.get("context")
         if context and context.get("id"):
             original_message_id = context["id"]
             logger.info(f"💬 Reply with context to message: {original_message_id}")
-            db.update_message_engagement(original_message_id, "replied", timestamp)
+            db.update_message_engagement(original_message_id, "replied", timestamp, reply_text)
             logger.info(f"✅ Reply tracking updated for: {original_message_id}")
         else:
             # No context - it's a regular message, try to match by phone number
@@ -965,7 +1064,7 @@ def process_incoming_message(message_data):
                 if result:
                     msg_id = result['whatsapp_message_id'] if result['whatsapp_message_id'] else None
                     if msg_id:
-                        db.update_message_engagement(msg_id, "replied", timestamp)
+                        db.update_message_engagement(msg_id, "replied", timestamp, reply_text)
                         logger.info(f"✅ Reply matched to message ID: {msg_id}")
                     else:
                         logger.warning(f"⚠️ Found message but no WhatsApp ID")
@@ -1028,6 +1127,44 @@ def process_incoming_message(message_data):
     
     except Exception as e:
         logger.error(f"❌ Error processing incoming message: {e}", exc_info=True)
+
+
+# ============================================================
+# QUICK MESSAGE API
+# ============================================================
+
+@app.route('/api/send-quick-message', methods=['POST'])
+@login_required
+def send_quick_message():
+    """Send a quick message to a specific phone number"""
+    try:
+        data = request.json
+        phone = data.get('phone')
+        message = data.get('message')
+        
+        if not phone or not message:
+            return jsonify({'success': False, 'error': 'Phone and message are required'}), 400
+        
+        # Send message (returns tuple: success, error_message)
+        success, error_message = send_text(phone, message)
+        
+        if success:
+            # Log the activity
+            db.log_activity(
+                user_id=current_user.id,
+                username=current_user.username,
+                action='Quick Reply Sent',
+                details=f'Sent message to {phone}',
+                ip_address=request.remote_addr
+            )
+            
+            return jsonify({'success': True, 'message': 'Message sent successfully'})
+        else:
+            return jsonify({'success': False, 'error': error_message or 'Failed to send message'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error sending quick message: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ============================================================
