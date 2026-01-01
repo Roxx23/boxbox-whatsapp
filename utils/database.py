@@ -335,16 +335,23 @@ class Database:
                 
                 logger.info(f"✅ Updated {engagement_type} count for campaign {campaign_id}")
     
-    def get_campaign_messages(self, campaign_id, limit=1000):
+    def get_campaign_messages(self, campaign_id, limit=None):
         """Get messages for a campaign"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM messages 
-                WHERE campaign_id = ? 
-                ORDER BY created_at DESC
-                LIMIT ?
-            ''', (campaign_id, limit))
+            if limit:
+                cursor.execute('''
+                    SELECT * FROM messages 
+                    WHERE campaign_id = ? 
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ''', (campaign_id, limit))
+            else:
+                cursor.execute('''
+                    SELECT * FROM messages 
+                    WHERE campaign_id = ? 
+                    ORDER BY created_at DESC
+                ''', (campaign_id,))
             
             return [dict(row) for row in cursor.fetchall()]
     

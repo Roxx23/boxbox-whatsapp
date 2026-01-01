@@ -249,7 +249,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for message in messages[:100] %}
+                                {% for message in messages %}
                                 <tr>
                                     <td>{{ loop.index }}</td>
                                     <td>{{ message.recipient_name or '-' }}</td>
@@ -291,8 +291,8 @@
                                     </td>
                                     <td>{{ message.sent_at[11:16] if message.sent_at else '-' }}</td>
                                     <td>
-                                        {% if message.replied_at and message.reply_text %}
-                                            <button class="btn btn-sm btn-primary" onclick="showReplyModal('{{ message.recipient_name or message.phone_number }}', '{{ message.phone_number }}', '{{ message.reply_text }}', {{ message.id }})">
+                                        {% if message.replied_at %}
+                                            <button class="btn btn-sm btn-primary" onclick="showReplyModal('{{ message.recipient_name or message.phone_number }}', '{{ message.phone_number }}', '{{ message.reply_text or 'No text available' }}', {{ message.id }})">
                                                 <i class="fas fa-eye"></i> View Reply
                                             </button>
                                         {% else %}
@@ -305,9 +305,6 @@
                                 {% endfor %}
                             </tbody>
                         </table>
-                        {% if messages|length > 100 %}
-                        <p class="text-muted text-center">Showing first 100 messages of {{ messages|length }} total</p>
-                        {% endif %}
                     </div>
                 </div>
             </div>
