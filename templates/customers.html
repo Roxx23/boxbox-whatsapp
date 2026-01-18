@@ -420,7 +420,14 @@
                     'Content-Type': 'application/json'
                 }
             })
-            .then(response => response.json())
+            .then(response => {
+                // Check if response is JSON
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("Server returned non-JSON response");
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
                     let message = '✅ ' + data.message;
@@ -443,7 +450,8 @@
                 }
             })
             .catch(error => {
-                alert('❌ Error syncing customers: ' + error);
+                console.error('Sync error:', error);
+                alert('❌ Error syncing customers: ' + error.message + '\n\nCheck browser console and server logs for details.');
             })
             .finally(() => {
                 btn.disabled = false;

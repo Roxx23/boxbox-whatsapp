@@ -24,7 +24,7 @@ class ShopifyIntegration:
         while url:
             try:
                 logger.info(f"🔄 Fetching from: {url}")
-                response = requests.get(url, headers=self.headers)
+                response = requests.get(url, headers=self.headers, timeout=30)
                 
                 logger.info(f"📊 Response status: {response.status_code}")
                 
@@ -34,9 +34,24 @@ class ShopifyIntegration:
                 elif response.status_code == 404:
                     logger.error("❌ Store not found. Check your SHOPIFY_SHOP_NAME")
                     break
+                elif response.status_code == 204:
+                    logger.info("ℹ️ No content returned (empty response)")
+                    break
                     
                 response.raise_for_status()
-                data = response.json()
+                
+                # Check if response has content
+                if not response.text or response.text.strip() == '':
+                    logger.error("❌ Empty response from Shopify")
+                    break
+                
+                # Try to parse JSON
+                try:
+                    data = response.json()
+                except ValueError as json_err:
+                    logger.error(f"❌ JSON parsing error: {json_err}")
+                    logger.error(f"Response text: {response.text[:500]}")
+                    break
                 
                 customers = data.get('customers', [])
                 all_customers.extend(customers)
@@ -57,11 +72,13 @@ class ShopifyIntegration:
                 
             except requests.exceptions.RequestException as e:
                 logger.error(f"❌ HTTP Error fetching customers: {e}")
-                if hasattr(e.response, 'text'):
-                    logger.error(f"Response: {e.response.text}")
+                if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                    logger.error(f"Response: {e.response.text[:500]}")
                 break
             except Exception as e:
                 logger.error(f"❌ Error fetching customers from Shopify: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 break
         
         logger.info(f"📊 Total customers fetched: {len(all_customers)}")
@@ -71,9 +88,18 @@ class ShopifyIntegration:
         """Get orders for a specific customer"""
         try:
             url = f"{self.base_url}/customers/{customer_id}/orders.json"
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, timeout=30)
             response.raise_for_status()
+            
+            # Check for empty response
+            if not response.text or response.text.strip() == '':
+                logger.warning(f"Empty response for customer {customer_id} orders")
+                return []
+            
             return response.json().get('orders', [])
+        except ValueError as json_err:
+            logger.error(f"JSON parsing error for customer {customer_id} orders: {json_err}")
+            return []
         except Exception as e:
             logger.error(f"Error fetching orders for customer {customer_id}: {e}")
             return []
