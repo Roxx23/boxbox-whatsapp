@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, flash, redirect, jsonify, url_for, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-import pandas as pd
 import os
 import sys
 import signal
