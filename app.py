@@ -311,6 +311,7 @@ def get_csv_columns():
         return jsonify({"error": "No file uploaded"}), 400
     
     try:
+        import pandas as pd
         df = pd.read_csv(csv_file)
         columns = list(df.columns)
         return jsonify({"columns": columns})
@@ -422,6 +423,7 @@ def index():
         # Handle customer-based sending
         if source_type == "customers" and selected_customers:
             try:
+                import pandas as pd
                 import json
                 customers = json.loads(selected_customers)
                 
@@ -456,11 +458,13 @@ def index():
 
             # Read CSV with encoding fallback
             try:
+                import pandas as pd
                 df = pd.read_csv(csv_file, encoding='utf-8')
             except UnicodeDecodeError:
                 logger.warning("UTF-8 decode failed, trying latin-1 encoding")
                 csv_file.seek(0)
                 try:
+                    import pandas as pd
                     df = pd.read_csv(csv_file, encoding='latin-1')
                 except Exception as e:
                     flash(f"❌ Error reading CSV: {str(e)}", "error")
