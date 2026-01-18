@@ -50,7 +50,16 @@ class User:
 class UserManager:
     """Manage users in JSON file"""
     
-    def __init__(self, users_file='users.json'):
+    def __init__(self, users_file=None):
+        # Support persistent storage for users file
+        if users_file is None:
+            users_file = os.getenv('USERS_FILE_PATH', 'users.json')
+        
+        # Ensure directory exists
+        users_dir = os.path.dirname(users_file)
+        if users_dir and not os.path.exists(users_dir):
+            os.makedirs(users_dir, exist_ok=True)
+        
         self.users_file = users_file
         self._ensure_file_exists()
     

@@ -9,11 +9,35 @@ load_dotenv()
 ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 WABA_ID = os.getenv("WABA_ID")
+DEFAULT_COUNTRY_CODE = os.getenv("DEFAULT_COUNTRY_CODE", "91")
 
 
 def format_phone_number(number: str) -> str:
-    """WhatsApp Cloud API requires digits only, no '+'"""
+    """
+    Format phone number for WhatsApp Cloud API (digits only, no '+')
+    Converts local format (starting with 0) to international format
+    
+    Examples:
+        - +911234567890 -> 911234567890
+        - 911234567890 -> 911234567890
+        - 01234567890 -> 911234567890 (adds country code, removes leading 0)
+        - 1234567890 -> 911234567890 (adds country code if missing)
+    """
+    # Extract only digits
     digits = ''.join(c for c in str(number) if c.isdigit())
+    
+    if not digits:
+        return digits
+    
+    # If starts with 0, assume local format - remove 0 and add country code
+    if digits.startswith('0'):
+        digits = DEFAULT_COUNTRY_CODE + digits[1:]
+    
+    # If number is too short (less than 10 digits), assume missing country code
+    # This handles cases like "1234567890" -> add country code
+    elif len(digits) == 10:
+        digits = DEFAULT_COUNTRY_CODE + digits
+    
     return digits
 
 

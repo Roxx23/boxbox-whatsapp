@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customers - WhatsApp Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: #f8f9fa;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .content-card {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .segment-card {
+            background: white;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+        
+        .segment-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+        }
+        
+        .segment-card.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        }
+        
+        .customer-table {
+            font-size: 0.9rem;
+        }
+        
+        .badge-stat {
+            padding: 0.3rem 0.6rem;
+            border-radius: 5px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-paper-plane me-2"></i>WhatsApp Dashboard
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="fas fa-home me-1"></i>Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">
+                            <i class="fas fa-chart-line me-1"></i>Analytics
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('campaigns_page') }}">
+                            <i class="fas fa-bullhorn me-1"></i>Campaigns
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('customers_page') }}">
+                            <i class="fas fa-users me-1"></i>Customers
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-1"></i>{{ current_user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" style="background: rgba(30, 30, 60, 0.95);">
+                            <li><a class="dropdown-item text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <div class="col-md-3">
+                <div class="content-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Segments</h5>
+                        <button class="btn btn-sm btn-primary" onclick="syncShopify()">
+                            <i class="fas fa-sync me-1"></i>Sync
+                        </button>
+                    </div>
+                    
+                    <!-- Default Segments -->
+                    {% for segment in segments %}
+                    <div class="segment-card {% if current_segment == segment.type %}active{% endif %}" 
+                         onclick="filterSegment('{{ segment.type }}')">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ segment.name }}</strong>
+                                {% if segment.get('segment_type') == 'custom' %}
+                                <button class="btn btn-sm btn-link text-danger p-0 ms-2" 
+                                        onclick="event.stopPropagation(); deleteSegment({{ segment.id }})"
+                                        title="Delete segment">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                            <span class="badge bg-primary">{{ segment.count }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    
+                    <hr>
+                    
+                    <!-- Create Custom Segment Button -->
+                    <button class="btn btn-sm btn-success w-100" onclick="showCreateSegmentModal()">
+                        <i class="fas fa-plus me-1"></i>Create Custom Segment
+                    </button>
+                </div>
+                
+                <!-- Advanced Filters Card -->
+                <div class="content-card mt-3">
+                    <h5 class="mb-3"><i class="fas fa-sliders-h me-2"></i>Advanced Filters</h5>
+                    <form id="filterForm" method="get" action="{{ url_for('customers_page') }}">
+                        <div class="mb-3">
+                            <label class="form-label small">Order Value Range</label>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="min_order_value" placeholder="Min $"
+                                           value="{% if filters and filters.get('min_order_value') %}{{ filters.get('min_order_value') }}{% endif %}" step="0.01">
+                                </div>
+                                <div class="col-6">
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="max_order_value" placeholder="Max $"
+                                           value="{% if filters and filters.get('max_order_value') %}{{ filters.get('max_order_value') }}{% endif %}" step="0.01">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label small">Number of Orders</label>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="min_orders" placeholder="Min"
+                                           value="{% if filters and filters.get('min_orders') %}{{ filters.get('min_orders') }}{% endif %}">
+                                </div>
+                                <div class="col-6">
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="max_orders" placeholder="Max"
+                                           value="{% if filters and filters.get('max_orders') %}{{ filters.get('max_orders') }}{% endif %}">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-sm btn-primary flex-fill">
+                                <i class="fas fa-filter me-1"></i>Apply
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="clearFilters()">
+                                <i class="fas fa-times me-1"></i>Clear
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="col-md-9">
+                <div class="content-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h4><i class="fas fa-users me-2"></i>Customers ({{ customers|length }})</h4>
+                        <div>
+                            <button class="btn btn-success" onclick="sendToCustomers()">
+                                <i class="fas fa-paper-plane me-2"></i>Send Message to Selected
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {% if customers %}
+                    <div class="table-responsive">
+                        <table class="table table-hover customer-table">
+                            <thead>
+                                <tr>
+                                    <th>
+                                        <input type="checkbox" id="selectAll" onclick="toggleSelectAll()">
+                                    </th>
+                                    <th>Name</th>
+                                    <th>Phone</th>
+                                    <th>Email</th>
+                                    <th>Orders</th>
+                                    <th>Total Spent</th>
+                                    <th>Last Message</th>
+                                    <th>Engagement</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for customer in customers %}
+                                <tr>
+                                    <td>
+                                        <input type="checkbox" class="customer-checkbox" 
+                                               value="{{ customer.phone }}" 
+                                               data-name="{{ customer.first_name }} {{ customer.last_name }}">
+                                    </td>
+                                    <td>{{ customer.first_name }} {{ customer.last_name }}</td>
+                                    <td>{{ customer.phone or '-' }}</td>
+                                    <td>{{ customer.email or '-' }}</td>
+                                    <td>{{ customer.orders_count }}</td>
+                                    <td>${{ "%.2f"|format(customer.total_spent) }}</td>
+                                    <td>
+                                        {% if customer.last_message_sent %}
+                                            {{ customer.last_message_sent[:10] }}
+                                        {% else %}
+                                            <span class="text-muted">Never</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge-stat bg-info text-white me-1" title="Messages Sent">
+                                            <i class="fas fa-paper-plane"></i> {{ customer.messages_sent_count }}
+                                        </span>
+                                        <span class="badge-stat bg-success text-white me-1" title="Messages Read">
+                                            <i class="fas fa-eye"></i> {{ customer.messages_read_count }}
+                                        </span>
+                                        <span class="badge-stat bg-primary text-white" title="Replies">
+                                            <i class="fas fa-reply"></i> {{ customer.messages_replied_count }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info text-center">
+                        <i class="fas fa-info-circle fa-2x mb-3"></i>
+                        <p class="mb-0">No customers found. Click "Sync Shopify" to import customers from your Shopify store.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Segment Modal -->
+    <div class="modal fade" id="createSegmentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-layer-group me-2"></i>Create Custom Segment</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createSegmentForm">
+                        <div class="mb-3">
+                            <label class="form-label">Segment Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="segmentName" 
+                                   placeholder="e.g., VIP Customers" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Order Value Range</label>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <input type="number" class="form-control" id="minOrderValue" 
+                                           placeholder="Min $" step="0.01">
+                                </div>
+                                <div class="col-6">
+                                    <input type="number" class="form-control" id="maxOrderValue" 
+                                           placeholder="Max $" step="0.01">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Number of Orders</label>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <input type="number" class="form-control" id="minOrders" 
+                                           placeholder="Min">
+                                </div>
+                                <div class="col-6">
+                                    <input type="number" class="form-control" id="maxOrders" 
+                                           placeholder="Max">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info small">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Leave fields empty to not filter by that criteria.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="createSegment()">
+                        <i class="fas fa-save me-1"></i>Create Segment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let createSegmentModal;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            createSegmentModal = new bootstrap.Modal(document.getElementById('createSegmentModal'));
+        });
+        
+        function showCreateSegmentModal() {
+            createSegmentModal.show();
+        }
+        
+        function createSegment() {
+            const segmentName = document.getElementById('segmentName').value.trim();
+            
+            if (!segmentName) {
+                alert('Please enter a segment name');
+                return;
+            }
+            
+            const data = {
+                segment_name: segmentName,
+                min_order_value: parseFloat(document.getElementById('minOrderValue').value) || null,
+                max_order_value: parseFloat(document.getElementById('maxOrderValue').value) || null,
+                min_orders: parseInt(document.getElementById('minOrders').value) || null,
+                max_orders: parseInt(document.getElementById('maxOrders').value) || null
+            };
+            
+            fetch('/api/segments/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                    createSegmentModal.hide();
+                    window.location.reload();
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Error creating segment: ' + error);
+            });
+        }
+        
+        function deleteSegment(segmentId) {
+            if (!confirm('Are you sure you want to delete this segment?')) {
+                return;
+            }
+            
+            fetch(`/api/segments/${segmentId}/delete`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                    window.location.reload();
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Error deleting segment: ' + error);
+            });
+        }
+        
+        function clearFilters() {
+            window.location.href = '{{ url_for("customers_page") }}';
+        }
+        function filterSegment(segmentType) {
+            if (segmentType === 'all') {
+                window.location.href = '{{ url_for("customers_page") }}';
+            } else {
+                window.location.href = '{{ url_for("customers_page") }}?segment=' + segmentType;
+            }
+        }
+        
+        function syncShopify() {
+            if (!confirm('Sync customers from Shopify? This may take a few moments.')) {
+                return;
+            }
+            
+            const btn = event.target.closest('button');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Syncing...';
+            
+            fetch('/api/sync-shopify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    let message = '✅ ' + data.message;
+                    
+                    // Add detailed breakdown if available
+                    if (data.total_fetched !== undefined) {
+                        message += '\n\n📊 Summary:';
+                        message += '\n• Total fetched from Shopify: ' + data.total_fetched;
+                        message += '\n• Successfully synced: ' + data.synced_count;
+                        if (data.skipped_count > 0) {
+                            message += '\n• Skipped (no phone): ' + data.skipped_count;
+                            message += '\n\n⚠️ Add phone numbers to customers in Shopify to sync them.';
+                        }
+                    }
+                    
+                    alert(message);
+                    window.location.reload();
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Error syncing customers: ' + error);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            });
+        }
+        
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.customer-checkbox');
+            checkboxes.forEach(cb => cb.checked = selectAll.checked);
+        }
+        
+        function sendToCustomers() {
+            const checkboxes = document.querySelectorAll('.customer-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert('Please select at least one customer');
+                return;
+            }
+            
+            const customers = Array.from(checkboxes).map(cb => ({
+                phone: cb.value,
+                name: cb.dataset.name
+            }));
+            
+            // Store in session and redirect to home page
+            sessionStorage.setItem('selectedCustomers', JSON.stringify(customers));
+            window.location.href = '{{ url_for("index") }}';
+        }
+    </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import signal
 import atexit
 import threading
 import logging
+import json
 from datetime import datetime
 
 from utils.personalize import personalize
@@ -411,49 +412,70 @@ def index():
     csv_columns = []
 
     if request.method == "POST":
+        source_type = request.form.get("source_type", "csv")
         csv_file = request.files.get("csv_file")
+        selected_customers = request.form.get("selected_customers")
         template_name = request.form.get("template_name")
         message_template = request.form.get("message_template")
         send_mode = request.form.get("send_mode")
         send_time = request.form.get("send_time")
 
-        # Validate CSV upload
-        if not csv_file:
-            flash("Please upload CSV.", "error")
-            return redirect("/")
-        
-        # Validate file extension
-        if not csv_file.filename.lower().endswith('.csv'):
-            flash("❌ Please upload a CSV file (not Excel or other formats)", "error")
-            return redirect("/")
-
-        # Validate file size (5MB limit)
-        csv_file.seek(0, os.SEEK_END)
-        file_size = csv_file.tell()
-        csv_file.seek(0)
-        
-        if file_size > 5 * 1024 * 1024:  # 5MB
-            flash("❌ File too large. Maximum 5MB allowed.", "error")
-            return redirect("/")
-
-        # Read CSV with encoding fallback
-        try:
-            df = pd.read_csv(csv_file, encoding='utf-8')
-        except UnicodeDecodeError:
-            logger.warning("UTF-8 decode failed, trying latin-1 encoding")
-            csv_file.seek(0)
+        # Handle customer-based sending
+        if source_type == "customers" and selected_customers:
             try:
-                df = pd.read_csv(csv_file, encoding='latin-1')
+                import json
+                customers = json.loads(selected_customers)
+                
+                # Convert to DataFrame format
+                df = pd.DataFrame(customers)
+                df = df.rename(columns={'phone': 'Phone', 'name': 'Name'})
+                
+            except Exception as e:
+                flash(f"❌ Error processing selected customers: {str(e)}", "error")
+                return redirect("/")
+        
+        # Handle CSV-based sending
+        elif source_type == "csv":
+            # Validate CSV upload
+            if not csv_file:
+                flash("Please upload CSV.", "error")
+                return redirect("/")
+            
+            # Validate file extension
+            if not csv_file.filename.lower().endswith('.csv'):
+                flash("❌ Please upload a CSV file (not Excel or other formats)", "error")
+                return redirect("/")
+
+            # Validate file size (5MB limit)
+            csv_file.seek(0, os.SEEK_END)
+            file_size = csv_file.tell()
+            csv_file.seek(0)
+            
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                flash("❌ File too large. Maximum 5MB allowed.", "error")
+                return redirect("/")
+
+            # Read CSV with encoding fallback
+            try:
+                df = pd.read_csv(csv_file, encoding='utf-8')
+            except UnicodeDecodeError:
+                logger.warning("UTF-8 decode failed, trying latin-1 encoding")
+                csv_file.seek(0)
+                try:
+                    df = pd.read_csv(csv_file, encoding='latin-1')
+                except Exception as e:
+                    flash(f"❌ Error reading CSV: {str(e)}", "error")
+                    return redirect("/")
             except Exception as e:
                 flash(f"❌ Error reading CSV: {str(e)}", "error")
                 return redirect("/")
-        except Exception as e:
-            flash(f"❌ Error reading CSV: {str(e)}", "error")
+        else:
+            flash("❌ Please select a data source (CSV or Customers)", "error")
             return redirect("/")
 
         # Check if DataFrame is empty
         if len(df) == 0:
-            flash("❌ CSV file is empty. Please add contacts to the file.", "error")
+            flash("❌ No contacts found. Please add contacts.", "error")
             return redirect("/")
 
         csv_columns = list(df.columns)
@@ -878,6 +900,231 @@ def activity_log_page():
     return render_template('activity_log.html', activities=activities)
 
 
+# ============================================================
+# SHOPIFY & CUSTOMER MANAGEMENT
+# ============================================================
+
+@app.route("/customers")
+@login_required
+def customers_page():
+    """View all customers with filtering"""
+    segment_filter = request.args.get('segment', None)
+    
+    # Get filter parameters from query string
+    min_order_value = request.args.get('min_order_value', type=float)
+    max_order_value = request.args.get('max_order_value', type=float)
+    min_orders = request.args.get('min_orders', type=int)
+    max_orders = request.args.get('max_orders', type=int)
+    
+    filters = {}
+    if segment_filter:
+        filters['segment_type'] = segment_filter
+    if min_order_value is not None:
+        filters['min_order_value'] = min_order_value
+    if max_order_value is not None:
+        filters['max_order_value'] = max_order_value
+    if min_orders is not None:
+        filters['min_orders'] = min_orders
+    if max_orders is not None:
+        filters['max_orders'] = max_orders
+    
+    customers = db.get_all_customers(current_user.id, filters)
+    custom_segments = db.get_user_segments(current_user.id)
+    
+    # Auto-generate default segments
+    default_segments = [
+        {'name': 'All Customers', 'type': 'all', 'count': len(db.get_all_customers(current_user.id))},
+        {'name': 'Has Phone Number', 'type': 'has_phone', 'count': len(db.get_all_customers(current_user.id, {'has_phone': True}))},
+        {'name': 'Engaged (Last 7 Days)', 'type': 'engaged_last_7_days', 'count': len(db.get_segment_customers(current_user.id, 'engaged_last_7_days'))},
+        {'name': 'Never Messaged', 'type': 'no_message_sent', 'count': len(db.get_segment_customers(current_user.id, 'no_message_sent'))},
+        {'name': 'High Value (>$1000)', 'type': 'high_value', 'count': len(db.get_segment_customers(current_user.id, 'high_value'))},
+        {'name': 'Has Orders', 'type': 'has_orders', 'count': len(db.get_segment_customers(current_user.id, 'has_orders'))},
+        {'name': 'Replied to Messages', 'type': 'replied', 'count': len(db.get_segment_customers(current_user.id, 'replied'))},
+    ]
+    
+    # Add custom segments with their counts
+    for segment in custom_segments:
+        segment['type'] = f"custom_{segment['id']}"
+        segment['name'] = segment['segment_name']
+        segment['count'] = len(db.get_segment_customers(current_user.id, segment['type']))
+        default_segments.append(segment)
+    
+    return render_template('customers.html', 
+                         customers=customers, 
+                         segments=default_segments,
+                         custom_segments=custom_segments,
+                         current_segment=segment_filter,
+                         filters=filters)
+
+
+@app.route("/api/sync-shopify", methods=["POST"])
+@login_required
+def sync_shopify():
+    """Sync customers from Shopify"""
+    try:
+        from utils.shopify_integration import ShopifyIntegration
+        import config
+        
+        logger.info(f"🔄 Starting Shopify sync for user {current_user.username}")
+        
+        if not config.SHOPIFY_SHOP_NAME or not config.SHOPIFY_ACCESS_TOKEN:
+            logger.error("❌ Shopify credentials not configured")
+            return jsonify({
+                'success': False,
+                'error': 'Shopify credentials not configured. Please add SHOPIFY_SHOP_NAME and SHOPIFY_ACCESS_TOKEN to your .env file'
+            })
+        
+        logger.info(f"✅ Shopify credentials found - Shop: {config.SHOPIFY_SHOP_NAME}")
+        
+        shopify = ShopifyIntegration(config.SHOPIFY_SHOP_NAME, config.SHOPIFY_ACCESS_TOKEN)
+        customers = shopify.fetch_customers()
+        
+        logger.info(f"📊 Fetched {len(customers)} customers from Shopify")
+        
+        # Debug: Log first customer's raw data if available
+        if customers:
+            first = customers[0]
+            logger.info(f"🔍 First customer raw data - ID: {first.get('id')}, Name: {first.get('first_name')} {first.get('last_name')}, Phone: {first.get('phone')}, Address Phone: {first.get('default_address', {}).get('phone')}")
+        
+        synced_count = 0
+        skipped_count = 0
+        
+        for customer in customers:
+            customer_data = shopify.parse_customer_data(customer)
+            logger.info(f"🔍 Parsed customer: {customer_data['first_name']} {customer_data['last_name']} - Phone: '{customer_data['phone']}'")
+            
+            if customer_data['phone']:  # Only add customers with phone numbers
+                db.add_or_update_customer(current_user.id, customer_data)
+                synced_count += 1
+                logger.info(f"✅ Synced customer: {customer_data['first_name']} {customer_data['last_name']} - {customer_data['phone']}")
+            else:
+                skipped_count += 1
+                logger.warning(f"⚠️ Skipped customer (no phone): {customer_data.get('first_name')} {customer_data.get('last_name')} - Email: {customer_data.get('email')}")
+        
+        logger.info(f"📊 Sync complete - Synced: {synced_count}, Skipped (no phone): {skipped_count}")
+        
+        db.log_activity(
+            user_id=current_user.id,
+            username=current_user.username,
+            action='Shopify Sync',
+            details=f'Synced {synced_count} customers from Shopify (Skipped {skipped_count} without phone numbers)',
+            ip_address=request.remote_addr
+        )
+        
+        message = f'Successfully synced {synced_count} customers from Shopify'
+        if skipped_count > 0:
+            message += f' ({skipped_count} customers skipped - no phone number)'
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'synced_count': synced_count,
+            'skipped_count': skipped_count,
+            'total_fetched': len(customers)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error syncing Shopify customers: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+
+@app.route("/api/customers/<segment>")
+@login_required
+def api_get_customers(segment):
+    """API endpoint to get customers by segment"""
+    try:
+        if segment == 'all':
+            customers = db.get_all_customers(current_user.id)
+        else:
+            customers = db.get_segment_customers(current_user.id, segment)
+        
+        return jsonify({
+            'success': True,
+            'customers': customers,
+            'count': len(customers)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching customers: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+
+@app.route("/api/segments/create", methods=["POST"])
+@login_required
+def create_custom_segment():
+    """Create a custom customer segment"""
+    try:
+        data = request.json
+        segment_name = data.get('segment_name', '').strip()
+        
+        if not segment_name:
+            return jsonify({'success': False, 'error': 'Segment name is required'})
+        
+        conditions = {
+            'min_order_value': data.get('min_order_value'),
+            'max_order_value': data.get('max_order_value'),
+            'min_orders': data.get('min_orders'),
+            'max_orders': data.get('max_orders'),
+        }
+        
+        # Remove None values
+        conditions = {k: v for k, v in conditions.items() if v is not None}
+        
+        segment_id = db.create_segment(
+            user_id=current_user.id,
+            segment_name=segment_name,
+            segment_type='custom',
+            conditions=conditions
+        )
+        
+        db.log_activity(
+            user_id=current_user.id,
+            username=current_user.username,
+            action='Create Segment',
+            details=f'Created custom segment: {segment_name}',
+            ip_address=request.remote_addr
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'Segment "{segment_name}" created successfully',
+            'segment_id': segment_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating segment: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route("/api/segments/<int:segment_id>/delete", methods=["DELETE"])
+@login_required
+def delete_custom_segment(segment_id):
+    """Delete a custom segment"""
+    try:
+        success = db.delete_segment(segment_id, current_user.id)
+        
+        if success:
+            db.log_activity(
+                user_id=current_user.id,
+                username=current_user.username,
+                action='Delete Segment',
+                details=f'Deleted segment ID: {segment_id}',
+                ip_address=request.remote_addr
+            )
+            return jsonify({'success': True, 'message': 'Segment deleted successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Segment not found or unauthorized'})
+            
+    except Exception as e:
+        logger.error(f"Error deleting segment: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route("/api/dashboard-stats")
 @login_required
 def api_dashboard_stats():
@@ -978,16 +1225,21 @@ def process_message_status(status_data):
         message_id = status_data.get("id")
         status = status_data.get("status")  # sent, delivered, read, failed
         timestamp = status_data.get("timestamp")
+        recipient_id = status_data.get("recipient_id")
         
         logger.info(f"📊 Status update: {message_id} -> {status}")
         
         if status == "delivered":
             logger.info(f"🚀 Processing delivered status for message: {message_id}")
             db.update_message_engagement(message_id, "delivered", timestamp)
+            if recipient_id:
+                db.update_customer_message_stats(recipient_id, "sent")
             logger.info(f"✅ Delivered status processed")
         elif status == "read":
             logger.info(f"👁️ Processing read status for message: {message_id}")
             db.update_message_engagement(message_id, "read", timestamp)
+            if recipient_id:
+                db.update_customer_message_stats(recipient_id, "read")
             logger.info(f"✅ Read status processed")
         elif status == "failed":
             error = status_data.get("errors", [{}])[0]
@@ -1065,6 +1317,7 @@ def process_incoming_message(message_data):
                     msg_id = result['whatsapp_message_id'] if result['whatsapp_message_id'] else None
                     if msg_id:
                         db.update_message_engagement(msg_id, "replied", timestamp, reply_text)
+                        db.update_customer_message_stats(from_number, "replied")
                         logger.info(f"✅ Reply matched to message ID: {msg_id}")
                     else:
                         logger.warning(f"⚠️ Found message but no WhatsApp ID")
@@ -1127,6 +1380,257 @@ def process_incoming_message(message_data):
     
     except Exception as e:
         logger.error(f"❌ Error processing incoming message: {e}", exc_info=True)
+
+
+# ============================================================
+# SHOPIFY WEBHOOKS FOR CART ABANDONMENT & ORDER CONFIRMATION
+# ============================================================
+
+@app.route("/shopify/webhook/cart-create", methods=["POST"])
+def shopify_cart_create():
+    """Handle Shopify abandoned cart/checkout webhook"""
+    try:
+        data = request.json
+        logger.info(f"🛒 Abandoned cart webhook received")
+        logger.info(f"🔍 Webhook data: {json.dumps(data, indent=2)}")
+        
+        # Shopify sends different field structures for abandoned checkouts
+        # Extract phone from multiple possible locations
+        phone = None
+        if data.get('phone'):
+            phone = data.get('phone')
+        elif data.get('customer') and data.get('customer', {}).get('phone'):
+            phone = data.get('customer', {}).get('phone')
+        elif data.get('billing_address') and data.get('billing_address', {}).get('phone'):
+            phone = data.get('billing_address', {}).get('phone')
+        elif data.get('customer') and data.get('customer', {}).get('default_address', {}).get('phone'):
+            phone = data.get('customer', {}).get('default_address', {}).get('phone')
+        
+        logger.info(f"📞 Extracted phone: {phone}")
+        
+        cart_data = {
+            'id': str(data.get('id')),
+            'customer_id': data.get('customer', {}).get('id') if data.get('customer') else None,
+            'email': data.get('email'),
+            'phone': phone,
+            'token': data.get('token') or data.get('cart_token'),
+            'line_items': data.get('line_items', []),
+            'total_price': data.get('total_price') or data.get('subtotal_price'),
+            'currency': data.get('currency', 'USD'),
+            'abandoned_checkout_url': data.get('abandoned_checkout_url')
+        }
+        
+        logger.info(f"📋 Cart data prepared: Phone={cart_data['phone']}, Email={cart_data['email']}, Items={len(cart_data['line_items'])}")
+        
+        # Store abandoned cart for all users
+        users = user_manager.get_all_users()
+        if users:
+            user_id = users[0].id
+            cart_id = db.add_abandoned_cart(user_id, cart_data)
+            logger.info(f"✅ Abandoned cart stored: {cart_id}")
+            
+            if not phone:
+                logger.warning(f"⚠️  Cart {cart_id} has no phone number - won't be able to send reminder")
+        else:
+            logger.error("❌ No users found - cannot store cart")
+        
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing cart webhook: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shopify/webhook/order-create", methods=["POST"])
+def shopify_order_create():
+    """Handle Shopify order creation webhook"""
+    try:
+        data = request.json
+        logger.info(f"📦 Order webhook received: Order #{data.get('order_number') or data.get('name')}")
+        logger.info(f"🔍 Order data: {json.dumps(data, indent=2)}")
+        
+        # Extract phone from multiple locations
+        phone = None
+        if data.get('phone'):
+            phone = data.get('phone')
+        elif data.get('customer') and data.get('customer', {}).get('phone'):
+            phone = data.get('customer', {}).get('phone')
+        elif data.get('billing_address') and data.get('billing_address', {}).get('phone'):
+            phone = data.get('billing_address', {}).get('phone')
+        
+        logger.info(f"📞 Extracted phone: {phone}")
+        
+        order_data = {
+            'id': str(data.get('id')),
+            'order_number': str(data.get('order_number') or data.get('name', '')),
+            'customer': data.get('customer', {}),
+            'email': data.get('email'),
+            'phone': phone,
+            'total_price': data.get('total_price'),
+            'currency': data.get('currency', 'USD'),
+            'financial_status': data.get('financial_status'),
+            'fulfillment_status': data.get('fulfillment_status'),
+            'line_items': data.get('line_items', [])
+        }
+        
+        logger.info(f"📋 Order data prepared: Order #{order_data['order_number']}, Phone={order_data['phone']}, Items={len(order_data['line_items'])}")
+        
+        # Store order for all users
+        users = user_manager.get_all_users()
+        if users:
+            user_id = users[0].id
+            order_id = db.add_order(user_id, order_data)
+            logger.info(f"✅ Order stored: {order_id}")
+            
+            # Mark any abandoned cart as recovered
+            cart_token = data.get('cart_token')
+            if cart_token:
+                db.mark_cart_recovered(cart_token)
+                logger.info(f"✅ Cart recovered: {cart_token}")
+            
+            if not phone:
+                logger.warning(f"⚠️  Order {order_id} has no phone number - won't be able to send confirmation")
+        else:
+            logger.error("❌ No users found - cannot store order")
+        
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing order webhook: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================
+# AUTOMATED MESSAGE SENDING
+# ============================================================
+
+@app.route("/api/send-cart-reminders", methods=["POST"])
+@login_required
+def send_cart_reminders():
+    """Send reminders for abandoned carts"""
+    try:
+        unsent_carts = db.get_unsent_cart_reminders(current_user.id)
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for cart in unsent_carts:
+            phone = cart['customer_phone']
+            cart_items = json.loads(cart['cart_items']) if cart['cart_items'] else []
+            
+            # Build product list
+            products = []
+            for item in cart_items[:3]:  # Show first 3 items
+                products.append(f"• {item.get('title', 'Product')}")
+            
+            product_list = "\n".join(products)
+            if len(cart_items) > 3:
+                product_list += f"\n...and {len(cart_items) - 3} more items"
+            
+            message = f"""Hi! 👋
+
+You left some items in your cart:
+
+{product_list}
+
+Total: {cart.get('currency', '$')}{cart.get('total_price', '0')}
+
+Complete your purchase now! 🛒✨"""
+            
+            # Send message
+            status_code, response = send_text(phone, message)
+            
+            if status_code == 200:
+                db.mark_cart_reminder_sent(cart['id'])
+                sent_count += 1
+                logger.info(f"✅ Cart reminder sent to {phone}")
+            else:
+                failed_count += 1
+                logger.error(f"❌ Failed to send cart reminder to {phone}")
+        
+        db.log_activity(
+            user_id=current_user.id,
+            username=current_user.username,
+            action='Send Cart Reminders',
+            details=f'Sent {sent_count} cart reminders, {failed_count} failed',
+            ip_address=request.remote_addr
+        )
+        
+        return jsonify({
+            'success': True,
+            'sent': sent_count,
+            'failed': failed_count,
+            'message': f'Sent {sent_count} cart reminders'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending cart reminders: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route("/api/send-order-confirmations", methods=["POST"])
+@login_required
+def send_order_confirmations():
+    """Send confirmations for new orders"""
+    try:
+        unsent_orders = db.get_unsent_order_confirmations(current_user.id)
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for order in unsent_orders:
+            phone = order['customer_phone']
+            order_items = json.loads(order['order_items']) if order['order_items'] else []
+            
+            # Build product list
+            products = []
+            for item in order_items[:3]:
+                products.append(f"• {item.get('title', 'Product')} x{item.get('quantity', 1)}")
+            
+            product_list = "\n".join(products)
+            if len(order_items) > 3:
+                product_list += f"\n...and {len(order_items) - 3} more items"
+            
+            message = f"""✅ Order Confirmed! 
+
+Order #{order['order_number']}
+
+{product_list}
+
+Total: {order.get('currency', '$')}{order.get('total_price', '0')}
+
+Thank you for your purchase! 🎉
+We'll send you updates on your order."""
+            
+            # Send message
+            status_code, response = send_text(phone, message)
+            
+            if status_code == 200:
+                db.mark_order_confirmation_sent(order['id'])
+                sent_count += 1
+                logger.info(f"✅ Order confirmation sent to {phone}")
+            else:
+                failed_count += 1
+                logger.error(f"❌ Failed to send order confirmation to {phone}")
+        
+        db.log_activity(
+            user_id=current_user.id,
+            username=current_user.username,
+            action='Send Order Confirmations',
+            details=f'Sent {sent_count} order confirmations, {failed_count} failed',
+            ip_address=request.remote_addr
+        )
+        
+        return jsonify({
+            'success': True,
+            'sent': sent_count,
+            'failed': failed_count,
+            'message': f'Sent {sent_count} order confirmations'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending order confirmations: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)})
 
 
 # ============================================================

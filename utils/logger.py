@@ -23,16 +23,19 @@ def log_message(name, phone, message, status, response):
             }
         ])
 
+        # Support persistent storage - get log file path from env
+        log_file = os.getenv('LOG_FILE_PATH', LOG_FILE)
+        
         # Create directory if it doesn't exist
-        log_dir = os.path.dirname(LOG_FILE)
+        log_dir = os.path.dirname(log_file)
         if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+            os.makedirs(log_dir, exist_ok=True)
 
         # Append to CSV
         df_log.to_csv(
-            LOG_FILE, 
+            log_file, 
             mode="a", 
-            header=not os.path.exists(LOG_FILE), 
+            header=not os.path.exists(log_file), 
             index=False,
             encoding='utf-8'
         )

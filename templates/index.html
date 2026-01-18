@@ -633,6 +633,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('customers_page') }}">
+            <i class="fas fa-users me-1"></i>Customers
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link" href="{{ url_for('activity_log_page') }}">
             <i class="fas fa-history me-1"></i>Activity
           </a>
@@ -725,6 +730,31 @@
     </div>
   </div>
 
+  <!-- Automation Quick Actions -->
+  <div class="scheduled-jobs-card" style="margin-bottom: 2rem;">
+    <div class="jobs-header">
+      <div class="jobs-title">
+        ⚡ Automation
+      </div>
+    </div>
+    <div style="padding: 1rem;">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <button class="btn btn-primary w-100" onclick="sendCartReminders()" style="padding: 1rem;">
+            <i class="fas fa-shopping-cart me-2"></i>Send Cart Reminders
+            <br><small class="d-block mt-1" style="opacity: 0.8;">Remind customers of abandoned carts</small>
+          </button>
+        </div>
+        <div class="col-md-6">
+          <button class="btn btn-success w-100" onclick="sendOrderConfirmations()" style="padding: 1rem;">
+            <i class="fas fa-check-circle me-2"></i>Send Order Confirmations
+            <br><small class="d-block mt-1" style="opacity: 0.8;">Confirm recent orders</small>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- IMPROVED Scheduled Jobs Section -->
   <div class="scheduled-jobs-card" id="scheduledJobsSection">
     <div class="jobs-header">
@@ -744,11 +774,22 @@
   <div class="main-card">
     <form method="POST" enctype="multipart/form-data">
 
-      <!-- CSV Upload -->
+      <!-- Customer or CSV Selection -->
       <div class="mb-4">
+        <div class="btn-group w-100 mb-3" role="group">
+          <input type="radio" class="btn-check" name="source_type" id="source_csv" value="csv" checked autocomplete="off" onchange="toggleSource()">
+          <label class="btn btn-outline-primary" for="source_csv">📊 Upload CSV</label>
+          
+          <input type="radio" class="btn-check" name="source_type" id="source_customers" value="customers" autocomplete="off" onchange="toggleSource()">
+          <label class="btn btn-outline-primary" for="source_customers">👥 Select Customers</label>
+        </div>
+      </div>
+
+      <!-- CSV Upload -->
+      <div class="mb-4" id="csv_section">
         <label class="form-label">📊 Upload CSV File</label>
         <div class="file-upload-wrapper">
-          <input type="file" name="csv_file" id="csv_file" class="file-upload-input" required accept=".csv">
+          <input type="file" name="csv_file" id="csv_file" class="file-upload-input" accept=".csv">
           <div class="file-upload-label">
             <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -759,6 +800,19 @@
           </div>
         </div>
         <div id="file-name-display" class="file-name"></div>
+      </div>
+      
+      <!-- Customer Selection -->
+      <div class="mb-4" id="customer_section" style="display: none;">
+        <label class="form-label">👥 Select Customers</label>
+        <div class="alert alert-info">
+          <i class="fas fa-info-circle me-2"></i>
+          <span id="customer_count">0 customers selected</span>
+          <button type="button" class="btn btn-sm btn-primary float-end" onclick="goToCustomers()">
+            <i class="fas fa-users me-1"></i>Select Customers
+          </button>
+        </div>
+        <input type="hidden" name="selected_customers" id="selected_customers">
       </div>
 
       <div class="section-divider"></div>
@@ -849,6 +903,47 @@
 
 <script>
 let csvColumns = [];
+
+// Check for selected customers from session storage
+window.addEventListener('DOMContentLoaded', function() {
+  const selectedCustomers = sessionStorage.getItem('selectedCustomers');
+  if (selectedCustomers) {
+    const customers = JSON.parse(selectedCustomers);
+    document.getElementById('source_customers').checked = true;
+    toggleSource();
+    updateCustomerSelection(customers);
+    sessionStorage.removeItem('selectedCustomers');
+  }
+});
+
+function toggleSource() {
+  const sourceType = document.querySelector('input[name="source_type"]:checked').value;
+  const csvSection = document.getElementById('csv_section');
+  const customerSection = document.getElementById('customer_section');
+  const csvFile = document.getElementById('csv_file');
+  
+  if (sourceType === 'csv') {
+    csvSection.style.display = 'block';
+    customerSection.style.display = 'none';
+    csvFile.required = true;
+  } else {
+    csvSection.style.display = 'none';
+    customerSection.style.display = 'block';
+    csvFile.required = false;
+  }
+}
+
+function goToCustomers() {
+  window.location.href = '{{ url_for("customers_page") }}';
+}
+
+function updateCustomerSelection(customers) {
+  document.getElementById('customer_count').textContent = customers.length + ' customers selected';
+  document.getElementById('selected_customers').value = JSON.stringify(customers);
+  
+  // Mock CSV columns for template parameter selection
+  csvColumns = ['Name', 'Phone'];
+}
 
 // Toggle schedule fields visibility
 function toggleScheduleFields() {
@@ -1164,6 +1259,70 @@ function cancelJob(jobId) {
 // Load jobs on page load and refresh every 5 seconds
 loadScheduledJobs();
 setInterval(loadScheduledJobs, 5000);
+
+// Send cart reminders
+async function sendCartReminders() {
+  if (!confirm('Send WhatsApp reminders to customers with abandoned carts?')) {
+    return;
+  }
+  
+  const btn = event.target.closest('button');
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
+  
+  try {
+    const response = await fetch('/api/send-cart-reminders', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      alert(`✅ Success!\n\nSent: ${data.sent}\nFailed: ${data.failed}\n\n${data.message}`);
+    } else {
+      alert('❌ Error: ' + data.error);
+    }
+  } catch (error) {
+    alert('❌ Error sending cart reminders: ' + error);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
+// Send order confirmations
+async function sendOrderConfirmations() {
+  if (!confirm('Send WhatsApp confirmations for recent orders?')) {
+    return;
+  }
+  
+  const btn = event.target.closest('button');
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
+  
+  try {
+    const response = await fetch('/api/send-order-confirmations', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      alert(`✅ Success!\n\nSent: ${data.sent}\nFailed: ${data.failed}\n\n${data.message}`);
+    } else {
+      alert('❌ Error: ' + data.error);
+    }
+  } catch (error) {
+    alert('❌ Error sending order confirmations: ' + error);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
 
 // Load dashboard statistics
 async function loadDashboardStats() {

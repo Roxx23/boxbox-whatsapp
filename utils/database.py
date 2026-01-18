@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import logging
+import os
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -10,8 +11,19 @@ logger = logging.getLogger(__name__)
 class Database:
     """Database manager for campaign tracking"""
     
-    def __init__(self, db_path='whatsapp_dashboard.db'):
+    def __init__(self, db_path=None):
+        # Support persistent storage on Render.com
+        if db_path is None:
+            db_path = os.getenv('DATABASE_PATH', 'whatsapp_dashboard.db')
+        
+        # Ensure directory exists for persistent storage
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            logger.info(f"Created database directory: {db_dir}")
+        
         self.db_path = db_path
+        logger.info(f"Using database at: {self.db_path}")
         self.init_database()
     
     @contextmanager
@@ -121,6 +133,93 @@ class Database:
                     logout_time TEXT,
                     ip_address TEXT,
                     user_agent TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Customers table (Shopify integration)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS customers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    shopify_id TEXT UNIQUE,
+                    first_name TEXT,
+                    last_name TEXT,
+                    email TEXT,
+                    phone TEXT,
+                    total_spent REAL DEFAULT 0,
+                    orders_count INTEGER DEFAULT 0,
+                    state TEXT DEFAULT 'enabled',
+                    tags TEXT,
+                    last_message_sent TEXT,
+                    last_message_read TEXT,
+                    last_message_replied TEXT,
+                    messages_sent_count INTEGER DEFAULT 0,
+                    messages_read_count INTEGER DEFAULT 0,
+                    messages_replied_count INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Customer segments table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS customer_segments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    segment_name TEXT NOT NULL,
+                    segment_type TEXT NOT NULL,
+                    conditions TEXT,
+                    customer_count INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Abandoned carts table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS abandoned_carts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    shopify_cart_id TEXT UNIQUE,
+                    customer_id TEXT,
+                    customer_email TEXT,
+                    customer_phone TEXT,
+                    cart_token TEXT,
+                    cart_items TEXT,
+                    total_price REAL,
+                    currency TEXT,
+                    abandoned_at TEXT,
+                    reminder_sent BOOLEAN DEFAULT 0,
+                    reminder_sent_at TEXT,
+                    recovered BOOLEAN DEFAULT 0,
+                    recovered_at TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Orders table (for order confirmations)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS shopify_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    shopify_order_id TEXT UNIQUE,
+                    order_number TEXT,
+                    customer_id TEXT,
+                    customer_email TEXT,
+                    customer_phone TEXT,
+                    total_price REAL,
+                    currency TEXT,
+                    financial_status TEXT,
+                    fulfillment_status TEXT,
+                    order_items TEXT,
+                    confirmation_sent BOOLEAN DEFAULT 0,
+                    confirmation_sent_at TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 )
             ''')
@@ -389,6 +488,297 @@ class Database:
             ''', (limit,))
             
             return [dict(row) for row in cursor.fetchall()]
+    
+    # Customer Methods
+    def add_or_update_customer(self, user_id, customer_data):
+        """Add or update a customer from Shopify"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if customer exists
+            cursor.execute('SELECT id FROM customers WHERE shopify_id = ?', 
+                         (customer_data['shopify_id'],))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update existing customer
+                cursor.execute('''
+                    UPDATE customers 
+                    SET first_name = ?, last_name = ?, email = ?, phone = ?,
+                        total_spent = ?, orders_count = ?, state = ?, tags = ?,
+                        updated_at = ?
+                    WHERE shopify_id = ?
+                ''', (customer_data['first_name'], customer_data['last_name'],
+                      customer_data['email'], customer_data['phone'],
+                      customer_data['total_spent'], customer_data['orders_count'],
+                      customer_data['state'], customer_data['tags'],
+                      datetime.now().isoformat(), customer_data['shopify_id']))
+                return existing['id']
+            else:
+                # Insert new customer
+                cursor.execute('''
+                    INSERT INTO customers (user_id, shopify_id, first_name, last_name, 
+                                         email, phone, total_spent, orders_count, 
+                                         state, tags)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, customer_data['shopify_id'], customer_data['first_name'],
+                      customer_data['last_name'], customer_data['email'],
+                      customer_data['phone'], customer_data['total_spent'],
+                      customer_data['orders_count'], customer_data['state'],
+                      customer_data['tags']))
+                return cursor.lastrowid
+    
+    def get_all_customers(self, user_id, filters=None):
+        """Get all customers with optional filters"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = 'SELECT * FROM customers WHERE user_id = ?'
+            params = [user_id]
+            
+            if filters:
+                if filters.get('has_phone'):
+                    query += ' AND phone IS NOT NULL AND phone != ""'
+                
+                # Order value filters
+                if filters.get('min_order_value') is not None:
+                    query += ' AND total_spent >= ?'
+                    params.append(filters['min_order_value'])
+                if filters.get('max_order_value') is not None:
+                    query += ' AND total_spent <= ?'
+                    params.append(filters['max_order_value'])
+                
+                # Number of orders filters
+                if filters.get('min_orders') is not None:
+                    query += ' AND orders_count >= ?'
+                    params.append(filters['min_orders'])
+                if filters.get('max_orders') is not None:
+                    query += ' AND orders_count <= ?'
+                    params.append(filters['max_orders'])
+                
+                # Predefined segment types
+                if filters.get('segment_type'):
+                    segment_type = filters['segment_type']
+                    if segment_type == 'engaged_last_7_days':
+                        query += " AND last_message_read >= datetime('now', '-7 days')"
+                    elif segment_type == 'no_message_sent':
+                        query += ' AND (last_message_sent IS NULL OR messages_sent_count = 0)'
+                    elif segment_type == 'high_value':
+                        query += ' AND total_spent > 1000'
+                    elif segment_type == 'has_orders':
+                        query += ' AND orders_count > 0'
+                    elif segment_type == 'replied':
+                        query += ' AND messages_replied_count > 0'
+                    elif segment_type.startswith('custom_'):
+                        # Handle custom segments
+                        segment_id = segment_type.replace('custom_', '')
+                        segment = self.get_segment_by_id(segment_id)
+                        if segment and segment.get('conditions'):
+                            conditions = json.loads(segment['conditions'])
+                            if conditions.get('min_order_value') is not None:
+                                query += ' AND total_spent >= ?'
+                                params.append(conditions['min_order_value'])
+                            if conditions.get('max_order_value') is not None:
+                                query += ' AND total_spent <= ?'
+                                params.append(conditions['max_order_value'])
+                            if conditions.get('min_orders') is not None:
+                                query += ' AND orders_count >= ?'
+                                params.append(conditions['min_orders'])
+                            if conditions.get('max_orders') is not None:
+                                query += ' AND orders_count <= ?'
+                                params.append(conditions['max_orders'])
+            
+            query += ' ORDER BY updated_at DESC'
+            
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_customer_by_phone(self, phone):
+        """Get customer by phone number"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM customers WHERE phone = ?', (phone,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def update_customer_message_stats(self, phone, stat_type):
+        """Update customer message statistics"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            if stat_type == 'sent':
+                cursor.execute('''
+                    UPDATE customers 
+                    SET messages_sent_count = messages_sent_count + 1,
+                        last_message_sent = ?
+                    WHERE phone = ?
+                ''', (datetime.now().isoformat(), phone))
+            elif stat_type == 'read':
+                cursor.execute('''
+                    UPDATE customers 
+                    SET messages_read_count = messages_read_count + 1,
+                        last_message_read = ?
+                    WHERE phone = ?
+                ''', (datetime.now().isoformat(), phone))
+            elif stat_type == 'replied':
+                cursor.execute('''
+                    UPDATE customers 
+                    SET messages_replied_count = messages_replied_count + 1,
+                        last_message_replied = ?
+                    WHERE phone = ?
+                ''', (datetime.now().isoformat(), phone))
+    
+    def create_segment(self, user_id, segment_name, segment_type, conditions=None):
+        """Create a customer segment"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO customer_segments (user_id, segment_name, segment_type, conditions)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, segment_name, segment_type, json.dumps(conditions) if conditions else None))
+            return cursor.lastrowid
+    
+    def get_user_segments(self, user_id):
+        """Get all segments for a user"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM customer_segments 
+                WHERE user_id = ? 
+                ORDER BY created_at DESC
+            ''', (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_segment_by_id(self, segment_id):
+        """Get segment by ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM customer_segments WHERE id = ?', (segment_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def delete_segment(self, segment_id, user_id):
+        """Delete a custom segment"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                DELETE FROM customer_segments 
+                WHERE id = ? AND user_id = ?
+            ''', (segment_id, user_id))
+            return cursor.rowcount > 0
+    
+    def get_segment_customers(self, user_id, segment_type):
+        """Get customers for a specific segment"""
+        filters = {'segment_type': segment_type}
+        return self.get_all_customers(user_id, filters)
+    
+    # Abandoned Cart Methods
+    def add_abandoned_cart(self, user_id, cart_data):
+        """Add or update abandoned cart"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO abandoned_carts 
+                (user_id, shopify_cart_id, customer_id, customer_email, customer_phone,
+                 cart_token, cart_items, total_price, currency, abandoned_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id,
+                cart_data.get('id'),
+                cart_data.get('customer_id'),
+                cart_data.get('email'),
+                cart_data.get('phone'),
+                cart_data.get('token'),
+                json.dumps(cart_data.get('line_items', [])),
+                cart_data.get('total_price'),
+                cart_data.get('currency'),
+                cart_data.get('abandoned_checkout_url')
+            ))
+            return cursor.lastrowid
+    
+    def get_unsent_cart_reminders(self, user_id):
+        """Get abandoned carts that haven't received reminders"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM abandoned_carts 
+                WHERE user_id = ? 
+                AND reminder_sent = 0 
+                AND recovered = 0
+                AND customer_phone IS NOT NULL 
+                AND customer_phone != ""
+                ORDER BY abandoned_at DESC
+            ''', (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def mark_cart_reminder_sent(self, cart_id):
+        """Mark cart reminder as sent"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE abandoned_carts 
+                SET reminder_sent = 1, reminder_sent_at = ?
+                WHERE id = ?
+            ''', (datetime.now().isoformat(), cart_id))
+    
+    def mark_cart_recovered(self, shopify_cart_id):
+        """Mark cart as recovered"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE abandoned_carts 
+                SET recovered = 1, recovered_at = ?
+                WHERE shopify_cart_id = ?
+            ''', (datetime.now().isoformat(), shopify_cart_id))
+    
+    # Order Methods
+    def add_order(self, user_id, order_data):
+        """Add or update order"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO shopify_orders 
+                (user_id, shopify_order_id, order_number, customer_id, customer_email, 
+                 customer_phone, total_price, currency, financial_status, fulfillment_status, order_items)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id,
+                order_data.get('id'),
+                order_data.get('order_number'),
+                order_data.get('customer', {}).get('id'),
+                order_data.get('email'),
+                order_data.get('phone') or order_data.get('customer', {}).get('phone'),
+                order_data.get('total_price'),
+                order_data.get('currency'),
+                order_data.get('financial_status'),
+                order_data.get('fulfillment_status'),
+                json.dumps(order_data.get('line_items', []))
+            ))
+            return cursor.lastrowid
+    
+    def get_unsent_order_confirmations(self, user_id):
+        """Get orders that haven't received confirmation"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM shopify_orders 
+                WHERE user_id = ? 
+                AND confirmation_sent = 0
+                AND customer_phone IS NOT NULL 
+                AND customer_phone != ""
+                ORDER BY created_at DESC
+            ''', (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def mark_order_confirmation_sent(self, order_id):
+        """Mark order confirmation as sent"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shopify_orders 
+                SET confirmation_sent = 1, confirmation_sent_at = ?
+                WHERE id = ?
+            ''', (datetime.now().isoformat(), order_id))
     
     # Template Usage Methods
     def track_template_usage(self, user_id, username, template_name):
