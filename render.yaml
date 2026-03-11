@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: whatsapp-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements_new.txt
+    startCommand: gunicorn app:app --config gunicorn_config.py
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WABA_ID
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: DEFAULT_COUNTRY_CODE
+        value: "91"
+      - key: SHOPIFY_SHOP_NAME
+        sync: false
+      - key: SHOPIFY_ACCESS_TOKEN
+        sync: false
+      - key: DATABASE_PATH
+        value: /data/whatsapp_dashboard.db
+      - key: LOG_FILE_PATH
+        value: /data/logs.csv
+      - key: USERS_FILE_PATH
+        value: /data/users.json
+    disk:
+      name: whatsapp-data
+      mountPath: /data
+      sizeGB: 1
