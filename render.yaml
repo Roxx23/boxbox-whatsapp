@@ -2,7 +2,7 @@ services:
   - type: web
     name: whatsapp-dashboard
     runtime: python
-    buildCommand: pip install -r requirements_new.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --config gunicorn_config.py
     plan: free
     envVars:
