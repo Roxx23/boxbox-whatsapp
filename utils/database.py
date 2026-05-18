@@ -224,8 +224,14 @@ class Database:
                 )
             ''')
             
+            # Add shopify_created_at column if it doesn't exist (migration for existing DBs)
+            try:
+                cursor.execute('ALTER TABLE customers ADD COLUMN shopify_created_at TEXT')
+            except Exception:
+                pass  # Column already exists
+
             conn.commit()
-    
+
     # Campaign Methods
     def create_campaign(self, user_id, username, campaign_name, campaign_type, 
                        template_name=None, recipient_count=0, scheduled_time=None):
@@ -494,40 +500,79 @@ class Database:
         """Add or update a customer from Shopify"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            # Check if customer exists
-            cursor.execute('SELECT id FROM customers WHERE shopify_id = ?', 
-                         (customer_data['shopify_id'],))
-            existing = cursor.fetchone()
-            
-            if existing:
-                # Update existing customer
-                cursor.execute('''
-                    UPDATE customers 
-                    SET first_name = ?, last_name = ?, email = ?, phone = ?,
-                        total_spent = ?, orders_count = ?, state = ?, tags = ?,
-                        updated_at = ?
-                    WHERE shopify_id = ?
-                ''', (customer_data['first_name'], customer_data['last_name'],
-                      customer_data['email'], customer_data['phone'],
-                      customer_data['total_spent'], customer_data['orders_count'],
-                      customer_data['state'], customer_data['tags'],
-                      datetime.now().isoformat(), customer_data['shopify_id']))
-                return existing['id']
-            else:
-                # Insert new customer
-                cursor.execute('''
-                    INSERT INTO customers (user_id, shopify_id, first_name, last_name, 
-                                         email, phone, total_spent, orders_count, 
-                                         state, tags)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (user_id, customer_data['shopify_id'], customer_data['first_name'],
-                      customer_data['last_name'], customer_data['email'],
-                      customer_data['phone'], customer_data['total_spent'],
-                      customer_data['orders_count'], customer_data['state'],
-                      customer_data['tags']))
-                return cursor.lastrowid
+
+            # INSERT OR IGNORE creates the row if the shopify_id doesn't exist yet.
+            # The subsequent UPDATE then sets all fields (including user_id) so that
+            # records previously owned by a different user_id are reassigned to the
+            # current user on re-sync.
+            cursor.execute('''
+                INSERT OR IGNORE INTO customers (user_id, shopify_id, first_name, last_name,
+                                                 email, phone, total_spent, orders_count,
+                                                 state, tags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, customer_data['shopify_id'], customer_data['first_name'],
+                  customer_data['last_name'], customer_data['email'],
+                  customer_data['phone'], customer_data['total_spent'],
+                  customer_data['orders_count'], customer_data['state'],
+                  customer_data['tags']))
+
+            cursor.execute('''
+                UPDATE customers
+                SET user_id = ?, first_name = ?, last_name = ?, email = ?, phone = ?,
+                    total_spent = ?, orders_count = ?, state = ?, tags = ?,
+                    updated_at = ?
+                WHERE shopify_id = ?
+            ''', (user_id, customer_data['first_name'], customer_data['last_name'],
+                  customer_data['email'], customer_data['phone'],
+                  customer_data['total_spent'], customer_data['orders_count'],
+                  customer_data['state'], customer_data['tags'],
+                  datetime.now().isoformat(), customer_data['shopify_id']))
     
+    def get_last_shopify_created_at(self, user_id):
+        """Return the most recent shopify_created_at for this user, or None if none stored."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT MAX(shopify_created_at) FROM customers WHERE user_id = ? AND shopify_created_at IS NOT NULL',
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def bulk_add_or_update_customers(self, user_id, customers_data):
+        """Upsert a list of customers in a single transaction (much faster than one-by-one)."""
+        if not customers_data:
+            return
+        now = datetime.now().isoformat()
+        insert_rows = []
+        update_rows = []
+        for c in customers_data:
+            insert_rows.append((
+                user_id, c['shopify_id'], c['first_name'], c['last_name'],
+                c['email'], c['phone'], c['total_spent'], c['orders_count'],
+                c['state'], c['tags'], c.get('created_at') or None
+            ))
+            update_rows.append((
+                user_id, c['first_name'], c['last_name'], c['email'], c['phone'],
+                c['total_spent'], c['orders_count'], c['state'], c['tags'],
+                c.get('created_at') or None, now, c['shopify_id']
+            ))
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany('''
+                INSERT OR IGNORE INTO customers (user_id, shopify_id, first_name, last_name,
+                                                 email, phone, total_spent, orders_count,
+                                                 state, tags, shopify_created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', insert_rows)
+            cursor.executemany('''
+                UPDATE customers
+                SET user_id = ?, first_name = ?, last_name = ?, email = ?, phone = ?,
+                    total_spent = ?, orders_count = ?, state = ?, tags = ?,
+                    shopify_created_at = ?, updated_at = ?
+                WHERE shopify_id = ?
+            ''', update_rows)
+
     def get_all_customers(self, user_id, filters=None):
         """Get all customers with optional filters"""
         with self.get_connection() as conn:

@@ -1,1426 +1,597 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WhatsApp Dashboard</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-      min-height: 100vh;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #fff;
-    }
-
-    /* Navbar Styles */
-    .navbar {
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 1rem 0;
-    }
-
-    .navbar-brand {
-      font-weight: 700;
-      font-size: 1.5rem;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .nav-link {
-      color: rgba(255, 255, 255, 0.8) !important;
-      transition: all 0.3s ease;
-      font-weight: 500;
-      margin: 0 0.5rem;
-    }
-
-    .nav-link:hover {
-      color: #fff !important;
-      transform: translateY(-2px);
-    }
-
-    .nav-link.active {
-      color: #fff !important;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 8px;
-      padding: 0.5rem 1rem;
-    }
-
-    .container {
-      max-width: 1200px;
-      padding: 2rem 1rem;
-    }
-
-    .header {
-      text-align: center;
-      margin-bottom: 2rem;
-      animation: fadeInDown 0.8s ease;
-    }
-
-    .header h1 {
-      font-size: 2.5rem;
-      font-weight: 700;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 0.5rem;
-    }
-
-    .header p {
-      color: #a0aec0;
-      font-size: 1.1rem;
-    }
-
-    /* Quick Stats Cards */
-    .stats-row {
-      margin-bottom: 2rem;
-    }
-
-    .stat-card {
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 15px;
-      padding: 1.5rem;
-      text-align: center;
-      transition: all 0.3s ease;
-      animation: fadeInUp 0.8s ease;
-      cursor: pointer;
-    }
-
-    .stat-card:hover {
-      transform: translateY(-5px);
-      background: rgba(255, 255, 255, 0.08);
-      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-    }
-
-    .stat-card i {
-      font-size: 2.5rem;
-      margin-bottom: 1rem;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .stat-card h3 {
-      font-size: 2rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
-    }
-
-    .stat-card p {
-      color: #a0aec0;
-      margin: 0;
-    }
-
-    .main-card {
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(10px);
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 2.5rem;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-      animation: fadeInUp 0.8s ease;
-    }
-
-    .form-label {
-      font-weight: 600;
-      color: #e2e8f0;
-      margin-bottom: 0.5rem;
-      font-size: 0.95rem;
-      letter-spacing: 0.3px;
-    }
-
-    .form-control, .form-select {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 12px;
-      color: #fff;
-      padding: 0.75rem 1rem;
-      transition: all 0.3s ease;
-      font-size: 0.95rem;
-    }
-
-    .form-control:focus, .form-select:focus {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-      color: #fff;
-      outline: none;
-    }
-
-    .form-control::placeholder {
-      color: rgba(255, 255, 255, 0.4);
-    }
-
-    select option {
-      background: #1a1a2e;
-      color: #fff;
-    }
-
-    textarea.form-control {
-      resize: vertical;
-      min-height: 100px;
-    }
-
-    .file-upload-wrapper {
-      position: relative;
-      overflow: hidden;
-      display: inline-block;
-      width: 100%;
-    }
-
-    .file-upload-input {
-      position: absolute;
-      left: 0;
-      top: 0;
-      opacity: 0;
-      cursor: pointer;
-      width: 100%;
-      height: 100%;
-    }
-
-    .file-upload-label {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-      background: rgba(102, 126, 234, 0.1);
-      border: 2px dashed rgba(102, 126, 234, 0.4);
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      text-align: center;
-    }
-
-    .file-upload-label:hover {
-      background: rgba(102, 126, 234, 0.15);
-      border-color: #667eea;
-      transform: translateY(-2px);
-    }
-
-    .file-upload-label svg {
-      margin-right: 0.75rem;
-    }
-
-    .file-name {
-      margin-top: 0.5rem;
-      color: #4ade80;
-      font-size: 0.9rem;
-      font-weight: 500;
-    }
-
-    .radio-group {
-      display: flex;
-      gap: 1.5rem;
-      margin-top: 0.75rem;
-    }
-
-    .radio-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .radio-item input[type="radio"] {
-      width: 18px;
-      height: 18px;
-      accent-color: #667eea;
-      cursor: pointer;
-    }
-
-    .radio-item label {
-      margin: 0;
-      cursor: pointer;
-      font-weight: 500;
-    }
-
-    .btn-submit {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border: none;
-      border-radius: 12px;
-      padding: 1rem 2.5rem;
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #fff;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      width: 100%;
-      margin-top: 1.5rem;
-      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-    }
-
-    .btn-submit:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-    }
-
-    .btn-submit:active {
-      transform: translateY(0);
-    }
-
-    .alert {
-      background: rgba(255, 193, 7, 0.15);
-      border: 1px solid rgba(255, 193, 7, 0.3);
-      border-radius: 12px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 1.5rem;
-      color: #ffc107;
-      animation: slideDown 0.5s ease;
-    }
-
-    #param_box {
-      margin-top: 1.5rem;
-      animation: fadeIn 0.5s ease;
-    }
-
-    .param-section {
-      background: rgba(102, 126, 234, 0.08);
-      padding: 1.5rem;
-      border-radius: 12px;
-      border: 1px solid rgba(102, 126, 234, 0.2);
-      margin-top: 1rem;
-    }
-
-    .param-header {
-      color: #fbbf24;
-      font-weight: 600;
-      font-size: 1.05rem;
-      margin-bottom: 1rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .param-item {
-      margin-bottom: 1rem;
-    }
-
-    .param-item:last-child {
-      margin-bottom: 0;
-    }
-
-    .info-badge {
-      display: inline-block;
-      background: rgba(74, 222, 128, 0.15);
-      color: #4ade80;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      border: 1px solid rgba(74, 222, 128, 0.3);
-    }
-
-    .warning-badge {
-      display: inline-block;
-      background: rgba(251, 191, 36, 0.15);
-      color: #fbbf24;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      border: 1px solid rgba(251, 191, 36, 0.3);
-    }
-
-    .section-divider {
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-      margin: 2rem 0;
-    }
-
-    /* ========== IMPROVED SCHEDULED JOBS SECTION ========== */
-    .scheduled-jobs-card {
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(10px);
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 2rem;
-      margin-bottom: 2rem;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-      animation: fadeInUp 0.8s ease;
-    }
-
-    .jobs-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.5rem;
-    }
-
-    .jobs-title {
-      color: #fbbf24;
-      font-weight: 600;
-      font-size: 1.3rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .jobs-count {
-      background: rgba(251, 191, 36, 0.2);
-      color: #fbbf24;
-      padding: 0.25rem 0.75rem;
-      border-radius: 12px;
-      font-size: 0.85rem;
-      font-weight: 600;
-    }
-
-    .refresh-jobs-btn {
-      background: rgba(102, 126, 234, 0.15);
-      border: 1px solid rgba(102, 126, 234, 0.3);
-      color: #667eea;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      font-weight: 600;
-      transition: all 0.3s ease;
-    }
-
-    .refresh-jobs-btn:hover {
-      background: rgba(102, 126, 234, 0.25);
-      transform: translateY(-2px);
-    }
-
-    .job-item {
-      background: rgba(102, 126, 234, 0.08);
-      border: 1px solid rgba(102, 126, 234, 0.2);
-      border-radius: 12px;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 1rem;
-      align-items: center;
-      transition: all 0.3s ease;
-    }
-
-    .job-item:hover {
-      background: rgba(102, 126, 234, 0.12);
-      transform: translateX(5px);
-    }
-
-    .job-item:last-child {
-      margin-bottom: 0;
-    }
-
-    .job-icon {
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.5em;
-    }
-
-    .status-pending { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-    .status-waiting { 
-      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-      animation: pulse 2s ease-in-out infinite;
-    }
-    .status-sending { 
-      background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    .status-completed { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
-    .status-failed { background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); }
-    .status-cancelled { background: #6c757d; }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
-    }
-
-    .job-info strong {
-      color: #e2e8f0;
-      font-size: 1rem;
-      display: block;
-      margin-bottom: 0.5rem;
-    }
-
-    .job-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      font-size: 0.85rem;
-      color: #a0aec0;
-    }
-
-    .job-meta span {
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-    }
-
-    .status-badge {
-      padding: 0.4rem 0.8rem;
-      border-radius: 20px;
-      font-size: 0.75rem;
-      font-weight: bold;
-      text-transform: uppercase;
-      margin-bottom: 0.5rem;
-      display: inline-block;
-    }
-
-    .badge-pending { background: #f093fb; color: white; }
-    .badge-waiting { background: #4facfe; color: white; }
-    .badge-sending { background: #43e97b; color: white; }
-    .badge-completed { background: #11998e; color: white; }
-    .badge-failed { background: #eb3349; color: white; }
-    .badge-cancelled { background: #6c757d; color: white; }
-
-    .btn-cancel {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-      border: none;
-      border-radius: 8px;
-      padding: 0.5rem 1.25rem;
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: #fff;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
-      white-space: nowrap;
-    }
-
-    .btn-cancel:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.5);
-    }
-
-    .btn-cancel:disabled {
-      background: #4a5568;
-      cursor: not-allowed;
-      opacity: 0.5;
-    }
-
-    .no-jobs {
-      text-align: center;
-      color: #a0aec0;
-      padding: 2rem;
-      font-style: italic;
-    }
-
-    .no-jobs-icon {
-      font-size: 3em;
-      margin-bottom: 1rem;
-      opacity: 0.5;
-    }
-
-    .loading-jobs {
-      text-align: center;
-      color: #a0aec0;
-      padding: 2rem;
-    }
-
-    @keyframes fadeInDown {
-      from {
-        opacity: 0;
-        transform: translateY(-20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
-    }
-
-    @keyframes slideDown {
-      from {
-        opacity: 0;
-        transform: translateY(-10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @media (max-width: 768px) {
-      .header h1 {
-        font-size: 2rem;
-      }
-      
-      .main-card {
-        padding: 1.5rem;
-      }
-
-      .job-item {
-        grid-template-columns: 1fr;
-        text-align: center;
-      }
-
-      .job-meta {
-        justify-content: center;
-      }
-    }
-
-    .create-template-btn {
-      display: inline-block;
-      background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
-      padding: 0.75rem 1.5rem;
-      border-radius: 12px;
-      color: white;
-      text-decoration: none;
-      margin-top: 1rem;
-      font-weight: 600;
-      transition: all 0.3s ease;
-      box-shadow: 0 4px 15px rgba(74, 222, 128, 0.4);
-    }
-
-    .create-template-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(74, 222, 128, 0.6);
-      color: white;
-    }
-  </style>
-</head>
-
-<body>
-
-<!-- Navbar -->
-<nav class="navbar navbar-expand-lg navbar-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('index') }}">
-      <i class="fas fa-paper-plane me-2"></i>WhatsApp Dashboard
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav ms-auto">
-        <li class="nav-item">
-          <a class="nav-link active" href="{{ url_for('index') }}">
-            <i class="fas fa-home me-1"></i>Home
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">
-            <i class="fas fa-chart-line me-1"></i>Analytics
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('campaigns_page') }}">
-            <i class="fas fa-bullhorn me-1"></i>Campaigns
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('customers_page') }}">
-            <i class="fas fa-users me-1"></i>Customers
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('activity_log_page') }}">
-            <i class="fas fa-history me-1"></i>Activity
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('create_template_page') }}">
-            <i class="fas fa-file-alt me-1"></i>Templates
-          </a>
-        </li>
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
-            <i class="fas fa-user-circle me-1"></i>{{ current_user.username }}
-          </a>
-          <ul class="dropdown-menu dropdown-menu-end" style="background: rgba(30, 30, 60, 0.95); border: 1px solid rgba(255,255,255,0.1);">
-            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-            <li><hr class="dropdown-divider" style="border-color: rgba(255,255,255,0.1);"></li>
-            <li><a class="dropdown-item text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-          </ul>
-        </li>
-      </ul>
-    </div>
-  </div>
-</nav>
-
-<div class="container">
-
-<!-- Quick Stats Row -->
-<div class="row stats-row mb-4">
-  <div class="col-md-3 col-sm-6 mb-3">
-    <div class="stat-card" onclick="window.location.href='{{ url_for('analytics_dashboard') }}'">
+{% extends "base.html" %}
+{% block title %}Dashboard - WhatsApp{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block head %}
+<style>
+  /* Stat cards */
+  .stat-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px; padding: 1.25rem 1.5rem;
+    text-align: center; transition: all 0.2s; cursor: pointer;
+  }
+  .stat-card:hover {
+    background: rgba(255,255,255,0.08);
+    transform: translateY(-4px);
+    box-shadow: 0 10px 24px rgba(102,126,234,0.2);
+  }
+  .stat-card i { font-size: 2rem; margin-bottom: 0.6rem; background: linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .stat-card h3 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.3rem; }
+  .stat-card p  { color: rgba(255,255,255,0.45); margin: 0; font-size: 0.82rem; }
+
+  /* Main form card */
+  .main-card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(12px);
+    border-radius: 16px; border: 1px solid rgba(255,255,255,0.09);
+    padding: 2rem; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    margin-bottom: 1.5rem;
+  }
+
+  /* Sections */
+  .section-divider { height: 1px; background: linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent); margin: 1.75rem 0; }
+
+  .section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.3); margin-bottom: 0.75rem; }
+
+  /* File upload */
+  .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
+  .file-upload-input  { position: absolute; left:0; top:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+  .file-upload-label  {
+    display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+    background: rgba(102,126,234,0.06); border: 2px dashed rgba(102,126,234,0.3);
+    border-radius: 10px; cursor: pointer; transition: all 0.2s; gap: 0.75rem;
+    font-size: 0.9rem; color: rgba(255,255,255,0.55);
+  }
+  .file-upload-label:hover { background: rgba(102,126,234,0.12); border-color: #8b7cf8; color: #fff; }
+  .file-name { margin-top: 0.4rem; color: #34d399; font-size: 0.83rem; }
+
+  /* Radio group */
+  .radio-group { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .radio-item  { display: flex; align-items: center; gap: 0.45rem; }
+  .radio-item label { margin: 0; cursor: pointer; font-size: 0.9rem; }
+
+  /* Param section */
+  .param-section {
+    background: rgba(102,126,234,0.07);
+    border: 1px solid rgba(102,126,234,0.18);
+    border-radius: 10px; padding: 1.25rem; margin-top: 0.875rem;
+  }
+  .param-header { color: #fcd34d; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.875rem; }
+  .param-item   { margin-bottom: 0.875rem; }
+  .param-item:last-child { margin-bottom: 0; }
+
+  .info-badge    { background: rgba(16,185,129,0.1); color: #34d399; border: 1px solid rgba(16,185,129,0.25); padding: 0.4rem 0.875rem; border-radius: 8px; font-size: 0.83rem; display: inline-block; }
+  .warning-badge { background: rgba(251,191,36,0.1); color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); padding: 0.4rem 0.875rem; border-radius: 8px; font-size: 0.83rem; display: inline-block; }
+
+  /* Submit button */
+  .btn-submit {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none; border-radius: 10px; padding: 0.9rem 2rem;
+    font-size: 1rem; font-weight: 600; color: #fff; width: 100%;
+    margin-top: 1.5rem; box-shadow: 0 4px 14px rgba(102,126,234,0.35);
+    transition: all 0.2s;
+  }
+  .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102,126,234,0.5); }
+
+  /* Jobs + queue cards */
+  .monitor-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px; padding: 1.5rem; margin-bottom: 1.25rem;
+  }
+  .monitor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
+  .monitor-title  { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 0.6rem; color: #e2e8f0; }
+  .monitor-count  { background: rgba(251,191,36,0.18); color: #fcd34d; padding: 0.2rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+
+  .job-item {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem; display: grid;
+    grid-template-columns: 48px 1fr auto; gap: 1rem; align-items: center;
+    transition: all 0.2s;
+  }
+  .job-item:hover { background: rgba(255,255,255,0.07); transform: translateX(3px); }
+
+  .job-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+  .status-pending  { background: linear-gradient(135deg, #f093fb, #f5576c); }
+  .status-waiting  { background: linear-gradient(135deg, #4facfe, #00f2fe); animation: pulse 2s infinite; }
+  .status-sending  { background: linear-gradient(135deg, #43e97b, #38f9d7); animation: pulse 1.5s infinite; }
+  .status-completed{ background: linear-gradient(135deg, #10b981, #34d399); }
+  .status-failed   { background: linear-gradient(135deg, #ef4444, #f97316); }
+  .status-cancelled{ background: rgba(255,255,255,0.1); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
+  .job-info strong { display: block; color: #e2e8f0; font-size: 0.9rem; margin-bottom: 0.4rem; }
+  .job-meta { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.78rem; color: rgba(255,255,255,0.4); }
+  .job-meta span { display: flex; align-items: center; gap: 0.25rem; }
+
+  .status-badge { padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; display: inline-block; margin-bottom: 0.3rem; }
+  .badge-pending  { background:#f093fb; color:white; }
+  .badge-waiting  { background:#4facfe; color:white; }
+  .badge-sending  { background:#43e97b; color:white; }
+  .badge-completed{ background:#10b981; color:white; }
+  .badge-failed   { background:#ef4444; color:white; }
+  .badge-cancelled{ background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.7); }
+
+  .btn-cancel {
+    background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 8px; padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600;
+    color: #f87171; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+  }
+  .btn-cancel:hover:not(:disabled) { background: rgba(239,68,68,0.25); border-color: rgba(239,68,68,0.5); }
+  .btn-cancel:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .no-jobs { text-align: center; color: rgba(255,255,255,0.3); padding: 2rem; }
+  .loading-jobs { text-align: center; color: rgba(255,255,255,0.3); padding: 1.5rem; font-size: 0.875rem; }
+
+  #param_box { animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+  @media (max-width: 640px) {
+    .job-item { grid-template-columns: 1fr; text-align: center; }
+    .job-meta { justify-content: center; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Stats row -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card" onclick="location.href='{{ url_for('analytics_dashboard') }}'">
       <i class="fas fa-chart-line"></i>
-      <h3 id="totalCampaigns">-</h3>
-      <p>Total Campaigns</p>
+      <h3 id="totalCampaigns">—</h3>
+      <p>Campaigns</p>
     </div>
   </div>
-  <div class="col-md-3 col-sm-6 mb-3">
-    <div class="stat-card" onclick="window.location.href='{{ url_for('analytics_dashboard') }}'">
+  <div class="col-6 col-md-3">
+    <div class="stat-card" onclick="location.href='{{ url_for('analytics_dashboard') }}'">
       <i class="fas fa-envelope"></i>
-      <h3 id="totalMessages">-</h3>
+      <h3 id="totalMessages">—</h3>
       <p>Messages Sent</p>
     </div>
   </div>
-  <div class="col-md-3 col-sm-6 mb-3">
-    <div class="stat-card" onclick="window.location.href='{{ url_for('campaigns_page') }}'">
+  <div class="col-6 col-md-3">
+    <div class="stat-card" onclick="location.href='{{ url_for('campaigns_page') }}'">
       <i class="fas fa-rocket"></i>
-      <h3 id="activeCampaigns">-</h3>
-      <p>Active Campaigns</p>
+      <h3 id="activeCampaigns">—</h3>
+      <p>Active</p>
     </div>
   </div>
-  <div class="col-md-3 col-sm-6 mb-3">
-    <div class="stat-card" onclick="window.location.href='{{ url_for('analytics_dashboard') }}'">
+  <div class="col-6 col-md-3">
+    <div class="stat-card" onclick="location.href='{{ url_for('analytics_dashboard') }}'">
       <i class="fas fa-check-circle"></i>
-      <h3 id="successRate">-</h3>
+      <h3 id="successRate">—</h3>
       <p>Success Rate</p>
     </div>
   </div>
 </div>
 
-<!-- Main Content -->
-  
-  <div class="header">
-    <h1>WhatsApp Bulk Sender 🚀</h1>
-    <p>Send personalized messages to your contacts instantly</p>
+<!-- Queue Monitor (hidden until send) -->
+<div class="monitor-card" id="queueMonitorSection" style="display:none;">
+  <div class="monitor-header">
+    <div class="monitor-title">
+      <i class="fas fa-stream" style="color:#a5b4fc;"></i> Queue Monitor
+      <span class="monitor-count" id="queueCount">0</span>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" onclick="loadQueueStatus()">
+      <i class="fas fa-sync me-1"></i>Refresh
+    </button>
   </div>
+  <div id="queueStatus"><div class="loading-jobs">Loading queue…</div></div>
+</div>
 
+<!-- Automation quick actions -->
+<div class="monitor-card">
+  <div class="monitor-header">
+    <div class="monitor-title"><i class="fas fa-bolt" style="color:#fcd34d;"></i> Automation</div>
+  </div>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <button class="btn btn-primary w-100" onclick="sendCartReminders()" style="padding:0.875rem;text-align:left;">
+        <i class="fas fa-shopping-cart me-2"></i><strong>Send Cart Reminders</strong>
+        <small class="d-block mt-1" style="opacity:0.7;font-weight:400;">Remind customers of abandoned carts</small>
+      </button>
+    </div>
+    <div class="col-md-6">
+      <button class="btn btn-success w-100" onclick="sendOrderConfirmations()" style="padding:0.875rem;text-align:left;">
+        <i class="fas fa-check-circle me-2"></i><strong>Send Order Confirmations</strong>
+        <small class="d-block mt-1" style="opacity:0.7;font-weight:400;">Confirm recent orders</small>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Scheduled jobs -->
+<div class="monitor-card" id="scheduledJobsSection">
+  <div class="monitor-header">
+    <div class="monitor-title">
+      <i class="fas fa-calendar-alt" style="color:#a5b4fc;"></i> Scheduled Jobs
+      <span class="monitor-count" id="jobsCount">0</span>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" onclick="loadScheduledJobs()">
+      <i class="fas fa-sync me-1"></i>Refresh
+    </button>
+  </div>
+  <div id="jobsList"><div class="loading-jobs">Loading jobs…</div></div>
+</div>
+
+<!-- Send form -->
+<div class="main-card">
   {% with messages = get_flashed_messages() %}
     {% if messages %}
-      <div class="alert">
-        {% for m in messages %}
-          <div>{{ m }}</div>
-        {% endfor %}
+      <div class="flash-alert mb-3">
+        {% for m in messages %}<div>{{ m }}</div>{% endfor %}
       </div>
     {% endif %}
   {% endwith %}
 
-  <!-- Queue Monitor Section - Hidden initially -->
-  <div class="scheduled-jobs-card" id="queueMonitorSection" style="margin-bottom: 2rem; display: none;">
-    <div class="jobs-header">
-      <div class="jobs-title">
-        🔄 Queue Monitor
-        <span class="jobs-count" id="queueCount">0</span>
-      </div>
-      <button class="refresh-jobs-btn" onclick="loadQueueStatus()">
-        🔄 Refresh
-      </button>
-    </div>
-    <div id="queueStatus">
-      <div class="loading-jobs">⏳ Loading queue status...</div>
-    </div>
-  </div>
+  <form method="POST" enctype="multipart/form-data">
+    <!-- Source selector -->
+    <div class="mb-4">
+      <div class="section-label">Recipient Source</div>
+      <div class="btn-group w-100" role="group">
+        <input type="radio" class="btn-check" name="source_type" id="source_csv" value="csv" checked autocomplete="off" onchange="toggleSource()">
+        <label class="btn btn-outline-primary" for="source_csv"><i class="fas fa-table me-1"></i> Upload CSV</label>
 
-  <!-- Automation Quick Actions -->
-  <div class="scheduled-jobs-card" style="margin-bottom: 2rem;">
-    <div class="jobs-header">
-      <div class="jobs-title">
-        ⚡ Automation
+        <input type="radio" class="btn-check" name="source_type" id="source_customers" value="customers" autocomplete="off" onchange="toggleSource()">
+        <label class="btn btn-outline-primary" for="source_customers"><i class="fas fa-users me-1"></i> Select Customers</label>
       </div>
     </div>
-    <div style="padding: 1rem;">
+
+    <!-- CSV upload -->
+    <div class="mb-4" id="csv_section">
+      <label class="form-label">CSV File</label>
+      <div class="file-upload-wrapper">
+        <input type="file" name="csv_file" id="csv_file" class="file-upload-input" accept=".csv">
+        <div class="file-upload-label">
+          <i class="fas fa-upload"></i>
+          <span id="file-text">Click to upload or drag and drop a .csv file</span>
+        </div>
+      </div>
+      <div id="file-name-display" class="file-name"></div>
+    </div>
+
+    <!-- Customer selection -->
+    <div class="mb-4" id="customer_section" style="display:none;">
+      <label class="form-label">Customers</label>
+      <div class="alert alert-info d-flex justify-content-between align-items-center">
+        <span id="customer_count">0 customers selected</span>
+        <button type="button" class="btn btn-primary btn-sm" onclick="location.href='{{ url_for('customers_page') }}'">
+          <i class="fas fa-users me-1"></i>Select
+        </button>
+      </div>
+      <input type="hidden" name="selected_customers" id="selected_customers">
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- Template -->
+    <div class="mb-4">
+      <label class="form-label">WhatsApp Template</label>
+      <select name="template_name" id="template_name" class="form-select">
+        <option value="none">— No Template (Use Custom Message) —</option>
+        {% for t in templates %}
+          <option value="{{ t.name }}">{{ t.name }} ({{ t.category }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Header image upload -->
+    <div class="mb-4">
+      <label class="form-label">Header Image <span style="color:rgba(255,255,255,0.35);font-weight:400;">(for IMAGE header templates)</span></label>
+      <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*">
+      <div class="form-text">Same image sent to all recipients in this run</div>
+    </div>
+
+    <div id="template_requirements" style="display:none; margin-bottom:1rem;"></div>
+    <div id="param_box"></div>
+
+    <!-- Custom message -->
+    <div class="mb-4">
+      <label class="form-label">Custom Message <span style="color:rgba(255,255,255,0.35);font-weight:400;">(only used if no template selected)</span></label>
+      <textarea class="form-control" name="message_template" id="msg_box"
+                placeholder="Enter your message… Use {Name}, {Phone} to personalise"></textarea>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- Schedule -->
+    <div class="mb-4">
+      <div class="section-label">Sending Schedule</div>
+      <div class="radio-group">
+        <div class="radio-item">
+          <input type="radio" name="send_mode" id="send_now" value="now" checked onchange="toggleScheduleFields()">
+          <label for="send_now">Send Now</label>
+        </div>
+        <div class="radio-item">
+          <input type="radio" name="send_mode" id="send_later" value="later" onchange="toggleScheduleFields()">
+          <label for="send_later">Schedule Later</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-4" id="scheduleFields" style="display:none;">
+      <label class="form-label">Date & Time</label>
       <div class="row g-3">
         <div class="col-md-6">
-          <button class="btn btn-primary w-100" onclick="sendCartReminders()" style="padding: 1rem;">
-            <i class="fas fa-shopping-cart me-2"></i>Send Cart Reminders
-            <br><small class="d-block mt-1" style="opacity: 0.8;">Remind customers of abandoned carts</small>
-          </button>
+          <input type="date" name="schedule_date" id="schedule_date" class="form-control" min="{{ current_date }}">
         </div>
         <div class="col-md-6">
-          <button class="btn btn-success w-100" onclick="sendOrderConfirmations()" style="padding: 1rem;">
-            <i class="fas fa-check-circle me-2"></i>Send Order Confirmations
-            <br><small class="d-block mt-1" style="opacity: 0.8;">Confirm recent orders</small>
-          </button>
+          <input type="time" name="schedule_time" id="schedule_time" class="form-control">
         </div>
+      </div>
+      <div class="form-text mt-2" style="color:#fcd34d;">
+        <i class="fas fa-info-circle me-1"></i>Scheduled messages run even when you're logged out.
       </div>
     </div>
-  </div>
 
-  <!-- IMPROVED Scheduled Jobs Section -->
-  <div class="scheduled-jobs-card" id="scheduledJobsSection">
-    <div class="jobs-header">
-      <div class="jobs-title">
-        📅 Scheduled Jobs
-        <span class="jobs-count" id="jobsCount">0</span>
-      </div>
-      <button class="refresh-jobs-btn" onclick="loadScheduledJobs()">
-        🔄 Refresh
-      </button>
-    </div>
-    <div id="jobsList">
-      <div class="loading-jobs">⏳ Loading scheduled jobs...</div>
-    </div>
-  </div>
-
-  <div class="main-card">
-    <form method="POST" enctype="multipart/form-data">
-
-      <!-- Customer or CSV Selection -->
-      <div class="mb-4">
-        <div class="btn-group w-100 mb-3" role="group">
-          <input type="radio" class="btn-check" name="source_type" id="source_csv" value="csv" checked autocomplete="off" onchange="toggleSource()">
-          <label class="btn btn-outline-primary" for="source_csv">📊 Upload CSV</label>
-          
-          <input type="radio" class="btn-check" name="source_type" id="source_customers" value="customers" autocomplete="off" onchange="toggleSource()">
-          <label class="btn btn-outline-primary" for="source_customers">👥 Select Customers</label>
-        </div>
-      </div>
-
-      <!-- CSV Upload -->
-      <div class="mb-4" id="csv_section">
-        <label class="form-label">📊 Upload CSV File</label>
-        <div class="file-upload-wrapper">
-          <input type="file" name="csv_file" id="csv_file" class="file-upload-input" accept=".csv">
-          <div class="file-upload-label">
-            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <span id="file-text">Click to upload or drag and drop</span>
-          </div>
-        </div>
-        <div id="file-name-display" class="file-name"></div>
-      </div>
-      
-      <!-- Customer Selection -->
-      <div class="mb-4" id="customer_section" style="display: none;">
-        <label class="form-label">👥 Select Customers</label>
-        <div class="alert alert-info">
-          <i class="fas fa-info-circle me-2"></i>
-          <span id="customer_count">0 customers selected</span>
-          <button type="button" class="btn btn-sm btn-primary float-end" onclick="goToCustomers()">
-            <i class="fas fa-users me-1"></i>Select Customers
-          </button>
-        </div>
-        <input type="hidden" name="selected_customers" id="selected_customers">
-      </div>
-
-      <div class="section-divider"></div>
-
-      <!-- Template Selection -->
-      <div class="mb-4">
-        <label class="form-label">📱 WhatsApp Template</label>
-        <select name="template_name" id="template_name" class="form-select">
-          <option value="none">-- No Template (Use Custom Message) --</option>
-          {% for t in templates %}
-            <option value="{{ t.name }}">{{ t.name }} ({{ t.category }})</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <!-- Header Image Upload -->
-      <div class="mb-3">
-        <label class="form-label">🖼️ Header Image (required for IMAGE header templates)</label>
-        <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*">
-        <div class="form-text text-light">
-          Upload once — the same image will be sent to everyone in this run.
-        </div>
-      </div>
-
-      <!-- Template Requirements Info (dynamically shown) -->
-      <div id="template_requirements" style="display: none; margin-bottom: 1rem;"></div>
-
-      <!-- Dynamic Parameter Box -->
-      <div id="param_box"></div>
-
-      <!-- Custom Message -->
-      <div class="mb-4">
-        <label class="form-label">✍️ Custom Message</label>
-        <textarea class="form-control" name="message_template" id="msg_box" placeholder="Enter your message here... Use {Name}, {Phone}, etc. to personalize"></textarea>
-        <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">Only used if no template is selected</small>
-      </div>
-
-      <div class="section-divider"></div>
-
-      <!-- Send Mode -->
-      <div class="mb-4">
-        <label class="form-label">⏰ Sending Schedule</label>
-        <div class="radio-group">
-          <div class="radio-item">
-            <input type="radio" name="send_mode" id="send_now" value="now" checked onchange="toggleScheduleFields()">
-            <label for="send_now">Send Now</label>
-          </div>
-          <div class="radio-item">
-            <input type="radio" name="send_mode" id="send_later" value="later" onchange="toggleScheduleFields()">
-            <label for="send_later">Schedule Later</label>
-          </div>
-        </div>
-      </div>
-
-      <!-- Schedule Date & Time -->
-      <div class="mb-4" id="scheduleFields" style="display: none;">
-        <label class="form-label">📅 Schedule Date & Time</label>
-        <div class="row g-3">
-          <div class="col-md-6">
-            <input type="date" name="schedule_date" id="schedule_date" class="form-control" 
-                   min="{{ current_date }}" placeholder="Select date">
-            <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
-              Select date (today or future)
-            </small>
-          </div>
-          <div class="col-md-6">
-            <input type="time" name="schedule_time" id="schedule_time" class="form-control" 
-                   placeholder="Select time">
-            <small style="color: #a0aec0; display: block; margin-top: 0.5rem;">
-              Select time (24-hour format)
-            </small>
-          </div>
-        </div>
-        <div class="mt-2">
-          <small style="color: #fbbf24;">
-            ⚠️ <strong>Note:</strong> Scheduled messages will be sent even when you're logged out. 
-            The background scheduler runs independently.
-          </small>
-        </div>
-      </div>
-
-      <button type="submit" class="btn-submit" onclick="showQueueMonitor()">🚀 Start Sending Messages</button>
-
-    </form>
-  </div>
-
+    <button type="submit" class="btn-submit" onclick="showQueueMonitor()">
+      <i class="fas fa-paper-plane me-2"></i>Start Sending Messages
+    </button>
+  </form>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 let csvColumns = [];
 
-// Check for selected customers from session storage
 window.addEventListener('DOMContentLoaded', function() {
-  const selectedCustomers = sessionStorage.getItem('selectedCustomers');
-  if (selectedCustomers) {
-    const customers = JSON.parse(selectedCustomers);
+  const sel = sessionStorage.getItem('selectedCustomers');
+  if (sel) {
+    const customers = JSON.parse(sel);
     document.getElementById('source_customers').checked = true;
     toggleSource();
     updateCustomerSelection(customers);
     sessionStorage.removeItem('selectedCustomers');
   }
+  loadScheduledJobs();
+  loadDashboardStats();
+  loadQueueStatus();
+  setInterval(loadScheduledJobs, 5000);
+  setInterval(loadQueueStatus, 3000);
 });
 
 function toggleSource() {
-  const sourceType = document.querySelector('input[name="source_type"]:checked').value;
-  const csvSection = document.getElementById('csv_section');
-  const customerSection = document.getElementById('customer_section');
-  const csvFile = document.getElementById('csv_file');
-  
-  if (sourceType === 'csv') {
-    csvSection.style.display = 'block';
-    customerSection.style.display = 'none';
-    csvFile.required = true;
-  } else {
-    csvSection.style.display = 'none';
-    customerSection.style.display = 'block';
-    csvFile.required = false;
-  }
-}
-
-function goToCustomers() {
-  window.location.href = '{{ url_for("customers_page") }}';
+  const csv = document.querySelector('input[name="source_type"]:checked').value === 'csv';
+  document.getElementById('csv_section').style.display = csv ? 'block' : 'none';
+  document.getElementById('customer_section').style.display = csv ? 'none' : 'block';
+  document.getElementById('csv_file').required = csv;
 }
 
 function updateCustomerSelection(customers) {
   document.getElementById('customer_count').textContent = customers.length + ' customers selected';
   document.getElementById('selected_customers').value = JSON.stringify(customers);
-  
-  // Mock CSV columns for template parameter selection
   csvColumns = ['Name', 'Phone'];
 }
 
-// Toggle schedule fields visibility
 function toggleScheduleFields() {
-  const scheduleFields = document.getElementById('scheduleFields');
-  const sendLater = document.getElementById('send_later');
-  
-  if (sendLater.checked) {
-    scheduleFields.style.display = 'block';
-    // Set min date to today
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('schedule_date').min = today;
-  } else {
-    scheduleFields.style.display = 'none';
-  }
+  const show = document.getElementById('send_later').checked;
+  document.getElementById('scheduleFields').style.display = show ? 'block' : 'none';
+  if (show) document.getElementById('schedule_date').min = new Date().toISOString().split('T')[0];
 }
 
-// Show queue monitor when sending starts
 function showQueueMonitor() {
   setTimeout(() => {
-    const queueSection = document.getElementById('queueMonitorSection');
-    if (queueSection) {
-      queueSection.style.display = 'block';
-      loadQueueStatus();
-    }
+    const el = document.getElementById('queueMonitorSection');
+    if (el) { el.style.display = 'block'; loadQueueStatus(); }
   }, 1000);
 }
 
-// File upload display
-document.getElementById("csv_file").addEventListener("change", function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    document.getElementById("file-text").textContent = file.name;
-    document.getElementById("file-name-display").textContent = "✅ " + file.name;
-
-    const formData = new FormData();
-    formData.append("csv_file", file);
-
-    fetch("/get-csv-columns", {
-        method: "POST",
-        body: formData
-    })
-    .then(res => res.json())
+document.getElementById('csv_file').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('file-text').textContent = file.name;
+  document.getElementById('file-name-display').textContent = '✅ ' + file.name;
+  const fd = new FormData();
+  fd.append('csv_file', file);
+  fetch('/get-csv-columns', { method: 'POST', body: fd })
+    .then(r => r.json())
     .then(data => {
-        if (data.columns) {
-            csvColumns = data.columns;
-            const selectedTemplate = document.getElementById("template_name").value;
-            if (selectedTemplate !== "none") {
-                document.getElementById("template_name").dispatchEvent(new Event('change'));
-            }
-        }
+      if (data.columns) {
+        csvColumns = data.columns;
+        const sel = document.getElementById('template_name').value;
+        if (sel !== 'none') document.getElementById('template_name').dispatchEvent(new Event('change'));
+      }
     })
-    .catch(err => console.error("Error reading CSV:", err));
+    .catch(() => {});
 });
 
-// Template selection
-document.getElementById("template_name").addEventListener("change", function () {
-    const selected = this.value;
-    const paramBox = document.getElementById("param_box");
-    const requirementsBox = document.getElementById("template_requirements");
+document.getElementById('template_name').addEventListener('change', function() {
+  const selected = this.value;
+  const paramBox = document.getElementById('param_box');
+  const reqBox   = document.getElementById('template_requirements');
 
-    if (selected === "none") {
-        paramBox.innerHTML = "";
-        requirementsBox.style.display = "none";
-        return;
-    }
+  if (selected === 'none') { paramBox.innerHTML = ''; reqBox.style.display = 'none'; return; }
 
-    if (csvColumns.length === 0) {
-        paramBox.innerHTML = '<div class="warning-badge">⚠️ Please upload CSV file first</div>';
-        requirementsBox.style.display = "none";
-        return;
-    }
+  if (!csvColumns.length) {
+    paramBox.innerHTML = '<div class="warning-badge">⚠️ Upload a CSV file first to map parameters</div>';
+    reqBox.style.display = 'none';
+    return;
+  }
 
-    fetch("/template-info?name=" + selected)
-      .then(res => res.json())
-      .then(data => {
-          let html = '';
-          let requirements = '';
-          
-          // Check for special requirements
-          let hasImageHeader = false;
-          let hasButtons = data.buttons && data.buttons.length > 0;
-          
-          // Try to detect IMAGE header from templates list
-          const templates = {{ templates | tojson }};
-          const templateObj = templates.find(t => t.name === selected);
-          if (templateObj && templateObj.components) {
-              const headerComp = templateObj.components.find(c => c.type === 'HEADER');
-              if (headerComp && headerComp.format === 'IMAGE') {
-                  hasImageHeader = true;
-              }
+  fetch('/template-info?name=' + selected)
+    .then(r => r.json())
+    .then(data => {
+      let html = '', req = '';
+      const templates = {{ templates | tojson }};
+      const tObj = templates.find(t => t.name === selected);
+      let hasImg = tObj?.components?.some(c => c.type === 'HEADER' && c.format === 'IMAGE');
+      let hasBtns = data.buttons?.length > 0;
+
+      if (hasImg || hasBtns) {
+        req = '<div class="alert alert-info" style="font-size:0.83rem;"><strong>Template Requirements:</strong><ul class="mb-0 mt-1" style="padding-left:1.25rem;">';
+        if (hasImg)  req += '<li>IMAGE Header: upload an image above</li>';
+        if (hasBtns && data.buttons.find(b => b.type === 'COPY_CODE')) req += '<li>Copy Code Button: enter coupon below</li>';
+        if (hasBtns && data.buttons.find(b => b.type === 'URL' && b.requires)) req += '<li>Dynamic URL Button: map a CSV column below</li>';
+        req += '</ul></div>';
+        reqBox.innerHTML = req; reqBox.style.display = 'block';
+      } else { reqBox.style.display = 'none'; }
+
+      if (data.count > 0) {
+        html += '<div class="param-section"><div class="param-header"><i class="fas fa-link me-1"></i>Map Template Variables to CSV Columns</div>';
+        for (let i = 1; i <= data.count; i++) {
+          html += '<div class="param-item"><label class="form-label" style="font-size:0.83rem;">Variable {{ '{{' }}' + i + '{{ '}}' }}</label>' +
+                  '<select name="param' + i + '" class="form-select" required>' +
+                  '<option value="">— Select CSV Column —</option>' +
+                  csvColumns.map(c => '<option value="' + c + '">' + c + '</option>').join('') +
+                  '</select></div>';
+        }
+        html += '</div>';
+      }
+
+      if (hasBtns) {
+        html += '<div class="param-section" style="margin-top:0.875rem;"><div class="param-header"><i class="fas fa-mouse-pointer me-1"></i>Button Parameters</div>';
+        data.buttons.forEach(btn => {
+          if (btn.type === 'COPY_CODE') {
+            html += `<div class="param-item"><label class="form-label" style="font-size:0.83rem;">${btn.text || 'Copy Code'} — Coupon Code</label>
+              <input type="text" name="button_coupon_code_${btn.index}" class="form-control" placeholder="e.g., SAVE20" required>
+              <div class="form-text">Same code sent to all recipients</div></div>`;
+          } else if (btn.type === 'URL' && btn.requires === 'url_parameter') {
+            html += `<div class="param-item"><label class="form-label" style="font-size:0.83rem;">${btn.text || 'URL Button'} — Dynamic Parameter</label>
+              <select name="button_url_param_${btn.index}" class="form-select" required>
+                <option value="">— Select CSV Column —</option>
+                ${csvColumns.map(c => `<option value="${c}">${c}</option>`).join('')}
+              </select></div>`;
           }
-          
-          // Show requirements banner
-          if (hasImageHeader || hasButtons) {
-              requirements += '<div class="alert alert-info" style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 1rem; color: #93c5fd;">';
-              requirements += '<div style="font-weight: 600; margin-bottom: 0.5rem;"><i class="fas fa-info-circle"></i> Template Requirements:</div>';
-              requirements += '<ul style="margin: 0; padding-left: 1.5rem;">';
-              
-              if (hasImageHeader) {
-                  requirements += '<li><strong>IMAGE Header:</strong> Upload an image above (same image for all recipients)</li>';
-              }
-              
-              if (hasButtons) {
-                  const copyCodeBtn = data.buttons.find(b => b.type === 'COPY_CODE');
-                  if (copyCodeBtn) {
-                      requirements += '<li><strong>Copy Code Button:</strong> Enter a coupon code below (same for all recipients)</li>';
-                  }
-                  const urlBtn = data.buttons.find(b => b.type === 'URL' && b.requires);
-                  if (urlBtn) {
-                      requirements += '<li><strong>Dynamic URL Button:</strong> Map a CSV column for URL parameters below</li>';
-                  }
-              }
-              
-              requirements += '</ul></div>';
-              requirementsBox.innerHTML = requirements;
-              requirementsBox.style.display = 'block';
-          } else {
-              requirementsBox.style.display = 'none';
-          }
-          
-          // Body parameters section
-          if (data.count > 0) {
-              html += '<div class="param-section">';
-              html += '<div class="param-header">🔗 Map Template Parameters to CSV Columns</div>';
-
-              for (let i = 1; i <= data.count; i++) {
-                  html += `
-                    <div class="param-item">
-                      <label class="form-label">Parameter ${i}</label>
-                      <select name="param${i}" class="form-select" required>
-                        <option value="">-- Select CSV Column --</option>
-                  `;
-                  
-                  csvColumns.forEach(col => {
-                      html += `<option value="${col}">${col}</option>`;
-                  });
-                  
-                  html += `</select></div>`;
-              }
-
-              html += '</div>';
-          }
-          
-          // Button parameters section
-          if (data.buttons && data.buttons.length > 0) {
-              html += '<div class="param-section" style="margin-top: 1rem;">';
-              html += '<div class="param-header">🔘 Button Parameters</div>';
-              
-              data.buttons.forEach(btn => {
-                  if (btn.type === 'COPY_CODE') {
-                      html += `
-                        <div class="param-item">
-                          <label class="form-label">
-                            <i class="fas fa-copy"></i> ${btn.text || 'Copy Code Button'} - Coupon Code
-                          </label>
-                          <input 
-                            type="text" 
-                            name="button_coupon_code_${btn.index}" 
-                            class="form-control" 
-                            placeholder="Enter coupon code (same for all recipients)"
-                            required
-                          >
-                          <small class="form-text text-light">
-                            <i class="fas fa-info-circle"></i> This code will be sent to ALL recipients (e.g., SAVE20, NEWYEAR2025)
-                          </small>
-                        </div>`;
-                  } else if (btn.type === 'URL' && btn.requires === 'url_parameter') {
-                      html += `
-                        <div class="param-item">
-                          <label class="form-label">
-                            <i class="fas fa-link"></i> ${btn.text || 'URL Button'} - Dynamic Parameter
-                          </label>
-                          <select name="button_url_param_${btn.index}" class="form-select" required>
-                            <option value="">-- Select URL Parameter Column --</option>
-                      `;
-                      
-                      csvColumns.forEach(col => {
-                          html += `<option value="${col}">${col}</option>`;
-                      });
-                      
-                      html += `</select>
-                          <small class="form-text text-light">
-                            <i class="fas fa-info-circle"></i> This value will be inserted into the button URL (unique per recipient)
-                          </small>
-                        </div>`;
-                  }
-              });
-              
-              html += '</div>';
-          }
-          
-          if (html === '') {
-              html = '<div class="info-badge">ℹ️ This template has no parameters</div>';
-          }
-          
-          paramBox.innerHTML = html;
-      });
-});
-
-// ========== IMPROVED SCHEDULED JOBS LOADING ==========
-function loadScheduledJobs() {
-    fetch('/scheduled-jobs')
-        .then(res => {
-            if (!res.ok) throw new Error('Failed to fetch');
-            return res.json();
-        })
-        .then(data => {
-            const jobsList = document.getElementById('jobsList');
-            const jobsCount = document.getElementById('jobsCount');
-            const jobs = data.jobs || [];
-            
-            // Update count
-            const activeJobs = jobs.filter(j => !['completed', 'failed', 'cancelled'].includes(j.status));
-            jobsCount.textContent = activeJobs.length;
-            
-            if (jobs.length === 0) {
-                jobsList.innerHTML = `
-                    <div class="no-jobs">
-                        <div class="no-jobs-icon">📭</div>
-                        <div>No scheduled jobs</div>
-                        <div style="font-size: 0.9em; margin-top: 0.5rem; opacity: 0.7;">
-                            Schedule a message to see it here
-                        </div>
-                    </div>
-                `;
-                return;
-            }
-            
-            // Sort jobs
-            jobs.sort((a, b) => {
-                const statusOrder = {
-                    'sending': 0, 'waiting': 1, 'pending': 2,
-                    'completed': 3, 'failed': 4, 'cancelled': 5
-                };
-                return statusOrder[a.status] - statusOrder[b.status];
-            });
-            
-            let html = '';
-            jobs.forEach(job => {
-                const statusIcons = {
-                    'pending': '⏸️',
-                    'waiting': '⏰',
-                    'sending': '📤',
-                    'completed': '✅',
-                    'failed': '❌',
-                    'cancelled': '🚫'
-                };
-                
-                const icon = statusIcons[job.status] || '📋';
-                const jobName = job.template_name || 'Text Message';
-                const canCancel = ['pending', 'waiting'].includes(job.status);
-                
-                html += `
-                    <div class="job-item">
-                        <div class="job-icon status-${job.status}">${icon}</div>
-                        
-                        <div>
-                            <span class="status-badge badge-${job.status}">${job.status}</span>
-                            <strong>${jobName}</strong>
-                            <div class="job-meta">
-                                <span>🕐 ${job.scheduled_time}</span>
-                                <span>👥 ${job.contact_count} contacts</span>
-                                <span>📅 ${job.created_at}</span>
-                            </div>
-                            ${job.error ? `<div style="color: #ef4444; font-size: 0.85em; margin-top: 0.5rem;">Error: ${job.error}</div>` : ''}
-                        </div>
-                        
-                        <button 
-                            class="btn-cancel" 
-                            onclick="cancelJob('${job.job_id}')"
-                            ${!canCancel ? 'disabled' : ''}
-                        >
-                            ${canCancel ? '🗑️ Cancel' : '⚫ Done'}
-                        </button>
-                    </div>
-                `;
-            });
-            
-            jobsList.innerHTML = html;
-        })
-        .catch(err => {
-            console.warn('Error loading jobs:', err);
-            document.getElementById('jobsList').innerHTML = `
-                <div class="no-jobs">
-                    <div style="color: #ef4444;">❌ Error loading jobs</div>
-                </div>
-            `;
         });
+        html += '</div>';
+      }
+
+      if (!html) html = '<div class="info-badge"><i class="fas fa-check me-1"></i>This template has no parameters</div>';
+      paramBox.innerHTML = html;
+    });
+});
+
+function loadScheduledJobs() {
+  fetch('/scheduled-jobs')
+    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    .then(data => {
+      const jobs = data.jobs || [];
+      const active = jobs.filter(j => !['completed','failed','cancelled'].includes(j.status));
+      document.getElementById('jobsCount').textContent = active.length;
+
+      if (!jobs.length) {
+        document.getElementById('jobsList').innerHTML = '<div class="no-jobs"><i class="fas fa-inbox fa-2x mb-2 d-block" style="opacity:0.2;"></i>No scheduled jobs</div>';
+        return;
+      }
+
+      jobs.sort((a,b) => ({'sending':0,'waiting':1,'pending':2,'completed':3,'failed':4,'cancelled':5}[a.status]||9) - ({'sending':0,'waiting':1,'pending':2,'completed':3,'failed':4,'cancelled':5}[b.status]||9));
+
+      const icons = { pending:'⏸️', waiting:'⏰', sending:'📤', completed:'✅', failed:'❌', cancelled:'🚫' };
+      document.getElementById('jobsList').innerHTML = jobs.map(job => {
+        const canCancel = ['pending','waiting'].includes(job.status);
+        return `<div class="job-item">
+          <div class="job-icon status-${job.status}">${icons[job.status]||'📋'}</div>
+          <div>
+            <span class="status-badge badge-${job.status}">${job.status}</span>
+            <strong>${job.template_name || 'Text Message'}</strong>
+            <div class="job-meta">
+              <span><i class="fas fa-clock"></i>${job.scheduled_time}</span>
+              <span><i class="fas fa-users"></i>${job.contact_count} contacts</span>
+              <span><i class="fas fa-calendar"></i>${job.created_at}</span>
+            </div>
+            ${job.error ? `<div style="color:#f87171;font-size:0.78rem;margin-top:0.3rem;">Error: ${job.error}</div>` : ''}
+          </div>
+          <button class="btn-cancel" onclick="cancelJob('${job.job_id}')" ${canCancel ? '' : 'disabled'}>
+            ${canCancel ? '🗑 Cancel' : '⚫ Done'}
+          </button>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('jobsList').innerHTML = '<div class="no-jobs" style="color:rgba(239,68,68,0.7);">Failed to load jobs</div>';
+    });
 }
 
 function cancelJob(jobId) {
-    if (!confirm('Are you sure you want to cancel this scheduled job?')) {
-        return;
-    }
-    
-    fetch(`/cancel-job/${jobId}`, { method: 'POST' })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                alert('✅ ' + data.message);
-            } else {
-                alert('❌ ' + data.message);
-            }
-            loadScheduledJobs();
-        })
-        .catch(err => {
-            console.error('Error canceling job:', err);
-            alert('❌ Failed to cancel job');
-        });
+  if (!confirm('Cancel this scheduled job?')) return;
+  fetch(`/cancel-job/${jobId}`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => { alert(data.success ? '✅ ' + data.message : '❌ ' + data.message); loadScheduledJobs(); })
+    .catch(() => alert('Failed to cancel job'));
 }
 
-// Load jobs on page load and refresh every 5 seconds
-loadScheduledJobs();
-setInterval(loadScheduledJobs, 5000);
-
-// Send cart reminders
-async function sendCartReminders() {
-  if (!confirm('Send WhatsApp reminders to customers with abandoned carts?')) {
-    return;
-  }
-  
-  const btn = event.target.closest('button');
-  const originalHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
-  
-  try {
-    const response = await fetch('/api/send-cart-reminders', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'}
-    });
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      alert(`✅ Success!\n\nSent: ${data.sent}\nFailed: ${data.failed}\n\n${data.message}`);
-    } else {
-      alert('❌ Error: ' + data.error);
-    }
-  } catch (error) {
-    alert('❌ Error sending cart reminders: ' + error);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalHtml;
-  }
-}
-
-// Send order confirmations
-async function sendOrderConfirmations() {
-  if (!confirm('Send WhatsApp confirmations for recent orders?')) {
-    return;
-  }
-  
-  const btn = event.target.closest('button');
-  const originalHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
-  
-  try {
-    const response = await fetch('/api/send-order-confirmations', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'}
-    });
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      alert(`✅ Success!\n\nSent: ${data.sent}\nFailed: ${data.failed}\n\n${data.message}`);
-    } else {
-      alert('❌ Error: ' + data.error);
-    }
-  } catch (error) {
-    alert('❌ Error sending order confirmations: ' + error);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalHtml;
-  }
-}
-
-// Load dashboard statistics
 async function loadDashboardStats() {
   try {
-    const response = await fetch('/api/dashboard-stats');
-    if (response.ok) {
-      const stats = await response.json();
-      document.getElementById('totalCampaigns').textContent = stats.total_campaigns || 0;
-      document.getElementById('totalMessages').textContent = stats.total_messages || 0;
-      document.getElementById('activeCampaigns').textContent = stats.active_campaigns || 0;
-      document.getElementById('successRate').textContent = stats.success_rate ? stats.success_rate.toFixed(1) + '%' : '0%';
+    const r = await fetch('/api/dashboard-stats');
+    if (r.ok) {
+      const s = await r.json();
+      document.getElementById('totalCampaigns').textContent = s.total_campaigns || 0;
+      document.getElementById('totalMessages').textContent  = s.total_messages  || 0;
+      document.getElementById('activeCampaigns').textContent= s.active_campaigns || 0;
+      document.getElementById('successRate').textContent = s.success_rate ? s.success_rate.toFixed(1) + '%' : '0%';
     }
-  } catch (error) {
-    console.error('Error loading stats:', error);
-  }
+  } catch {}
 }
 
-// Load stats on page load
-loadDashboardStats();
-
-// ========== QUEUE MONITOR ==========
 function loadQueueStatus() {
-    fetch('/queue-status')
-        .then(res => res.json())
-        .then(data => {
-            const queueStatus = document.getElementById('queueStatus');
-            const queueCount = document.getElementById('queueCount');
-            
-            if (!data || !data.queue_size === undefined) {
-                queueStatus.innerHTML = '<div class="no-jobs">❌ Unable to load queue status</div>';
-                return;
-            }
+  fetch('/queue-status')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('queueStatus');
+      document.getElementById('queueCount').textContent = data.queue_size || 0;
 
-            queueCount.textContent = data.queue_size;
+      if (!data.queue_size && !data.total_processed) {
+        el.innerHTML = '<div class="no-jobs">✅ Queue is empty</div>'; return;
+      }
 
-            let html = `
-                <div style="display: grid; gap: 1rem; padding: 1rem;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
-                        <div style="background: rgba(102, 126, 234, 0.1); padding: 1rem; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.3);">
-                            <div style="font-size: 0.85rem; color: #a0aec0; margin-bottom: 0.5rem;">⏳ Queue Size</div>
-                            <div style="font-size: 1.5rem; font-weight: bold; color: #667eea;">${data.queue_size}</div>
-                        </div>
-                        <div style="background: rgba(74, 222, 128, 0.1); padding: 1rem; border-radius: 8px; border: 1px solid rgba(74, 222, 128, 0.3);">
-                            <div style="font-size: 0.85rem; color: #a0aec0; margin-bottom: 0.5rem;">✅ Successful</div>
-                            <div style="font-size: 1.5rem; font-weight: bold; color: #4ade80;">${data.successful || 0}</div>
-                        </div>
-                        <div style="background: rgba(239, 68, 68, 0.1); padding: 1rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.3);">
-                            <div style="font-size: 0.85rem; color: #a0aec0; margin-bottom: 0.5rem;">❌ Failed</div>
-                            <div style="font-size: 1.5rem; font-weight: bold; color: #ef4444;">${data.failed || 0}</div>
-                        </div>
-                        <div style="background: rgba(251, 191, 36, 0.1); padding: 1rem; border-radius: 8px; border: 1px solid rgba(251, 191, 36, 0.3);">
-                            <div style="font-size: 0.85rem; color: #a0aec0; margin-bottom: 0.5rem;">⚡ Rate</div>
-                            <div style="font-size: 1.5rem; font-weight: bold; color: #fbbf24;">${data.rate_limit || 15}/min</div>
-                        </div>
-                    </div>
-                    ${data.queue_size > 0 ? `
-                        <div style="background: rgba(102, 126, 234, 0.05); padding: 1rem; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
-                            <div style="font-size: 0.85rem; color: #a0aec0; margin-bottom: 0.5rem;">⏱️ Estimated Time</div>
-                            <div style="font-size: 1.2rem; font-weight: bold; color: #fbbf24;">${calculateEstTime(data.queue_size, data.rate_limit || 15)}</div>
-                        </div>
-                    ` : ''}
-            `;
-
-            if (data.queue_size === 0 && (data.total_processed === 0 || !data.total_processed)) {
-                html = '<div class="no-jobs">✅ Queue is empty - No messages waiting</div>';
-            } else if (data.queue_size === 0) {
-                html = '<div class="no-jobs">✅ Queue is empty - All messages processed!</div>';
-            }
-
-            html += '</div>';
-            queueStatus.innerHTML = html;
-        })
-        .catch(err => {
-            console.warn('Error loading queue status:', err);
-            document.getElementById('queueStatus').innerHTML = `
-                <div class="no-jobs">
-                    <div style="color: #ef4444;">❌ Error loading queue status</div>
-                </div>
-            `;
-        });
+      el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;padding:0.25rem;">
+        <div style="background:rgba(102,126,234,0.1);border:1px solid rgba(102,126,234,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
+          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Queue Size</div>
+          <div style="font-size:1.4rem;font-weight:700;color:#a5b4fc;">${data.queue_size}</div>
+        </div>
+        <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
+          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Successful</div>
+          <div style="font-size:1.4rem;font-weight:700;color:#34d399;">${data.successful||0}</div>
+        </div>
+        <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
+          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Failed</div>
+          <div style="font-size:1.4rem;font-weight:700;color:#f87171;">${data.failed||0}</div>
+        </div>
+        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
+          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Rate</div>
+          <div style="font-size:1.4rem;font-weight:700;color:#fcd34d;">${data.rate_limit||15}/min</div>
+        </div>
+      </div>
+      ${data.queue_size > 0 ? `<div style="margin-top:0.75rem;background:rgba(255,255,255,0.04);border-radius:8px;padding:0.75rem 1rem;font-size:0.83rem;color:rgba(255,255,255,0.5);">
+        ⏱ Est. time remaining: <strong style="color:#fcd34d;">${calcEst(data.queue_size, data.rate_limit||15)}</strong>
+      </div>` : ''}`;
+    })
+    .catch(() => {});
 }
 
-function calculateEstTime(queueSize, rateLimit) {
-    if (queueSize === 0) return '0 min';
-    const minutes = Math.ceil(queueSize / rateLimit);
-    if (minutes < 60) return `${minutes} min`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours}h ${mins}m`;
+function calcEst(q, rate) {
+  const m = Math.ceil(q / rate);
+  return m < 60 ? m + ' min' : Math.floor(m/60) + 'h ' + (m%60) + 'm';
 }
 
-// Load queue status on page load and refresh every 3 seconds
-loadQueueStatus();
-setInterval(loadQueueStatus, 3000);
+async function sendCartReminders() {
+  if (!confirm('Send WhatsApp reminders to customers with abandoned carts?')) return;
+  const btn = event.target.closest('button'); const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
+  try {
+    const r = await fetch('/api/send-cart-reminders', { method: 'POST', headers: {'Content-Type':'application/json'} });
+    const d = await r.json();
+    d.success ? alert(`✅ Sent: ${d.sent}  Failed: ${d.failed}\n${d.message}`) : alert('❌ ' + d.error);
+  } catch(e) { alert('❌ ' + e); }
+  finally { btn.disabled = false; btn.innerHTML = orig; }
+}
+
+async function sendOrderConfirmations() {
+  if (!confirm('Send WhatsApp confirmations for recent orders?')) return;
+  const btn = event.target.closest('button'); const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
+  try {
+    const r = await fetch('/api/send-order-confirmations', { method: 'POST', headers: {'Content-Type':'application/json'} });
+    const d = await r.json();
+    d.success ? alert(`✅ Sent: ${d.sent}  Failed: ${d.failed}\n${d.message}`) : alert('❌ ' + d.error);
+  } catch(e) { alert('❌ ' + e); }
+  finally { btn.disabled = false; btn.innerHTML = orig; }
+}
 </script>
-
-<!-- Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
-</body>
-</html>
+{% endblock %}

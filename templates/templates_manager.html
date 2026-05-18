@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Templates - WhatsApp Dashboard{% endblock %}
+{% block page_title %}Templates{% endblock %}
+
+{% block head %}
+<style>
+  .stats-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.5rem;
+  }
+  .stat-box {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 12px; padding: 1rem 1.25rem; text-align: center;
+  }
+  .stat-box .num { font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+  .stat-box .lbl { font-size: 0.7rem; color: rgba(255,255,255,0.38); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.2rem; }
+
+  .template-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; padding: 1.1rem 1.25rem;
+    margin-bottom: 0.75rem; transition: all 0.18s;
+  }
+  .template-card:hover {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.14);
+  }
+
+  .template-name { font-weight: 600; font-size: 0.93rem; color: #e2e8f0; font-family: monospace; }
+
+  .status-badge {
+    font-size: 0.68rem; font-weight: 700; padding: 0.22rem 0.65rem;
+    border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .status-APPROVED { background: rgba(16,185,129,0.18); color: #34d399; }
+  .status-PENDING  { background: rgba(251,191,36,0.18);  color: #fcd34d; }
+  .status-REJECTED { background: rgba(239,68,68,0.18);   color: #f87171; }
+  .status-PAUSED   { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.5); }
+  .status-DISABLED { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.5); }
+
+  .category-badge {
+    font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.55rem;
+    border-radius: 6px; text-transform: uppercase; letter-spacing: 0.04em;
+    background: rgba(167,139,250,0.18); color: #c4b5fd;
+  }
+
+  .component-pill {
+    font-size: 0.65rem; padding: 0.15rem 0.45rem;
+    border-radius: 4px; background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.45); margin-right: 0.25rem; margin-top: 0.4rem; display: inline-block;
+  }
+
+  .body-preview {
+    font-size: 0.82rem; color: rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.04);
+    border-radius: 7px; padding: 0.6rem 0.875rem;
+    margin-top: 0.625rem; white-space: pre-wrap; word-break: break-word;
+    max-height: 72px; overflow: hidden; position: relative;
+  }
+  .body-preview.expanded { max-height: none; }
+  .show-more { font-size: 0.72rem; color: #a5b4fc; cursor: pointer; margin-top: 0.2rem; display: inline-block; }
+  .show-more:hover { text-decoration: underline; }
+
+  .filter-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+  .filter-tab {
+    padding: 0.3rem 0.875rem; border-radius: 20px;
+    font-size: 0.8rem; font-weight: 500; color: rgba(255,255,255,0.5);
+    background: transparent; border: 1px solid rgba(255,255,255,0.1);
+    cursor: pointer; transition: all 0.15s; text-decoration: none;
+  }
+  .filter-tab:hover { color: #fff; background: rgba(255,255,255,0.07); }
+  .filter-tab.active { background: rgba(139,124,248,0.25); color: #fff; border-color: rgba(139,124,248,0.4); }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set approved = templates | selectattr('status','equalto','APPROVED') | list | length %}
+{% set pending  = templates | selectattr('status','equalto','PENDING')  | list | length %}
+{% set rejected = templates | selectattr('status','equalto','REJECTED') | list | length %}
+
+<!-- Stats strip -->
+<div class="stats-strip">
+  <div class="stat-box">
+    <div class="num" style="color:#34d399;">{{ approved }}</div>
+    <div class="lbl">Approved</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:#fcd34d;">{{ pending }}</div>
+    <div class="lbl">Pending</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:#f87171;">{{ rejected }}</div>
+    <div class="lbl">Rejected</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:#a5b4fc;">{{ templates | length }}</div>
+    <div class="lbl">Total</div>
+  </div>
+</div>
+
+<div class="glass-card" style="padding:1.5rem;">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="page-title" style="font-size:1.1rem;">
+      <i class="fas fa-layer-group me-2" style="color:#a5b4fc;"></i>Message Templates
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary btn-sm" onclick="location.reload()">
+        <i class="fas fa-sync me-1"></i>Refresh
+      </button>
+      <a href="{{ url_for('create_template_page') }}" class="btn btn-primary btn-sm">
+        <i class="fas fa-plus me-1"></i>Create
+      </a>
+    </div>
+  </div>
+
+  <!-- Filters + search -->
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="filter-tabs">
+      <a class="filter-tab active" href="#" onclick="filterStatus('ALL',this);return false;">All</a>
+      <a class="filter-tab" href="#" onclick="filterStatus('APPROVED',this);return false;">Approved</a>
+      <a class="filter-tab" href="#" onclick="filterStatus('PENDING',this);return false;">Pending</a>
+      <a class="filter-tab" href="#" onclick="filterStatus('REJECTED',this);return false;">Rejected</a>
+    </div>
+    <input type="text" class="form-control form-control-sm" id="searchInput"
+           placeholder="Search templates…" oninput="applyFilters()" style="max-width:240px;">
+  </div>
+
+  <!-- List -->
+  <div id="templateList">
+    {% if templates %}
+      {% for t in templates %}
+      {% set body_comp  = t.components | selectattr('type','equalto','BODY') | list %}
+      {% set body_text  = body_comp[0].text if body_comp else '' %}
+      {% set comp_types = t.components | map(attribute='type') | list %}
+
+      <div class="template-card" data-status="{{ t.status }}" data-name="{{ t.name }}">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+          <div>
+            <span class="template-name">{{ t.name }}</span>
+            <span class="status-badge status-{{ t.status }} ms-2">{{ t.status }}</span>
+            <span class="category-badge ms-2">{{ t.category }}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <small style="color:rgba(255,255,255,0.3);font-size:0.75rem;">{{ t.language }}</small>
+            <button class="btn btn-outline-danger btn-sm" style="padding:0.25rem 0.5rem;font-size:0.75rem;"
+                    onclick="deleteTemplate('{{ t.name }}', this)" title="Delete">
+              <i class="fas fa-trash-alt"></i>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          {% for ctype in comp_types %}
+          <span class="component-pill">{{ ctype }}</span>
+          {% endfor %}
+        </div>
+
+        {% if body_text %}
+        <div class="body-preview" id="preview-{{ loop.index }}">{{ body_text }}</div>
+        {% if body_text | length > 110 %}
+        <span class="show-more" onclick="togglePreview('preview-{{ loop.index }}', this)">Show more</span>
+        {% endif %}
+        {% endif %}
+
+        {% if t.status == 'REJECTED' and t.get('rejected_reason') %}
+        <div class="alert alert-danger mt-2 mb-0 py-1 px-2" style="font-size:0.8rem;">
+          <i class="fas fa-exclamation-circle me-1"></i>{{ t.rejected_reason }}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-center py-5" style="color:rgba(255,255,255,0.35);">
+        <i class="fas fa-layer-group fa-3x mb-3 d-block" style="opacity:0.2;"></i>
+        No templates found.
+        <a href="{{ url_for('create_template_page') }}" style="color:#a5b4fc;">Create your first template</a>.
+      </div>
+    {% endif %}
+  </div>
+
+  <div id="noResults" class="text-center py-4" style="display:none;color:rgba(255,255,255,0.3);">
+    <i class="fas fa-search fa-2x mb-2 d-block" style="opacity:0.3;"></i>No templates match your search.
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let activeStatus = 'ALL';
+
+  function filterStatus(status, el) {
+    activeStatus = status;
+    document.querySelectorAll('.filter-tab').forEach(l => l.classList.remove('active'));
+    el.classList.add('active');
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const cards = document.querySelectorAll('.template-card');
+    let visible = 0;
+    cards.forEach(card => {
+      const ok = (activeStatus === 'ALL' || card.dataset.status === activeStatus) &&
+                 (!query || card.dataset.name.toLowerCase().includes(query) ||
+                  card.innerText.toLowerCase().includes(query));
+      card.style.display = ok ? '' : 'none';
+      if (ok) visible++;
+    });
+    document.getElementById('noResults').style.display = visible === 0 ? '' : 'none';
+  }
+
+  function togglePreview(id, btn) {
+    const el = document.getElementById(id);
+    el.classList.toggle('expanded');
+    btn.textContent = el.classList.contains('expanded') ? 'Show less' : 'Show more';
+  }
+
+  function deleteTemplate(name, btn) {
+    if (!confirm(`Delete template "${name}"?\n\nThis cannot be undone.`)) return;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    fetch('/api/templates/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) btn.closest('.template-card').remove();
+      else {
+        alert('Error: ' + data.error);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+      }
+    })
+    .catch(e => {
+      alert('Error: ' + e.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+    });
+  }
+</script>
+{% endblock %}

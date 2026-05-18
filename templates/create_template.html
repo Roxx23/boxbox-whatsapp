@@ -1,356 +1,108 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Create WhatsApp Template</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+{% extends "base.html" %}
+{% block title %}Create Template - WhatsApp Dashboard{% endblock %}
+{% block page_title %}Create Template{% endblock %}
 
-    body {
-      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-      min-height: 100vh;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #fff;
-    }
+{% block head %}
+<style>
+  .create-form-wrap { max-width: 720px; margin: 0 auto; }
 
-    /* Navbar Styles */
-    .navbar {
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 1rem 0;
-    }
+  .section-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    margin: 1.75rem 0;
+  }
 
-    .navbar-brand {
-      font-weight: 700;
-      font-size: 1.5rem;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
+  .header-type-selector { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .header-type-option {
+    flex: 1; min-width: 120px; padding: 0.875rem;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.1);
+    border-radius: 10px; cursor: pointer; text-align: center;
+    transition: all 0.18s; font-size: 0.875rem; font-weight: 500;
+  }
+  .header-type-option:hover { background: rgba(102,126,234,0.1); border-color: rgba(102,126,234,0.3); }
+  .header-type-option.active { background: rgba(139,124,248,0.18); border-color: #8b7cf8; color: #c4b5fd; }
+  .header-type-option input[type="radio"] { display: none; }
 
-    .nav-link {
-      color: rgba(255, 255, 255, 0.8) !important;
-      transition: all 0.3s ease;
-      font-weight: 500;
-      margin: 0 0.5rem;
-    }
+  .image-upload-zone {
+    border: 2px dashed rgba(102,126,234,0.35);
+    border-radius: 12px; padding: 2rem; text-align: center;
+    background: rgba(102,126,234,0.04); cursor: pointer; transition: all 0.2s;
+  }
+  .image-upload-zone:hover { background: rgba(102,126,234,0.1); border-color: #8b7cf8; }
+  .image-upload-zone.has-file { border-color: #10b981; background: rgba(16,185,129,0.07); }
 
-    .nav-link:hover {
-      color: #fff !important;
-      transform: translateY(-2px);
-    }
+  .image-preview { max-width: 200px; max-height: 200px; margin: 1rem auto; border-radius: 8px; }
 
-    .nav-link.active {
-      color: #fff !important;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 8px;
-      padding: 0.5rem 1rem;
-    }
+  .btn-create {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none; border-radius: 10px;
+    padding: 0.875rem 2rem; font-size: 1rem; font-weight: 600;
+    color: #fff; width: 100%; margin-top: 1.5rem;
+    transition: all 0.2s;
+  }
+  .btn-create:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(102,126,234,0.45); }
 
-    .container {
-      max-width: 800px;
-      padding: 2rem 1rem;
-    }
+  #header_image_section, #header_text_section { display: none; }
+</style>
+{% endblock %}
 
-    .header {
-      text-align: center;
-      margin-bottom: 3rem;
-    }
-
-    .header h1 {
-      font-size: 2.5rem;
-      font-weight: 700;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 0.5rem;
-    }
-
-    .main-card {
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(10px);
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 2.5rem;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-
-    .form-label {
-      font-weight: 600;
-      color: #e2e8f0;
-      margin-bottom: 0.5rem;
-    }
-
-    .form-control, .form-select {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 12px;
-      color: #fff;
-      padding: 0.75rem 1rem;
-    }
-
-    .form-control:focus, .form-select:focus {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-      color: #fff;
-    }
-
-    .form-control::placeholder {
-      color: rgba(255, 255, 255, 0.4);
-    }
-
-    select option {
-      background: #1a1a2e;
-      color: #fff;
-    }
-
-    .btn-submit {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border: none;
-      border-radius: 12px;
-      padding: 1rem 2.5rem;
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #fff;
-      width: 100%;
-      margin-top: 1.5rem;
-    }
-
-    .btn-submit:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-    }
-
-    .back-btn {
-      display: inline-block;
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      padding: 0.75rem 1.5rem;
-      border-radius: 12px;
-      text-decoration: none;
-      margin-bottom: 1rem;
-    }
-
-    .back-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: white;
-    }
-
-    .alert {
-      background: rgba(255, 193, 7, 0.15);
-      border: 1px solid rgba(255, 193, 7, 0.3);
-      border-radius: 12px;
-      padding: 1rem;
-      margin-bottom: 1.5rem;
-      color: #ffc107;
-    }
-
-    .section-divider {
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-      margin: 2rem 0;
-    }
-
-    .header-type-selector {
-      display: flex;
-      gap: 1rem;
-      margin-top: 0.5rem;
-    }
-
-    .header-type-option {
-      flex: 1;
-      padding: 1rem;
-      background: rgba(102, 126, 234, 0.1);
-      border: 2px solid rgba(102, 126, 234, 0.3);
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      text-align: center;
-    }
-
-    .header-type-option.active {
-      background: rgba(102, 126, 234, 0.3);
-      border-color: #667eea;
-    }
-
-    .header-type-option input[type="radio"] {
-      display: none;
-    }
-
-    .image-upload-zone {
-      border: 2px dashed rgba(102, 126, 234, 0.4);
-      border-radius: 12px;
-      padding: 2rem;
-      text-align: center;
-      background: rgba(102, 126, 234, 0.05);
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-
-    .image-upload-zone:hover {
-      background: rgba(102, 126, 234, 0.1);
-      border-color: #667eea;
-    }
-
-    .image-upload-zone.has-file {
-      border-color: #4ade80;
-      background: rgba(74, 222, 128, 0.1);
-    }
-
-    .image-preview {
-      max-width: 200px;
-      max-height: 200px;
-      margin: 1rem auto;
-      border-radius: 8px;
-    }
-
-    .form-text {
-      color: #a0aec0;
-      font-size: 0.85rem;
-      margin-top: 0.25rem;
-    }
-    
-    .form-text code {
-      background: rgba(102, 126, 234, 0.2);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: 'Courier New', monospace;
-      font-size: 0.9em;
-    }
-    
-    .form-text a {
-      color: #667eea;
-      text-decoration: underline;
-    }
-    
-    .form-text a:hover {
-      color: #764ba2;
-    }
-
-    #header_image_section, #header_text_section {
-      display: none;
-    }
-  </style>
-</head>
-
-<body>
-
-<!-- Navbar -->
-<nav class="navbar navbar-expand-lg navbar-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('index') }}">
-      <i class="fas fa-paper-plane me-2"></i>WhatsApp Dashboard
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav ms-auto">
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('index') }}">
-            <i class="fas fa-home me-1"></i>Home
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">
-            <i class="fas fa-chart-line me-1"></i>Analytics
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('campaigns_page') }}">
-            <i class="fas fa-bullhorn me-1"></i>Campaigns
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('activity_log_page') }}">
-            <i class="fas fa-history me-1"></i>Activity
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link active" href="{{ url_for('create_template_page') }}">
-            <i class="fas fa-file-alt me-1"></i>Templates
-          </a>
-        </li>
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
-            <i class="fas fa-user-circle me-1"></i>{{ current_user.username }}
-          </a>
-          <ul class="dropdown-menu dropdown-menu-end" style="background: rgba(30, 30, 60, 0.95); border: 1px solid rgba(255,255,255,0.1);">
-            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-            <li><hr class="dropdown-divider" style="border-color: rgba(255,255,255,0.1);"></li>
-            <li><a class="dropdown-item text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-          </ul>
-        </li>
-      </ul>
+{% block content %}
+<div class="create-form-wrap">
+  <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+      <div class="page-title"><i class="fas fa-plus-circle me-2" style="color:#a5b4fc;"></i>Create Template</div>
+      <div class="page-subtitle">Design a new WhatsApp Business message template</div>
     </div>
-  </div>
-</nav>
-
-<div class="container">
-  <div class="header">
-    <h1>Create WhatsApp Template 📝</h1>
-    <p style="color: #a0aec0;">Design your message template for WhatsApp Business</p>
+    <a href="{{ url_for('templates_manager') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back to Templates
+    </a>
   </div>
 
   {% with messages = get_flashed_messages() %}
     {% if messages %}
-      <div class="alert">
-        {% for m in messages %}
-          <div>{{ m }}</div>
-        {% endfor %}
+      <div class="flash-alert">
+        {% for m in messages %}<div>{{ m }}</div>{% endfor %}
       </div>
     {% endif %}
   {% endwith %}
 
-  <div class="main-card">
+  <div class="glass-card" style="padding:2rem;">
     <form method="POST" action="/submit-template" enctype="multipart/form-data">
-      
-      <!-- Template Name -->
+
       <div class="mb-4">
-        <label class="form-label">📌 Template Name</label>
-        <input type="text" name="template_name" class="form-control" required 
-               placeholder="e.g., welcome_message" pattern="[a-z0-9_]+" 
+        <label class="form-label">Template Name</label>
+        <input type="text" name="template_name" class="form-control" required
+               placeholder="e.g., welcome_message" pattern="[a-z0-9_]+"
                title="Only lowercase letters, numbers, and underscores">
-        <div class="form-text">Use only lowercase letters, numbers, and underscores</div>
+        <div class="form-text">Only lowercase letters, numbers, and underscores</div>
       </div>
 
-      <!-- Category -->
-      <div class="mb-4">
-        <label class="form-label">🏷️ Category</label>
-        <select name="category" class="form-select" required>
-          <option value="MARKETING">Marketing</option>
-          <option value="UTILITY">Utility</option>
-          <option value="AUTHENTICATION">Authentication</option>
-        </select>
-      </div>
-
-      <!-- Language -->
-      <div class="mb-4">
-        <label class="form-label">🌍 Language</label>
-        <select name="language" class="form-select" required>
-          <option value="en">English</option>
-          <option value="en_US">English (US)</option>
-          <option value="en_GB">English (UK)</option>
-          <option value="hi">Hindi</option>
-          <option value="es">Spanish</option>
-        </select>
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <label class="form-label">Category</label>
+          <select name="category" class="form-select" required>
+            <option value="MARKETING">Marketing</option>
+            <option value="UTILITY">Utility</option>
+            <option value="AUTHENTICATION">Authentication</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Language</label>
+          <select name="language" class="form-select" required>
+            <option value="en">English</option>
+            <option value="en_US">English (US)</option>
+            <option value="en_GB">English (UK)</option>
+            <option value="hi">Hindi</option>
+            <option value="es">Spanish</option>
+          </select>
+        </div>
       </div>
 
       <div class="section-divider"></div>
 
-      <!-- Header Type Selection -->
       <div class="mb-4">
-        <label class="form-label">📋 Header Type (Optional)</label>
+        <label class="form-label">Header Type <span style="color:rgba(255,255,255,0.35);font-weight:400;">(Optional)</span></label>
         <div class="header-type-selector">
           <label class="header-type-option">
             <input type="radio" name="header_type" value="NONE" checked onchange="updateHeaderSection()">
@@ -367,61 +119,46 @@
         </div>
       </div>
 
-      <!-- Text Header Section -->
       <div id="header_text_section" class="mb-4">
         <label class="form-label">Header Text</label>
         <input type="text" name="header_text" class="form-control" placeholder="Enter header text">
       </div>
 
-      <!-- Image Header Section -->
       <div id="header_image_section" class="mb-4">
-        <label class="form-label">🖼️ Header Image</label>
-        
-        <!-- Image URL (ONLY option for template creation) -->
-        <div class="mb-3">
-          <label class="form-label" style="font-size: 0.9rem; font-weight: 500;">🔗 Image URL (Required)</label>
-          <input type="text" name="header_image_url" class="form-control" 
-                 placeholder="https://i.imgur.com/xxxxx.jpg" required>
-          <div class="form-text">
-            ✅ <strong>Required:</strong> Enter a publicly accessible HTTPS URL of your image<br>
-            <strong>Important:</strong> Must be a direct image link (ending in .jpg, .png, etc.)<br>
-            For Imgur: Right-click image → "Copy image address" or use format: <code>https://i.imgur.com/xxxxx.jpg</code>
+        <label class="form-label">Header Image</label>
+        <div class="image-upload-zone" id="imageUploadZone" onclick="document.getElementById('headerImageFile').click()">
+          <div id="uploadPrompt">
+            <div style="font-size:1.75rem;">📁</div>
+            <div style="font-weight:600;margin-top:0.5rem;">Click to choose an image</div>
+            <div style="color:rgba(255,255,255,0.35);font-size:0.82rem;margin-top:0.25rem;">JPG, PNG, WebP — max 5 MB</div>
+          </div>
+          <div id="imagePreview" style="display:none;">
+            <img id="previewImage" class="image-preview" alt="Preview">
+            <div id="fileName" style="margin-top:0.5rem;font-size:0.82rem;color:#34d399;"></div>
           </div>
         </div>
-        
-        <div class="form-text" style="background: rgba(255, 193, 7, 0.1); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255, 193, 7, 0.3); margin-top: 1rem;">
-          ℹ️ <strong>Why URL only?</strong> WhatsApp template creation requires a publicly accessible image URL for approval purposes. 
-          File uploads cannot be used for template creation (they only work for sending messages).<br><br>
-          📤 <strong>How to get an image URL:</strong><br>
-          1. Upload your image to <a href="https://imgbb.com/" target="_blank" style="color: #667eea;">ImgBB</a> or <a href="https://imgur.com/" target="_blank" style="color: #667eea;">Imgur</a><br>
-          2. Copy the <strong>direct image link</strong> (must end with .jpg, .png, etc.)<br>
-          3. Paste it in the field above
-        </div>
+        <input type="file" id="headerImageFile" name="header_image"
+               accept="image/jpeg,image/png,image/webp" style="display:none" onchange="previewImage(this)">
       </div>
 
       <div class="section-divider"></div>
 
-      <!-- Body Text -->
       <div class="mb-4">
-        <label class="form-label">📄 Body Text (Required)</label>
+        <label class="form-label">Body Text <span style="color:#f87171;font-weight:400;font-size:0.78rem;">Required</span></label>
         <textarea name="body_text" class="form-control" rows="4" required
-                  placeholder="Hello! Welcome to our service. Use {{1}} for variables."></textarea>
-        <div class="form-text">Use {{1}}, {{2}}, etc. for dynamic values</div>
+                  placeholder="Hello {{1}}! Welcome to our service.&#10;&#10;Use {{1}}, {{2}}, etc. for dynamic values."></textarea>
+        <div class="form-text">Use <code>{{1}}</code>, <code>{{2}}</code>, etc. as variable placeholders</div>
       </div>
 
-      <!-- Footer Text -->
       <div class="mb-4">
-        <label class="form-label">👣 Footer Text (Optional)</label>
-        <input type="text" name="footer_text" class="form-control" 
-               placeholder="e.g., Powered by YourCompany">
+        <label class="form-label">Footer Text <span style="color:rgba(255,255,255,0.3);font-weight:400;">(Optional)</span></label>
+        <input type="text" name="footer_text" class="form-control" placeholder="e.g., Powered by YourBrand">
       </div>
 
       <div class="section-divider"></div>
 
-      <!-- Buttons -->
       <div class="mb-4">
-        <label class="form-label">🔘 Call-to-Action Buttons (Optional)</label>
-        
+        <label class="form-label">Call-to-Action Button <span style="color:rgba(255,255,255,0.3);font-weight:400;">(Optional)</span></label>
         <div class="row g-3">
           <div class="col-md-4">
             <select name="button_type_1" class="form-select">
@@ -431,82 +168,47 @@
             </select>
           </div>
           <div class="col-md-4">
-            <input type="text" name="button_text_1" class="form-control" placeholder="Button text">
+            <input type="text" name="button_text_1" class="form-control" placeholder="Button label">
           </div>
           <div class="col-md-4">
-            <input type="text" name="button_value_1" class="form-control" placeholder="URL or phone">
+            <input type="text" name="button_value_1" class="form-control" placeholder="URL or phone number">
           </div>
         </div>
       </div>
 
-      <button type="submit" class="btn-submit">🚀 Create Template</button>
+      <button type="submit" class="btn-create">
+        <i class="fas fa-paper-plane me-2"></i>Submit Template for Approval
+      </button>
     </form>
   </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 function updateHeaderSection() {
-  const headerType = document.querySelector('input[name="header_type"]:checked').value;
-  const textSection = document.getElementById('header_text_section');
-  const imageSection = document.getElementById('header_image_section');
-  
-  // Update active state
-  document.querySelectorAll('.header-type-option').forEach(opt => {
-    opt.classList.remove('active');
-  });
-  document.querySelector(`input[value="${headerType}"]`).closest('.header-type-option').classList.add('active');
-  
-  // Show/hide sections
-  textSection.style.display = headerType === 'TEXT' ? 'block' : 'none';
-  imageSection.style.display = headerType === 'IMAGE' ? 'block' : 'none';
+  const val = document.querySelector('input[name="header_type"]:checked').value;
+  document.querySelectorAll('.header-type-option').forEach(o => o.classList.remove('active'));
+  document.querySelector(`input[value="${val}"]`).closest('.header-type-option').classList.add('active');
+  document.getElementById('header_text_section').style.display  = val === 'TEXT'  ? 'block' : 'none';
+  document.getElementById('header_image_section').style.display = val === 'IMAGE' ? 'block' : 'none';
 }
 
 function previewImage(input) {
   const file = input.files[0];
   if (!file) return;
-  
-  // Validate file size (5MB)
-  const maxSize = 5 * 1024 * 1024;
-  if (file.size > maxSize) {
-    alert('❌ File too large! Maximum size is 5MB.\nYour file: ' + (file.size / 1024 / 1024).toFixed(2) + 'MB');
-    input.value = '';
-    return;
-  }
-  
-  // Validate file type
-  const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  if (!validTypes.includes(file.type)) {
-    alert('❌ Invalid file type! Please upload JPG, PNG, GIF, or WebP images only.');
-    input.value = '';
-    return;
-  }
-  
-  const uploadZone = document.getElementById('imageUploadZone');
-  const uploadPrompt = document.getElementById('uploadPrompt');
-  const imagePreview = document.getElementById('imagePreview');
-  const previewImage = document.getElementById('previewImage');
-  const fileName = document.getElementById('fileName');
-  
+  if (file.size > 5 * 1024 * 1024) { alert('File too large! Maximum 5 MB.'); input.value = ''; return; }
   const reader = new FileReader();
-  reader.onload = function(e) {
-    previewImage.src = e.target.result;
-    fileName.textContent = `✅ ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
-    
-    uploadPrompt.style.display = 'none';
-    imagePreview.style.display = 'block';
-    uploadZone.classList.add('has-file');
+  reader.onload = e => {
+    document.getElementById('previewImage').src = e.target.result;
+    document.getElementById('fileName').textContent = `✅ ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+    document.getElementById('uploadPrompt').style.display = 'none';
+    document.getElementById('imagePreview').style.display = 'block';
+    document.getElementById('imageUploadZone').classList.add('has-file');
   };
   reader.readAsDataURL(file);
 }
 
-// Initialize
-document.addEventListener('DOMContentLoaded', function() {
-  updateHeaderSection();
-});
+document.addEventListener('DOMContentLoaded', updateHeaderSection);
 </script>
-
-<!-- Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
-</body>
-</html>
+{% endblock %}

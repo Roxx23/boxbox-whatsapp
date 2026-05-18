@@ -1,173 +1,123 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Campaigns - WhatsApp Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body {
-            background: #f8f9fa;
-        }
-        
-        .navbar {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        .campaign-card {
-            background: white;
-            border-radius: 15px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            transition: transform 0.2s;
-        }
-        
-        .campaign-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-        }
-        
-        .status-badge {
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-        
-        .progress {
-            height: 8px;
-            border-radius: 10px;
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="{{ url_for('index') }}">
-                <i class="fas fa-paper-plane me-2"></i>WhatsApp Dashboard
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('index') }}">
-                            <i class="fas fa-home me-1"></i>Home
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">
-                            <i class="fas fa-chart-line me-1"></i>Analytics
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="{{ url_for('campaigns_page') }}">
-                            <i class="fas fa-bullhorn me-1"></i>Campaigns
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('activity_log_page') }}">
-                            <i class="fas fa-history me-1"></i>Activity
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('create_template_page') }}">
-                            <i class="fas fa-file-alt me-1"></i>Templates
-                        </a>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
-                            <i class="fas fa-user-circle me-1"></i>{{ current_user.username }}
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" style="background: rgba(30, 30, 60, 0.95); border: 1px solid rgba(255,255,255,0.1);">
-                            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                            <li><a class="dropdown-item text-white" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-                            <li><hr class="dropdown-divider" style="border-color: rgba(255,255,255,0.1);"></li>
-                            <li><a class="dropdown-item text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+{% extends "base.html" %}
+{% block title %}Campaigns - WhatsApp Dashboard{% endblock %}
+{% block page_title %}Campaigns{% endblock %}
 
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-12">
-                <h2 class="mb-4">All Campaigns</h2>
-                
-                {% for campaign in campaigns %}
-                <div class="campaign-card">
-                    <div class="row align-items-center">
-                        <div class="col-md-6">
-                            <h5>{{ campaign.campaign_name or 'Unnamed Campaign' }}</h5>
-                            <p class="text-muted mb-2">
-                                <i class="fas fa-tag me-1"></i>{{ campaign.campaign_type }}
-                                {% if campaign.template_name %}
-                                    <i class="fas fa-file-alt ms-2 me-1"></i>{{ campaign.template_name }}
-                                {% endif %}
-                            </p>
-                            <small class="text-muted">
-                                <i class="fas fa-calendar me-1"></i>{{ campaign.created_at[:16] }}
-                                {% if campaign.scheduled_time %}
-                                    <br><i class="fas fa-clock me-1 text-info"></i>Scheduled: {{ campaign.scheduled_time }}
-                                {% endif %}
-                            </small>
-                        </div>
-                        
-                        <div class="col-md-3">
-                            <div class="text-center">
-                                <h6 class="mb-1">{{ campaign.recipient_count }}</h6>
-                                <small class="text-muted">Recipients</small>
-                            </div>
-                            <div class="progress mt-2">
-                                <div class="progress-bar bg-success" style="width: {{ (campaign.success_count / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
-                                <div class="progress-bar bg-danger" style="width: {{ (campaign.failed_count / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
-                            </div>
-                            <div class="d-flex justify-content-between mt-1">
-                                <small class="text-success">✓ {{ campaign.success_count }}</small>
-                                <small class="text-danger">✗ {{ campaign.failed_count }}</small>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-3 text-end">
-                            {% if campaign.status == 'completed' %}
-                                <span class="status-badge bg-success text-white">Completed</span>
-                            {% elif campaign.status == 'running' %}
-                                <span class="status-badge bg-primary text-white">Running</span>
-                            {% elif campaign.status == 'scheduled' %}
-                                <span class="status-badge bg-info text-white">
-                                    <i class="fas fa-clock me-1"></i>Scheduled
-                                </span>
-                            {% elif campaign.status == 'failed' %}
-                                <span class="status-badge bg-danger text-white">Failed</span>
-                            {% else %}
-                                <span class="status-badge bg-secondary text-white">{{ campaign.status.capitalize() }}</span>
-                            {% endif %}
-                            
-                            <div class="mt-2">
-                                <a href="{{ url_for('campaign_details', campaign_id=campaign.id) }}" 
-                                   class="btn btn-sm btn-outline-primary">
-                                    <i class="fas fa-eye me-1"></i>Details
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-                
-                {% if not campaigns %}
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>No campaigns yet. Start sending messages to see them here!
-                </div>
-                {% endif %}
-            </div>
+{% block head %}
+<style>
+  .campaign-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    transition: all 0.2s;
+  }
+  .campaign-card:hover {
+    background: rgba(255,255,255,0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  .campaign-name { font-weight: 600; font-size: 1rem; color: #fff; }
+  .campaign-meta { color: rgba(255,255,255,0.45); font-size: 0.83rem; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.3rem 0.85rem; border-radius: 20px;
+    font-size: 0.78rem; font-weight: 600;
+  }
+  .status-completed { background: rgba(16,185,129,0.18); color: #34d399; }
+  .status-running   { background: rgba(102,126,234,0.18); color: #a5b4fc; }
+  .status-scheduled { background: rgba(99,179,237,0.18);  color: #7dd3fc; }
+  .status-failed    { background: rgba(239,68,68,0.18);   color: #f87171; }
+  .status-default   { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.6); }
+
+  .stat-mini { text-align: center; }
+  .stat-mini .num { font-size: 1.35rem; font-weight: 700; }
+  .stat-mini .lbl { font-size: 0.72rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  .progress-wrap { margin-top: 0.6rem; }
+  .progress { height: 5px; border-radius: 10px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+  <div>
+    <div class="page-title"><i class="fas fa-bullhorn me-2" style="color:#a5b4fc;"></i>Campaigns</div>
+    <div class="page-subtitle">All your message campaigns in one place</div>
+  </div>
+</div>
+
+{% if campaigns %}
+  {% for campaign in campaigns %}
+  <div class="campaign-card">
+    <div class="row align-items-center g-3">
+
+      <div class="col-lg-5">
+        <div class="campaign-name mb-1">{{ campaign.campaign_name or 'Unnamed Campaign' }}</div>
+        <div class="campaign-meta">
+          <span class="me-3"><i class="fas fa-tag me-1"></i>{{ campaign.campaign_type }}</span>
+          {% if campaign.template_name %}
+          <span class="me-3"><i class="fas fa-file-alt me-1"></i>{{ campaign.template_name }}</span>
+          {% endif %}
+          <span><i class="fas fa-calendar me-1"></i>{{ campaign.created_at[:16] }}</span>
         </div>
+        {% if campaign.scheduled_time %}
+        <div class="campaign-meta mt-1">
+          <i class="fas fa-clock me-1" style="color:#7dd3fc;"></i>
+          <span style="color:#7dd3fc;">Scheduled: {{ campaign.scheduled_time }}</span>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="col-lg-3">
+        <div class="stat-mini mb-1">
+          <div class="num">{{ campaign.recipient_count }}</div>
+          <div class="lbl">Recipients</div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress">
+            <div class="progress-bar bg-success" style="width: {{ (campaign.success_count / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
+            <div class="progress-bar bg-danger"  style="width: {{ (campaign.failed_count  / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
+          </div>
+          <div class="d-flex justify-content-between mt-1">
+            <small style="color:#34d399;font-size:0.75rem;">✓ {{ campaign.success_count }}</small>
+            <small style="color:#f87171;font-size:0.75rem;">✗ {{ campaign.failed_count }}</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4 d-flex align-items-center justify-content-lg-end gap-3">
+        {% if campaign.status == 'completed' %}
+          <span class="status-pill status-completed"><i class="fas fa-check-circle"></i>Completed</span>
+        {% elif campaign.status == 'running' %}
+          <span class="status-pill status-running"><i class="fas fa-spinner fa-spin"></i>Running</span>
+        {% elif campaign.status == 'scheduled' %}
+          <span class="status-pill status-scheduled"><i class="fas fa-clock"></i>Scheduled</span>
+        {% elif campaign.status == 'failed' %}
+          <span class="status-pill status-failed"><i class="fas fa-times-circle"></i>Failed</span>
+        {% else %}
+          <span class="status-pill status-default">{{ campaign.status.capitalize() }}</span>
+        {% endif %}
+
+        <a href="{{ url_for('campaign_details', campaign_id=campaign.id) }}"
+           class="btn btn-outline-primary btn-sm">
+          <i class="fas fa-eye me-1"></i>Details
+        </a>
+      </div>
+
     </div>
+  </div>
+  {% endfor %}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+{% else %}
+  <div class="glass-card text-center py-5 mt-2">
+    <i class="fas fa-bullhorn fa-3x mb-3" style="color:rgba(255,255,255,0.15);"></i>
+    <p class="mb-1" style="color:rgba(255,255,255,0.5);">No campaigns yet.</p>
+    <p style="color:rgba(255,255,255,0.3);font-size:0.875rem;">Start sending messages from the Dashboard to create your first campaign.</p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary btn-sm mt-2">
+      <i class="fas fa-paper-plane me-1"></i>Go to Dashboard
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

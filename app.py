@@ -232,6 +232,35 @@ def validate_phone_number(phone):
 # TEMPLATE ROUTES
 # ============================================================
 
+@app.route("/templates")
+@login_required
+def templates_manager():
+    """View and manage all WhatsApp message templates"""
+    try:
+        from utils.whatsapp import get_templates as fetch_templates
+        templates = fetch_templates(WABA_ID)
+    except Exception as e:
+        logger.error(f"Error fetching templates: {e}")
+        templates = []
+    return render_template("templates_manager.html", templates=templates)
+
+
+@app.route("/api/templates/delete", methods=["POST"])
+@login_required
+def api_delete_template():
+    """Delete a WhatsApp template by name"""
+    data = request.get_json()
+    template_name = data.get("name") if data else None
+    if not template_name:
+        return jsonify({"success": False, "error": "Template name required"}), 400
+    from utils.whatsapp import delete_template
+    status, resp = delete_template(WABA_ID, template_name)
+    if status == 200:
+        return jsonify({"success": True})
+    error_msg = resp.get("error", {}).get("message", "Unknown error") if isinstance(resp, dict) else str(resp)
+    return jsonify({"success": False, "error": error_msg}), status
+
+
 @app.route("/create-template", methods=["GET"])
 @login_required
 def create_template_page():
@@ -980,32 +1009,26 @@ def sync_shopify():
         logger.info(f"✅ Shopify credentials found - Shop: {config.SHOPIFY_SHOP_NAME}")
         
         shopify = ShopifyIntegration(config.SHOPIFY_SHOP_NAME, config.SHOPIFY_ACCESS_TOKEN)
-        customers = shopify.fetch_customers()
-        
+
+        last_sync_date = db.get_last_shopify_created_at(current_user.id)
+        if last_sync_date:
+            logger.info(f"🔄 Incremental sync: fetching customers created after {last_sync_date}")
+        else:
+            logger.info("🔄 Full sync: no previous customers found, fetching all")
+
+        customers = shopify.fetch_customers(created_at_min=last_sync_date)
+
         logger.info(f"📊 Fetched {len(customers)} customers from Shopify")
         
-        # Debug: Log first customer's raw data if available
-        if customers:
-            first = customers[0]
-            logger.info(f"🔍 First customer raw data - ID: {first.get('id')}, Name: {first.get('first_name')} {first.get('last_name')}, Phone: {first.get('phone')}, Address Phone: {first.get('default_address', {}).get('phone')}")
-        
-        synced_count = 0
-        skipped_count = 0
-        
-        for customer in customers:
-            customer_data = shopify.parse_customer_data(customer)
-            logger.info(f"🔍 Parsed customer: {customer_data['first_name']} {customer_data['last_name']} - Phone: '{customer_data['phone']}'")
-            
-            if customer_data['phone']:  # Only add customers with phone numbers
-                db.add_or_update_customer(current_user.id, customer_data)
-                synced_count += 1
-                logger.info(f"✅ Synced customer: {customer_data['first_name']} {customer_data['last_name']} - {customer_data['phone']}")
-            else:
-                skipped_count += 1
-                logger.warning(f"⚠️ Skipped customer (no phone): {customer_data.get('first_name')} {customer_data.get('last_name')} - Email: {customer_data.get('email')}")
-        
+        parsed = [shopify.parse_customer_data(c) for c in customers]
+        to_sync = [c for c in parsed if c['phone']]
+        skipped_count = len(parsed) - len(to_sync)
+        synced_count = len(to_sync)
+
+        db.bulk_add_or_update_customers(current_user.id, to_sync)
+
         logger.info(f"📊 Sync complete - Synced: {synced_count}, Skipped (no phone): {skipped_count}")
-        
+
         db.log_activity(
             user_id=current_user.id,
             username=current_user.username,
@@ -1013,11 +1036,14 @@ def sync_shopify():
             details=f'Synced {synced_count} customers from Shopify (Skipped {skipped_count} without phone numbers)',
             ip_address=request.remote_addr
         )
-        
-        message = f'Successfully synced {synced_count} customers from Shopify'
+
+        if last_sync_date:
+            message = f'Incremental sync complete: {synced_count} new customers added'
+        else:
+            message = f'Full sync complete: {synced_count} customers synced'
         if skipped_count > 0:
-            message += f' ({skipped_count} customers skipped - no phone number)'
-        
+            message += f' ({skipped_count} skipped - no phone number)'
+
         return jsonify({
             'success': True,
             'message': message,

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Filter \"*.py\" C:\\\\boxbox\\\\whatsapp-dashboard\\\\backend -Name)",
+      "Bash(Select-Object -First 40)",
+      "PowerShell(Get-ChildItem C:\\\\boxbox\\\\whatsapp-dashboard -Recurse | Where-Object { $_.FullName -notmatch 'node_modules|venv|\\\\.git' } | Select-Object -ExpandProperty FullName | Select-Object -First 60)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Select-String -Path C:\\\\boxbox\\\\whatsapp-dashboard\\\\templates\\\\customers.html -Pattern \"for customer|customers\\\\.\" | Select-Object -First 20 | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line\\)\" })",
+      "Read(//dev/**)",
+      "Bash(grep -rn \"{{[0-9$]\" \"C:/boxbox/whatsapp-dashboard/templates/\")"
+    ]
+  }
+}

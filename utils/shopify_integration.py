@@ -16,10 +16,13 @@ class ShopifyIntegration:
             "Content-Type": "application/json"
         }
     
-    def fetch_customers(self, limit=250):
-        """Fetch all customers from Shopify"""
+    def fetch_customers(self, limit=250, created_at_min=None):
+        """Fetch customers from Shopify, optionally only those created after created_at_min."""
         all_customers = []
-        url = f"{self.base_url}/customers.json?limit={limit}"
+        params = f"limit={limit}"
+        if created_at_min:
+            params += f"&created_at_min={created_at_min}"
+        url = f"{self.base_url}/customers.json?{params}"
         
         while url:
             try:
@@ -106,20 +109,38 @@ class ShopifyIntegration:
     
     def parse_customer_data(self, customer):
         """Parse Shopify customer data to our format"""
-        # Get primary phone number
-        phone = customer.get('phone') or customer.get('default_address', {}).get('phone', '')
-        
-        # Clean phone number (remove spaces, dashes, etc.)
-        if phone:
-            # Remove all non-digit characters except +
-            cleaned_phone = ''.join(c for c in phone if c.isdigit() or c == '+')
-            # Ensure it starts with + if it has digits
-            if cleaned_phone:
-                if not cleaned_phone.startswith('+'):
-                    cleaned_phone = '+' + cleaned_phone
-                phone = cleaned_phone
+        # Collect phone candidates: top-level, default_address, any address
+        default_address = customer.get('default_address') or {}
+        addresses = customer.get('addresses') or []
+        phone_candidates = [
+            customer.get('phone') or '',
+            default_address.get('phone') or '',
+        ] + [a.get('phone') or '' for a in addresses]
+
+        phone = ''
+        for candidate in phone_candidates:
+            if not candidate:
+                continue
+            cleaned = ''.join(c for c in candidate if c.isdigit() or c == '+')
+            if not cleaned:
+                continue
+            # Normalise to E.164 (+91XXXXXXXXXX for Indian numbers)
+            if cleaned.startswith('+'):
+                # Already has country code
+                phone = cleaned
+            elif cleaned.startswith('91') and len(cleaned) == 12:
+                # 91XXXXXXXXXX → +91XXXXXXXXXX
+                phone = '+' + cleaned
+            elif cleaned.startswith('0') and len(cleaned) == 11:
+                # 0XXXXXXXXXX → +91XXXXXXXXXX
+                phone = '+91' + cleaned[1:]
+            elif len(cleaned) == 10:
+                # XXXXXXXXXX → +91XXXXXXXXXX
+                phone = '+91' + cleaned
             else:
-                phone = ''  # No valid phone number
+                # Unknown format — prepend + and hope for the best
+                phone = '+' + cleaned
+            break
         
         return {
             'shopify_id': customer.get('id'),
