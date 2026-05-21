@@ -121,13 +121,13 @@
 
   <!-- Meta table -->
   <table class="table" style="font-size:0.875rem;">
-    <tr><td style="color:rgba(255,255,255,0.4);width:160px;">Type</td><td>{{ campaign.campaign_type }}</td></tr>
+    <tr><td style="color:rgba(255,255,255,0.4);width:160px;">Type</td><td style="color:#e2e8f0;">{{ campaign.campaign_type }}</td></tr>
     {% if campaign.template_name %}
-    <tr><td style="color:rgba(255,255,255,0.4);">Template</td><td style="font-family:monospace;">{{ campaign.template_name }}</td></tr>
+    <tr><td style="color:rgba(255,255,255,0.4);">Template</td><td style="font-family:monospace;color:#e2e8f0;">{{ campaign.template_name }}</td></tr>
     {% endif %}
-    <tr><td style="color:rgba(255,255,255,0.4);">User</td><td>{{ campaign.username }}</td></tr>
-    <tr><td style="color:rgba(255,255,255,0.4);">Started</td><td>{{ campaign.started_at[:16] if campaign.started_at else '—' }}</td></tr>
-    <tr><td style="color:rgba(255,255,255,0.4);">Completed</td><td>{{ campaign.completed_at[:16] if campaign.completed_at else '—' }}</td></tr>
+    <tr><td style="color:rgba(255,255,255,0.4);">User</td><td style="color:#e2e8f0;">{{ campaign.username }}</td></tr>
+    <tr><td style="color:rgba(255,255,255,0.4);">Started</td><td style="color:#e2e8f0;">{{ campaign.started_at[:16] if campaign.started_at else '—' }}</td></tr>
+    <tr><td style="color:rgba(255,255,255,0.4);">Completed</td><td style="color:#e2e8f0;">{{ campaign.completed_at[:16] if campaign.completed_at else '—' }}</td></tr>
   </table>
 </div>
 
