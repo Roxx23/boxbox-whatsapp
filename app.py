@@ -11,17 +11,13 @@ from datetime import datetime
 
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, send_template, upload_media
-from utils.logger import log_message
+from utils.logger import log_message, setup_logging
 from utils.rate_limiter import RateLimiter, MessageQueue
 from utils.background_scheduler import schedule_message_job, get_scheduled_jobs, cancel_job
 from utils.auth import UserManager
 from utils.database import Database
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Validate required environment variables

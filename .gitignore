@@ -1,27 +1,35 @@
+# Python virtual environments
 venv/
 env/
+.venv/
+backend/venv/
+*/venv/
 
-*.log
-log.csv
-logs.csv
-
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
 
 # Environment variables (NEVER commit these!)
 .env
 *.env
 !.env.example
 
-# User database
+# Databases
+*.db
+*.sqlite3
 users.json
 
-# Campaign database
-whatsapp_dashboard.db
-*.db
+# Logs and temp files
+logs/
+*.log
+logs.csv
+log.csv
+media_ids.txt
 
-# Upload directory for temporary images
+# Uploads
 uploads/
 *.jpg
 *.jpeg
@@ -29,18 +37,32 @@ uploads/
 *.gif
 *.webp
 
-# IDE specific files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS specific files
+# OS
 .DS_Store
 Thumbs.db
 
-# Testing
+# Testing artifacts
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Claude Code settings
+.claude/
+
+# EC2 deploy artifacts (credentials, keys)
+deploy/*.pem
+deploy/*.key
+
+# Frontend (Next.js) - not in use
+frontend/
+node_modules/
+
+# Documentation dumps
+documentations/

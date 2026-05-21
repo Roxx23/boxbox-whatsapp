@@ -1,7 +1,10 @@
+import logging
 import time
 import threading
 from datetime import datetime, timedelta
 from utils.whatsapp import send_text, send_template, get_templates
+
+logger = logging.getLogger(__name__)
 
 # Import personalize if you have it
 try:
@@ -27,13 +30,13 @@ def set_message_queue(queue):
     """Called by app.py to set the message queue reference"""
     global _message_queue
     _message_queue = queue
-    print("✅ Background scheduler connected to message queue")
+    logger.info("Background scheduler connected to message queue")
 
 def set_waba_id(waba_id):
     """Called by app.py to set the WABA ID"""
     global _waba_id
     _waba_id = waba_id
-    print(f"✅ Background scheduler using WABA ID: {waba_id}")
+    logger.info(f"Background scheduler using WABA ID: {waba_id}")
 
 
 def wait_until(send_time_str: str):
@@ -69,49 +72,31 @@ def wait_until(send_time_str: str):
 
             if send_time <= now:
                 send_time += timedelta(days=1)
-                print(f"⏰ Scheduled for tomorrow at {send_time_str}")
+                logger.info(f"Scheduled for tomorrow at {send_time_str}")
             else:
-                print(f"⏰ Scheduled for today at {send_time_str}")
+                logger.info(f"Scheduled for today at {send_time_str}")
 
         wait_seconds = (send_time - now).total_seconds()
         days = int(wait_seconds // 86400)
         hours = int((wait_seconds % 86400) // 3600)
         minutes = int((wait_seconds % 3600) // 60)
-        
+
         if days > 0:
             time_msg = f"{days} day(s), {hours} hour(s), {minutes} minute(s)"
         elif hours > 0:
             time_msg = f"{hours} hour(s), {minutes} minute(s)"
         else:
             time_msg = f"{minutes} minute(s)"
-        
-        print(f"⏳ Waiting {time_msg} until {send_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        logger.info(f"Waiting {time_msg} until {send_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
         while datetime.now() < send_time:
-            time.sleep(60)  # Check every minute
-        
-        print("✅ Time reached! Starting to send messages...")
-        
+            time.sleep(60)
+
+        logger.info("Scheduled time reached — starting to send messages")
+
     except ValueError as e:
-        print(f"❌ Error: {e}")
-        raise
-
-        if send_time <= now:
-            send_time += timedelta(days=1)
-            print(f"⏰ Scheduled for tomorrow at {send_time_str}")
-        else:
-            print(f"⏰ Scheduled for today at {send_time_str}")
-
-        wait_seconds = (send_time - now).total_seconds()
-        print(f"⏳ Waiting {int(wait_seconds)} seconds until {send_time.strftime('%Y-%m-%d %H:%M:%S')}")
-
-        while datetime.now() < send_time:
-            time.sleep(1)
-        
-        print("✅ Time reached! Starting to send messages...")
-        
-    except ValueError as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"Invalid schedule time: {e}")
         raise
 
 
@@ -121,7 +106,7 @@ def check_template_needs_image(template_name):
     Returns: (needs_image: bool, template_language: str)
     """
     if not _waba_id:
-        print("⚠️ WABA_ID not set in scheduler")
+        logger.warning("WABA_ID not set in scheduler")
         return False, "en"
     
     templates = get_templates(_waba_id)
@@ -165,7 +150,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
     global job_id_counter, scheduled_jobs
     
     # Debug: Print what button_params we received
-    print(f"🔍 schedule_message_job called with button_params: {button_params}")
+    logger.debug(f"schedule_message_job called with button_params: {button_params}")
     
     job_id_counter += 1
     job_id = f"job_{job_id_counter}"
@@ -239,7 +224,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                 ip_address='127.0.0.1'
             )
         except Exception as e:
-            print(f"Failed to create campaign or log scheduling activity: {e}")
+            logger.error(f"Failed to create campaign or log scheduling activity: {e}")
     
     # Start background thread
     def job_worker():
@@ -248,7 +233,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
         stored_button_params = job_info.get('button_params')
         
         # Debug: Check if button_params is accessible
-        print(f"🔍 Scheduler worker starting with button_params: {stored_button_params}")
+        logger.debug(f"Scheduler worker starting with button_params: {stored_button_params}")
         
         try:
             # Update status
@@ -296,7 +281,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                     for col_name in template_params_mapping:
                         val = row_dict.get(col_name)
                         if val is None:
-                            print(f"⚠️ Column '{col_name}' missing for {phone}")
+                            logger.warning(f"Column '{col_name}' missing for {phone}")
                             continue
                         params.append(str(val))
                     
@@ -316,7 +301,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                                 status='queued'
                             )
                         except Exception as e:
-                            print(f"Error creating message record: {e}")
+                            logger.error(f"Error creating message record: {e}")
                     
                     # Send with queue if available, otherwise send directly
                     if message_queue:
@@ -335,7 +320,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                         )
                     else:
                         # Send directly without queue
-                        print("⚠️ Message queue not available, sending directly")
+                        logger.warning("Message queue not available, sending directly")
                         send_template(
                             phone,
                             template_name,
@@ -346,7 +331,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                         )
                         time.sleep(1)  # Basic rate limiting
                     
-                print(f"✅ Completed scheduled batch: {template_name} ({len(df)} messages)")
+                logger.info(f"Completed scheduled batch: template='{template_name}', count={len(df)}")
             
             else:
                 # Free text messages
@@ -372,7 +357,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                                 status='queued'
                             )
                         except Exception as e:
-                            print(f"Error creating message record: {e}")
+                            logger.error(f"Error creating message record: {e}")
                     
                     if message_queue:
                         message_queue.add_message(
@@ -385,11 +370,11 @@ def schedule_message_job(df, template_name=None, template_language="en",
                             message_id=message_id
                         )
                     else:
-                        print("⚠️ Message queue not available, sending directly")
+                        logger.warning("Message queue not available, sending directly")
                         send_text(phone, personalized_msg)
                         time.sleep(1)
                 
-                print(f"✅ Completed scheduled batch: text messages ({len(df)} messages)")
+                logger.info(f"Completed scheduled batch: text messages, count={len(df)}")
             
             # Update status
             job_info['status'] = 'completed'
@@ -410,12 +395,10 @@ def schedule_message_job(df, template_name=None, template_language="en",
                         ip_address='127.0.0.1'
                     )
                 except Exception as log_error:
-                    print(f"Failed to log completion: {log_error}")
+                    logger.warning(f"Failed to log completion: {log_error}")
             
         except Exception as e:
-            print(f"❌ Scheduled job error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"Scheduled job error: {e}")
             job_info['status'] = 'failed'
             job_info['error'] = str(e)
             
@@ -434,7 +417,7 @@ def schedule_message_job(df, template_name=None, template_language="en",
                         ip_address='127.0.0.1'
                     )
                 except Exception as log_error:
-                    print(f"Failed to log failure: {log_error}")
+                    logger.warning(f"Failed to log failure: {log_error}")
     
     thread = threading.Thread(target=job_worker, daemon=True)
     thread.start()

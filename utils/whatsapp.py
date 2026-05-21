@@ -1,3 +1,4 @@
+import logging
 import requests
 import time
 import re
@@ -5,6 +6,8 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
@@ -56,7 +59,7 @@ def get_templates(waba_id):
             url = data.get("paging", {}).get("next")
             params = {}  # next URL already has all params
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching templates: {e}")
+        logger.error(f"Error fetching templates: {e}")
     return all_templates
 
 
@@ -113,8 +116,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
     if button_params:
         button_components = []
         
-        # Debug: Print what we received
-        print(f"🔍 Button params received: {button_params}")
+        logger.debug(f"Button params: {button_params}")
         
         # Handle copy_code button (utility button for coupons)
         if "copy_code" in button_params:
@@ -138,13 +140,12 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
                                 for idx, btn in enumerate(buttons_comp["buttons"]):
                                     if btn.get("type") == "COPY_CODE":
                                         index = str(idx)
-                                        print(f"🔍 Auto-detected COPY_CODE button at index {index}")
+                                        logger.debug(f"Auto-detected COPY_CODE button at index {index}")
                                         break
                     except Exception as e:
-                        print(f"⚠️  Could not auto-detect button index: {e}")
-                        pass
+                        logger.warning(f"Could not auto-detect button index: {e}")
             
-            print(f"📋 Adding COPY_CODE button: index={index}, code={button_params['copy_code']}")
+            logger.debug(f"Adding COPY_CODE button: index={index}, code={button_params['copy_code']}")
             button_components.append({
                 "type": "button",
                 "sub_type": "copy_code",
@@ -155,7 +156,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
                 }]
             })
         else:
-            print("⚠️  No 'copy_code' found in button_params!")
+            logger.warning("No 'copy_code' found in button_params")
         
         # Handle dynamic URL parameters (for URL buttons with variables)
         for key, value in button_params.items():
@@ -173,7 +174,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         
         components.extend(button_components)
     else:
-        print("⚠️  button_params is None or empty!")
+        logger.debug("No button_params for this template (expected if template has no buttons)")
 
     payload = {
         "messaging_product": "whatsapp",
@@ -186,13 +187,8 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         }
     }
 
-    # DEBUG PRINTS
-    print("=" * 50)
-    print(f"📞 Sending to: {formatted_number}")
-    print(f"📝 Template: {template_name}")
-    print(f"🌍 Language: {lang}")
-    print(f"📦 Payload: {payload}")
-    print("=" * 50)
+    logger.info(f"Sending template '{template_name}' to {formatted_number} (lang={lang})")
+    logger.debug(f"Payload: {payload}")
 
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -203,9 +199,11 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         resp = requests.post(url, json=payload, headers=headers, timeout=15)
         response_data = resp.json()
         
-        print(f"✅ Status: {resp.status_code}")
-        print(f"📨 Response: {response_data}")
-        print("=" * 50)
+        if resp.status_code in [200, 201]:
+            logger.info(f"Template sent OK ({resp.status_code}) to {formatted_number}")
+        else:
+            logger.warning(f"Template send returned {resp.status_code} for {formatted_number}: {response_data}")
+        logger.debug(f"Response: {response_data}")
         
         # Retry on rate limit
         if resp.status_code == 429:
@@ -214,7 +212,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         
         return resp.status_code, response_data
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"Template send request failed for {formatted_number}: {e}")
         return 500, {"error": str(e), "type": "request_exception"}
 
 
@@ -276,13 +274,13 @@ def upload_media(image_file):
         
         if resp.status_code in [200, 201]:
             media_id = resp.json().get('id')
-            print(f"✅ Media uploaded successfully. ID: {media_id}")
+            logger.info(f"Media uploaded OK, ID: {media_id}")
             return media_id
         else:
-            print(f"❌ Media upload error: {resp.json()}")
+            logger.error(f"Media upload failed ({resp.status_code}): {resp.json()}")
             return None
     except requests.exceptions.RequestException as e:
-        print(f"❌ Media upload exception: {e}")
+        logger.error(f"Media upload exception: {e}")
         return None
 
 
@@ -306,7 +304,7 @@ def save_uploaded_image(image_file):
     
     # Save file
     image_file.save(filepath)
-    print(f"✅ Image saved to: {filepath}")
+    logger.debug(f"Image saved to: {filepath}")
     
     return filepath
 
@@ -380,9 +378,7 @@ def create_template(waba_id, template_data, image_file=None):
         "Content-Type": "application/json"
     }
     
-    print(f"🌐 API Endpoint: {url}")
-    print(f"🔑 Using WABA ID: {waba_id}")
-    print(f"🔑 Access Token (first 20 chars): {ACCESS_TOKEN[:20] if ACCESS_TOKEN else 'MISSING'}...")
+    logger.debug(f"Create template API endpoint: {url} (WABA: {waba_id})")
     
     components = []
     
@@ -496,21 +492,17 @@ def create_template(waba_id, template_data, image_file=None):
         "components": components
     }
     
-    print("=" * 60)
-    print("📦 Template Payload (sending to WhatsApp):")
-    import json
-    print(json.dumps(payload, indent=2))
-    print("=" * 60)
-    
+    logger.debug(f"Create template payload: {payload}")
+
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=15)
         response_json = resp.json()
-        
-        print("=" * 60)
-        print(f"📥 Response Status: {resp.status_code}")
-        print(f"📥 Response Body:")
-        print(json.dumps(response_json, indent=2))
-        print("=" * 60)
+
+        if resp.status_code in [200, 201]:
+            logger.info(f"Template '{payload['name']}' submitted for approval ({resp.status_code})")
+        else:
+            logger.warning(f"Template submission returned {resp.status_code}: {response_json}")
+        logger.debug(f"Template create response: {response_json}")
         
         return resp.status_code, response_json
     except requests.exceptions.RequestException as e:
