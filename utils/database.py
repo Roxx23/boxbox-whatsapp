@@ -614,9 +614,7 @@ class Database:
                     elif segment_type == 'not_engaged_last_7_days':
                         cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days') "
                         query += (
-                            f" AND messages_sent_count > 0"
-                            f" AND (last_message_read IS NULL OR last_message_read < {cutoff})"
-                            f" AND (last_message_replied IS NULL OR last_message_replied < {cutoff})"
+                            f" AND (last_message_sent IS NULL OR last_message_sent < {cutoff})"
                         )
                     elif segment_type == 'no_message_sent':
                         query += ' AND (last_message_sent IS NULL OR messages_sent_count = 0)'
