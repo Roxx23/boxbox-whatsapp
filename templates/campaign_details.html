@@ -134,9 +134,17 @@
 <!-- Messages table -->
 {% if messages %}
 <div class="detail-card">
-  <h5 style="font-weight:600;font-size:0.9rem;margin-bottom:1rem;color:#e2e8f0;">
-    <i class="fas fa-list me-2" style="color:#a5b4fc;"></i>Messages ({{ messages|length }})
-  </h5>
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h5 style="font-weight:600;font-size:0.9rem;margin:0;color:#e2e8f0;">
+      <i class="fas fa-list me-2" style="color:#a5b4fc;"></i>Messages ({{ messages|length }})
+    </h5>
+    {% set unsent_count = messages|selectattr('status','in',['queued','failed'])|list|length %}
+    {% if unsent_count > 0 %}
+    <button class="btn btn-warning btn-sm" onclick="resendUnsent()" style="font-size:0.8rem;">
+      <i class="fas fa-redo me-1"></i>Resend to Unsent ({{ unsent_count }})
+    </button>
+    {% endif %}
+  </div>
   <div class="table-responsive">
     <table class="table table-hover" style="font-size:0.83rem;">
       <thead>
@@ -147,7 +155,9 @@
       </thead>
       <tbody>
         {% for message in messages %}
-        <tr>
+        <tr data-status="{{ message.status }}"
+            data-phone="{{ message.phone_number }}"
+            data-name="{{ message.recipient_name or '' }}">
           <td style="color:rgba(255,255,255,0.3);">{{ loop.index }}</td>
           <td style="color:#e2e8f0;font-weight:500;">{{ message.recipient_name or '—' }}</td>
           <td style="font-family:monospace;color:rgba(255,255,255,0.6);">{{ message.phone_number }}</td>
@@ -250,6 +260,14 @@
 {% block scripts %}
 <script>
   let currentPhone = '', currentMessageId = 0;
+
+  function resendUnsent() {
+    const rows = document.querySelectorAll('tbody tr[data-status="queued"], tbody tr[data-status="failed"]');
+    if (!rows.length) { alert('No unsent messages found.'); return; }
+    const customers = Array.from(rows).map(r => ({ phone: r.dataset.phone, name: r.dataset.name }));
+    sessionStorage.setItem('selectedCustomers', JSON.stringify(customers));
+    window.location.href = '{{ url_for("index") }}';
+  }
 
   function showReplyModal(recipient, phone, replyText, messageId) {
     currentPhone = phone; currentMessageId = messageId;
