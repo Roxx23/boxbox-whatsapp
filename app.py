@@ -964,6 +964,7 @@ def customers_page():
         {'name': 'All Customers', 'type': 'all', 'count': len(db.get_all_customers(current_user.id))},
         {'name': 'Has Phone Number', 'type': 'has_phone', 'count': len(db.get_all_customers(current_user.id, {'has_phone': True}))},
         {'name': 'Engaged (Last 7 Days)', 'type': 'engaged_last_7_days', 'count': len(db.get_segment_customers(current_user.id, 'engaged_last_7_days'))},
+        {'name': 'Not Engaged (Last 7 Days)', 'type': 'not_engaged_last_7_days', 'count': len(db.get_segment_customers(current_user.id, 'not_engaged_last_7_days'))},
         {'name': 'Never Messaged', 'type': 'no_message_sent', 'count': len(db.get_segment_customers(current_user.id, 'no_message_sent'))},
         {'name': 'High Value (>$1000)', 'type': 'high_value', 'count': len(db.get_segment_customers(current_user.id, 'high_value'))},
         {'name': 'Has Orders', 'type': 'has_orders', 'count': len(db.get_segment_customers(current_user.id, 'has_orders'))},
