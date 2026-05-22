@@ -12,7 +12,7 @@ threads = 4
 timeout = 120
 graceful_timeout = 30
 keepalive = 5
-preload_app = True
+preload_app = False
 # Disabled: worker recycling kills the in-memory message queue mid-campaign
 max_requests = 0
 max_requests_jitter = 0
