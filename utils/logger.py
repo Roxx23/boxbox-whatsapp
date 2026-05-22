@@ -30,10 +30,8 @@ def setup_logging():
 
     root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    root.addHandler(console)
-
+    # No StreamHandler: systemd already captures stderr → app.log via
+    # StandardError=append, so adding a console handler would double every line.
     file_handler = logging.handlers.RotatingFileHandler(
         os.path.join(LOG_DIR, 'app.log'),
         maxBytes=5 * 1024 * 1024,  # 5 MB
