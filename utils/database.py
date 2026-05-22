@@ -648,9 +648,15 @@ class Database:
     
     def update_customer_message_stats(self, phone, stat_type):
         """Update customer message statistics"""
+        if not phone:
+            return
+        # WhatsApp webhook sends recipient_id without '+'; customers are stored with '+'
+        if not phone.startswith('+'):
+            phone = '+' + phone
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             if stat_type == 'sent':
                 cursor.execute('''
                     UPDATE customers 

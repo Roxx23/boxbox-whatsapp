@@ -229,6 +229,7 @@ class MessageQueue:
                         whatsapp_message_id=whatsapp_message_id
                     )
                     logger.info(f"✅ Updated message #{message_id} with WhatsApp ID: {whatsapp_message_id}")
+
                 
                 # Update campaign counts
                 if campaign_id:
