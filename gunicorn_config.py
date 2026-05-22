@@ -13,8 +13,9 @@ timeout = 120
 graceful_timeout = 30
 keepalive = 5
 preload_app = True
-max_requests = 500
-max_requests_jitter = 50
+# Disabled: worker recycling kills the in-memory message queue mid-campaign
+max_requests = 0
+max_requests_jitter = 0
 
 _log_dir = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(_log_dir, exist_ok=True)
