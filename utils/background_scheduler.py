@@ -298,7 +298,10 @@ def schedule_message_job(df, template_name=None, template_language="en",
                                 recipient_name=name,
                                 message_content=f"Template: {template_name}",
                                 template_name=template_name,
-                                status='queued'
+                                status='queued',
+                                template_params=params,
+                                template_language=template_language,
+                                button_params=stored_button_params
                             )
                         except Exception as e:
                             logger.error(f"Error creating message record: {e}")

@@ -228,7 +228,18 @@ class Database:
             try:
                 cursor.execute('ALTER TABLE customers ADD COLUMN shopify_created_at TEXT')
             except Exception:
-                pass  # Column already exists
+                pass
+
+            # Add template send params columns to messages (migration for existing DBs)
+            for col in [
+                'ALTER TABLE messages ADD COLUMN template_params TEXT',
+                'ALTER TABLE messages ADD COLUMN template_language TEXT',
+                'ALTER TABLE messages ADD COLUMN button_params TEXT',
+            ]:
+                try:
+                    cursor.execute(col)
+                except Exception:
+                    pass
 
             conn.commit()
 
@@ -311,18 +322,83 @@ class Database:
     
     # Message Methods
     def add_message(self, campaign_id, user_id, phone_number, recipient_name=None,
-                   message_content=None, template_name=None, status='pending'):
+                   message_content=None, template_name=None, status='pending',
+                   template_params=None, template_language=None, button_params=None):
         """Add a message to campaign"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO messages (campaign_id, user_id, phone_number, recipient_name,
-                                    message_content, template_name, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (campaign_id, user_id, phone_number, recipient_name, 
-                  message_content, template_name, status))
-            
+                                    message_content, template_name, status,
+                                    template_params, template_language, button_params)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (campaign_id, user_id, phone_number, recipient_name,
+                  message_content, template_name, status,
+                  json.dumps(template_params) if template_params is not None else None,
+                  template_language,
+                  json.dumps(button_params) if button_params is not None else None))
             return cursor.lastrowid
+
+    def fail_message_by_whatsapp_id(self, whatsapp_message_id, error_code, error_message):
+        """Mark a message as failed (e.g. 131049) and adjust campaign counts."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id, campaign_id, status FROM messages WHERE whatsapp_message_id = ?',
+                (whatsapp_message_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            msg = dict(row)
+            cursor.execute(
+                "UPDATE messages SET status = 'failed', error_message = ? WHERE whatsapp_message_id = ?",
+                (f"[{error_code}] {error_message}", whatsapp_message_id)
+            )
+            if msg['status'] == 'sent' and msg['campaign_id']:
+                cursor.execute('''
+                    UPDATE campaigns
+                    SET success_count = MAX(0, success_count - 1),
+                        failed_count  = failed_count + 1
+                    WHERE id = ?
+                ''', (msg['campaign_id'],))
+
+    def get_unsent_campaign_messages(self, campaign_id):
+        """Return failed/queued messages for a campaign."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, phone_number, recipient_name, template_name,
+                       message_content, template_params, template_language, button_params
+                FROM messages
+                WHERE campaign_id = ? AND status IN ('failed', 'queued')
+            ''', (campaign_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def reset_messages_for_resend(self, campaign_id):
+        """Reset failed/queued messages back to queued and fix campaign counts."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM messages WHERE campaign_id = ? AND status IN ('failed','queued')",
+                (campaign_id,)
+            )
+            count = cursor.fetchone()[0]
+            if not count:
+                return 0
+            cursor.execute('''
+                UPDATE messages
+                SET status = 'queued', error_message = NULL,
+                    sent_at = NULL, whatsapp_message_id = NULL
+                WHERE campaign_id = ? AND status IN ('failed', 'queued')
+            ''', (campaign_id,))
+            cursor.execute('''
+                UPDATE campaigns
+                SET failed_count = MAX(0, failed_count - ?),
+                    status = 'running', completed_at = NULL
+                WHERE id = ?
+            ''', (count, campaign_id))
+            return count
     
     def update_message_status(self, message_id, status, error_message=None, sent_at=None, whatsapp_message_id=None):
         """Update message status"""

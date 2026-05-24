@@ -262,11 +262,18 @@
   let currentPhone = '', currentMessageId = 0;
 
   function resendUnsent() {
-    const rows = document.querySelectorAll('tbody tr[data-status="queued"], tbody tr[data-status="failed"]');
-    if (!rows.length) { alert('No unsent messages found.'); return; }
-    const customers = Array.from(rows).map(r => ({ phone: r.dataset.phone, name: r.dataset.name }));
-    sessionStorage.setItem('selectedCustomers', JSON.stringify(customers));
-    window.location.href = '{{ url_for("index") }}';
+    if (!confirm('Re-queue all unsent/failed messages in this campaign?')) return;
+    fetch('/api/campaigns/{{ campaign.id }}/resend-unsent', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          alert('✅ ' + data.queued + ' messages re-queued in this campaign.');
+          window.location.reload();
+        } else {
+          alert('❌ ' + (data.error || 'Failed'));
+        }
+      })
+      .catch(e => alert('❌ ' + e));
   }
 
   function showReplyModal(recipient, phone, replyText, messageId) {

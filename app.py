@@ -721,7 +721,10 @@ def index():
                     phone_number=phone,
                     recipient_name=name,
                     template_name=template_name,
-                    status='queued'
+                    status='queued',
+                    template_params=params,
+                    template_language=template_language,
+                    button_params=button_params if button_params else None
                 )
 
                 # Add to queue instead of sending immediately
@@ -736,7 +739,7 @@ def index():
                     user_id=current_user.id,
                     username=current_user.username,
                     campaign_id=campaign_id,
-                    message_id=message_id  # Pass message_id to rate limiter
+                    message_id=message_id
                 )
 
             flash(f"✅ {len(df)} template messages queued for sending! Monitor progress at /queue-status", "success")
@@ -764,7 +767,7 @@ def index():
                     message_content=personalized_msg,
                     status='queued'
                 )
-                
+
                 # Add to queue
                 message_queue.add_message(
                     send_text,
@@ -773,7 +776,7 @@ def index():
                     user_id=current_user.id,
                     username=current_user.username,
                     campaign_id=campaign_id,
-                    message_id=message_id  # Pass message_id to rate limiter
+                    message_id=message_id
                 )
 
             flash(f"✅ {len(df)} text messages queued for sending! Monitor progress at /queue-status", "success")
@@ -867,6 +870,57 @@ def campaign_details(campaign_id):
     return render_template('campaign_details.html',
                          campaign=campaign,
                          messages=messages)
+
+
+@app.route("/api/campaigns/<int:campaign_id>/resend-unsent", methods=["POST"])
+@login_required
+def resend_unsent_campaign(campaign_id):
+    """Re-queue failed/queued messages in the same campaign."""
+    campaign = db.get_campaign(campaign_id)
+    if not campaign or campaign['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Campaign not found'}), 404
+
+    unsent = db.get_unsent_campaign_messages(campaign_id)
+    if not unsent:
+        return jsonify({'success': False, 'error': 'No unsent messages found'})
+
+    count = db.reset_messages_for_resend(campaign_id)
+
+    for msg in unsent:
+        phone = msg['phone_number']
+        name  = msg['recipient_name'] or ''
+        msg_id = msg['id']
+
+        if msg['template_name']:
+            import json as _json
+            params   = _json.loads(msg['template_params'])   if msg.get('template_params')  else []
+            btn_p    = _json.loads(msg['button_params'])     if msg.get('button_params')    else None
+            lang     = msg.get('template_language') or 'en'
+            message_queue.add_message(
+                send_template,
+                phone,
+                msg['template_name'],
+                params,
+                lang,
+                button_params=btn_p,
+                user_id=current_user.id,
+                username=current_user.username,
+                campaign_id=campaign_id,
+                message_id=msg_id
+            )
+        else:
+            message_queue.add_message(
+                send_text,
+                phone,
+                msg['message_content'] or '',
+                user_id=current_user.id,
+                username=current_user.username,
+                campaign_id=campaign_id,
+                message_id=msg_id
+            )
+
+    logger.info(f"Resend: queued {count} messages for campaign {campaign_id}")
+    return jsonify({'success': True, 'queued': count})
 
 
 @app.route("/activity-log")
@@ -1218,8 +1272,10 @@ def process_message_status(status_data):
             logger.info(f"✅ Read status processed")
         elif status == "failed":
             error = status_data.get("errors", [{}])[0]
+            error_code = error.get("code", 0)
             error_message = error.get("message", "Unknown error")
-            logger.error(f"❌ Message {message_id} failed: {error_message}")
+            logger.error(f"❌ Message {message_id} failed: {error_message} (code: {error_code})")
+            db.fail_message_by_whatsapp_id(message_id, error_code, error_message)
     
     except Exception as e:
         logger.error(f"❌ Error processing status: {e}", exc_info=True)
