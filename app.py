@@ -123,61 +123,10 @@ def login():
     return render_template('login.html')
 
 
-@app.route("/signup", methods=["GET", "POST"])
+@app.route("/signup")
 def signup():
-    """Signup page"""
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    
-    if request.method == "POST":
-        username = request.form.get('username', '').strip()
-        email = request.form.get('email', '').strip()
-        password = request.form.get('password', '')
-        confirm_password = request.form.get('confirm_password', '')
-        
-        # Validation
-        if not username or not email or not password:
-            flash("All fields are required", "error")
-            return redirect(url_for('signup'))
-        
-        if len(username) < 3 or len(username) > 20:
-            flash("Username must be 3-20 characters", "error")
-            return redirect(url_for('signup'))
-        
-        if not username.isalnum():
-            flash("Username can only contain letters and numbers", "error")
-            return redirect(url_for('signup'))
-        
-        if password != confirm_password:
-            flash("Passwords do not match", "error")
-            return redirect(url_for('signup'))
-        
-        if len(password) < 8:
-            flash("Password must be at least 8 characters", "error")
-            return redirect(url_for('signup'))
-        
-        # Create user
-        user, error = user_manager.create_user(username, email, password)
-        
-        if error:
-            flash(error, "error")
-            return redirect(url_for('signup'))
-        
-        logger.info(f"New user registered: {username}")
-        
-        # Log activity
-        db.log_activity(
-            user_id=user.id,
-            username=username,
-            action='Registration',
-            details='New user account created',
-            ip_address=request.remote_addr
-        )
-        
-        flash("Account created successfully! Please login.", "success")
-        return redirect(url_for('login'))
-    
-    return render_template('signup.html')
+    flash("Registration is closed. Contact the admin for access.", "error")
+    return redirect(url_for('login'))
 
 
 @app.route("/logout")
