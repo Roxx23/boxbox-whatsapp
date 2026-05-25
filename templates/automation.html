@@ -254,12 +254,13 @@
         </div>
       </div>
       <div class="param-hint">
-        <strong>Template variables expected (4 variables):</strong><br>
+        <strong>Template variables expected (4 body variables + IMAGE header):</strong><br>
         <code>{{"{{"}}1{{"}}"}}</code> = Customer first name &nbsp;·&nbsp;
-        <code>{{"{{"}}2{{"}}"}}</code> = Order number &nbsp;·&nbsp;
-        <code>{{"{{"}}3{{"}}"}}</code> = Items ordered &nbsp;·&nbsp;
+        <code>{{"{{"}}2{{"}}"}}</code> = Order number (e.g. <em>#F14123</em>) &nbsp;·&nbsp;
+        <code>{{"{{"}}3{{"}}"}}</code> = Items ordered with size/colour &nbsp;·&nbsp;
         <code>{{"{{"}}4{{"}}"}}</code> = Order total (₹)<br>
-        <em>Example: "Hi {{"{{"}}1{{"}}"}}, your order {{"{{"}}2{{"}}"}} is confirmed! 🎉 Items: {{"{{"}}3{{"}}"}}. Total: {{"{{"}}4{{"}}"}}"</em>
+        The product image is auto-uploaded as the <strong>IMAGE header</strong> — create the template with an IMAGE header type.<br>
+        <em>Example body: "Woohoo {{"{{"}}1{{"}}"}}! 🎉 Your order {{"{{"}}2{{"}}"}} is confirmed. You got: {{"{{"}}3{{"}}"}}. Total: {{"{{"}}4{{"}}"}}"</em>
       </div>
     </div>
   </div>
@@ -306,12 +307,13 @@
         </div>
       </div>
       <div class="param-hint">
-        <strong>Template variables expected (4 variables):</strong><br>
+        <strong>Template variables expected (3 body variables + URL button):</strong><br>
         <code>{{"{{"}}1{{"}}"}}</code> = Customer first name &nbsp;·&nbsp;
-        <code>{{"{{"}}2{{"}}"}}</code> = Order number &nbsp;·&nbsp;
-        <code>{{"{{"}}3{{"}}"}}</code> = Items dispatched &nbsp;·&nbsp;
-        <code>{{"{{"}}4{{"}}"}}</code> = Tracking link (URL if available, else tracking number)<br>
-        <em>Example: "Hi {{"{{"}}1{{"}}"}}, your order {{"{{"}}2{{"}}"}} has been dispatched! 🚚 Items: {{"{{"}}3{{"}}"}}. Track here: {{"{{"}}4{{"}}"}}"</em>
+        <code>{{"{{"}}2{{"}}"}}</code> = Order number (e.g. <em>#F14123</em>) &nbsp;·&nbsp;
+        <code>{{"{{"}}3{{"}}"}}</code> = Items dispatched with size/colour<br>
+        Add a <strong>URL button</strong> with URL: <code>https://dashboard.boxbox.in/track/{{"{{"}}1{{"}}"}}</code>
+        — this redirects to the actual Shopify courier URL (works for any courier).<br>
+        <em>Example body: "Your order {{"{{"}}2{{"}}"}} is on its way, {{"{{"}}1{{"}}"}}! 🚀 Items: {{"{{"}}3{{"}}"}}. Tap to track 👇"</em>
       </div>
     </div>
   </div>

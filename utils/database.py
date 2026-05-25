@@ -263,6 +263,7 @@ class Database:
                 'ALTER TABLE shopify_orders ADD COLUMN fulfillment_sent_at TEXT',
                 'ALTER TABLE abandoned_carts ADD COLUMN cart_url TEXT',
                 "ALTER TABLE automation_settings ADD COLUMN extra_data TEXT DEFAULT '{}'",
+                'ALTER TABLE shopify_orders ADD COLUMN tracking_url TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -991,6 +992,30 @@ class Database:
                 SET fulfillment_status = 'fulfilled', updated_at = ?
                 WHERE shopify_order_id = ?
             ''', (datetime.now().isoformat(), str(shopify_order_id)))
+
+    def save_order_tracking_url(self, shopify_order_id, tracking_url):
+        """Save tracking URL for an order (used by /track/<order_ref> redirect)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shopify_orders
+                SET tracking_url = ?, updated_at = ?
+                WHERE shopify_order_id = ?
+            ''', (tracking_url, datetime.now().isoformat(), str(shopify_order_id)))
+
+    def get_order_tracking_url(self, order_ref):
+        """Get tracking URL by order number (for /track/<order_ref> redirect).
+        order_ref is the raw order number digits (e.g. '4123' for order #F14123).
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT tracking_url FROM shopify_orders
+                WHERE order_number = ? OR order_number = ? OR shopify_order_id = ?
+                ORDER BY updated_at DESC LIMIT 1
+            ''', (order_ref, '#' + order_ref, order_ref))
+            row = cursor.fetchone()
+            return row['tracking_url'] if row else None
 
     # Automation Settings Methods
     def get_automation_settings(self, user_id):

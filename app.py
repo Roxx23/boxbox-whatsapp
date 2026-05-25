@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 
 from utils.personalize import personalize
-from utils.whatsapp import send_text, get_templates, send_template, upload_media
+from utils.whatsapp import send_text, get_templates, send_template, upload_media, upload_media_from_bytes
 from utils.logger import log_message, setup_logging
 from utils.rate_limiter import RateLimiter, MessageQueue
 from utils.background_scheduler import schedule_message_job, get_scheduled_jobs, cancel_job
@@ -77,24 +77,65 @@ set_waba_id(WABA_ID)
 # ============================================================
 
 def _format_items(line_items, max_items=3):
-    """Format line_items list into a short readable string.
+    """Format line_items list into a short readable string, including size/colour.
 
     Examples:
-        [Blue Sneakers x1, Black Jeans x2]
-        [White T-Shirt, Blue Cap & 2 more]
+        Blue Sneakers (Size 9 / White) x2, Black Jeans (30 / Regular)
+        Nike Cap & 2 more
     """
     if not line_items:
         return 'your items'
     parts = []
     for item in line_items[:max_items]:
-        title = item.get('title') or item.get('name') or 'Item'
-        qty   = int(item.get('quantity') or 1)
-        parts.append(f"{title} x{qty}" if qty > 1 else title)
+        title   = item.get('title') or item.get('name') or 'Item'
+        qty     = int(item.get('quantity') or 1)
+        variant = (item.get('variant_title') or '').strip()
+        # Omit generic Shopify default variant placeholder
+        if variant and variant.lower() not in ('default title', 'default'):
+            display = f"{title} ({variant})"
+        else:
+            display = title
+        parts.append(f"{display} x{qty}" if qty > 1 else display)
     result = ', '.join(parts)
     extra  = len(line_items) - max_items
     if extra > 0:
         result += f" & {extra} more"
     return result
+
+
+def _get_product_image_url(line_items):
+    """Return the src URL of the first product image from a Shopify line_items list."""
+    if not line_items:
+        return None
+    for item in line_items:
+        img = item.get('image') or {}
+        src = img.get('src') or img.get('url')
+        if src:
+            return src
+    return None
+
+
+def _upload_image_from_url(image_url):
+    """Download an image from a URL and upload it to WhatsApp. Returns media_id or None."""
+    if not image_url:
+        return None
+    try:
+        import requests as _requests
+        resp = _requests.get(image_url, timeout=15)
+        if resp.status_code != 200:
+            logger.warning(f"Could not download product image ({resp.status_code}): {image_url}")
+            return None
+        content_type = resp.headers.get('Content-Type', 'image/jpeg').split(';')[0].strip()
+        # WhatsApp only accepts JPEG and PNG for IMAGE headers
+        if content_type not in ('image/jpeg', 'image/png', 'image/jpg'):
+            content_type = 'image/jpeg'
+        media_id = upload_media_from_bytes(resp.content, content_type)
+        if media_id:
+            logger.info(f"Product image uploaded to WhatsApp: {media_id}")
+        return media_id
+    except Exception as e:
+        logger.warning(f"Product image upload failed (non-fatal): {e}")
+        return None
 
 
 def _get_webhook_user_id():
@@ -166,11 +207,16 @@ def _verify_shopify_hmac(raw_data, hmac_header):
     return hmac.compare_digest(computed, hmac_header)
 
 
-def _send_automation_message(phone, event_type, template_name, template_language, params):
+def _send_automation_message(phone, event_type, template_name, template_language, params,
+                             header_media_id=None, button_params=None):
     """Send a single automation WhatsApp template message. Returns (success, wamid)."""
     try:
-        status_code, response = send_template(phone, template_name, params,
-                                               lang=template_language)
+        status_code, response = send_template(
+            phone, template_name, params,
+            lang=template_language,
+            header_media_id=header_media_id,
+            button_params=button_params
+        )
         success = status_code in [200, 201]
         wamid = None
         if success:
@@ -1191,6 +1237,32 @@ def save_automation_settings():
 
 
 # ============================================================
+# ORDER TRACKING REDIRECT (public — no login required)
+# ============================================================
+
+@app.route("/track/<order_ref>")
+def track_order(order_ref):
+    """Public redirect: /track/<order_number> → courier tracking URL.
+
+    The URL button in the fulfillment WhatsApp template points here.
+    Template button URL: https://dashboard.boxbox.in/track/{{1}}
+    At send time, {{1}} is the raw order number (e.g. '4123').
+    """
+    try:
+        tracking_url = db.get_order_tracking_url(order_ref)
+        if tracking_url:
+            logger.info(f"🔗 Tracking redirect: /track/{order_ref} → {tracking_url}")
+            return redirect(tracking_url, code=302)
+        else:
+            # Fallback — send to store homepage
+            logger.info(f"⚠️ Tracking URL not found for order_ref={order_ref}, redirecting to store")
+            return redirect('https://boxbox.in', code=302)
+    except Exception as e:
+        logger.error(f"❌ /track/{order_ref} error: {e}")
+        return redirect('https://boxbox.in', code=302)
+
+
+# ============================================================
 # SHOPIFY & CUSTOMER MANAGEMENT
 # ============================================================
 
@@ -1788,15 +1860,23 @@ def shopify_order_create():
                 phone_e164 = _normalize_phone_webhook(phone)
                 if phone_e164:
                     first_name = (data.get('customer') or {}).get('first_name') or 'there'
+                    line_items = data.get('line_items', [])
                     order_number = order_data['order_number']
-                    items_str = _format_items(data.get('line_items', []))
+                    # Format: #F1<number> — e.g. #F14123
+                    order_number_display = f"#F1{order_number}"
+                    items_str = _format_items(line_items)
                     total = f"₹{order_data['total_price']}" if order_data['total_price'] else ''
                     # Template params: {{1}}=name, {{2}}=order#, {{3}}=items, {{4}}=total
-                    params = [str(first_name), f"#{order_number}", items_str, total]
+                    params = [str(first_name), order_number_display, items_str, total]
                     lang = s.get('template_language') or 'en_US'
 
+                    # Upload first product image for IMAGE header (non-fatal if fails)
+                    image_url = _get_product_image_url(line_items)
+                    header_media_id = _upload_image_from_url(image_url) if image_url else None
+
                     success, _ = _send_automation_message(
-                        phone_e164, 'order_confirmation', template_name, lang, params
+                        phone_e164, 'order_confirmation', template_name, lang, params,
+                        header_media_id=header_media_id
                     )
                     if success:
                         db.mark_order_confirmation_sent(order_db_id)
@@ -1805,7 +1885,7 @@ def shopify_order_create():
                         username='System',
                         action=('Automation: Order Confirmation Sent'
                                 if success else 'Automation: Order Confirmation Failed'),
-                        details=f"Order #{order_number} → {phone_e164}"
+                        details=f"Order {order_number_display} → {phone_e164}"
                     )
         else:
             logger.warning(f"⚠️ Order {order_db_id} has no phone — skipping confirmation")
@@ -1894,7 +1974,15 @@ def shopify_fulfillment():
             order_db_id = db.add_order(user_id, order_data_payload)
             db.mark_order_fulfillment_received(shopify_order_id)
 
-        logger.info(f"📞 Fulfillment phone: {phone}, order: #{order_number}, "
+        # Save tracking URL for /track/<order_ref> redirect
+        if tracking_url:
+            try:
+                db.save_order_tracking_url(shopify_order_id, tracking_url)
+            except Exception as e:
+                logger.warning(f"Could not save tracking URL: {e}")
+
+        order_number_display = f"#F1{order_number}"
+        logger.info(f"📞 Fulfillment phone: {phone}, order: {order_number_display}, "
                     f"tracking: {tracking_number}")
 
         # ---- Auto-send dispatch notification if enabled ----
@@ -1908,14 +1996,19 @@ def shopify_fulfillment():
                 if phone_e164:
                     lang = s.get('template_language') or 'en_US'
                     items_str = _format_items(line_items)
-                    # Use tracking URL if available (WhatsApp auto-linkifies it),
-                    # otherwise fall back to plain tracking number
-                    tracking_info = tracking_url if tracking_url else tracking_number
-                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=items, {{4}}=tracking link/number
-                    params = [str(first_name), f"#{order_number}", items_str, str(tracking_info)]
+                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=items
+                    params = [str(first_name), order_number_display, items_str]
+
+                    # URL button — template has: https://dashboard.boxbox.in/track/{{1}}
+                    # We pass the order number as the suffix; the /track/ endpoint
+                    # looks up the actual Shopify tracking URL and 302-redirects.
+                    # This works across any courier (Delhivery, DTDC, FedEx, etc.)
+                    # because WhatsApp buttons require a fixed base URL.
+                    btn_params = {"url_index_0": str(order_number)}
 
                     success, _ = _send_automation_message(
-                        phone_e164, 'fulfillment', template_name, lang, params
+                        phone_e164, 'fulfillment', template_name, lang, params,
+                        button_params=btn_params
                     )
                     if success:
                         db.mark_fulfillment_sent(order_db_id)
@@ -1924,7 +2017,7 @@ def shopify_fulfillment():
                         username='System',
                         action=('Automation: Dispatch Notification Sent'
                                 if success else 'Automation: Dispatch Notification Failed'),
-                        details=f"Order #{order_number} → {phone_e164}, tracking={tracking_number}"
+                        details=f"Order {order_number_display} → {phone_e164}, tracking={tracking_number}"
                     )
         else:
             logger.warning("⚠️ Fulfillment webhook has no phone — skipping notification")

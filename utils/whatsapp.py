@@ -284,6 +284,27 @@ def upload_media(image_file):
         return None
 
 
+def upload_media_from_bytes(image_bytes, content_type='image/jpeg', filename='product.jpg'):
+    """Upload raw image bytes to WhatsApp media API. Returns media_id or None.
+    Used for automation (e.g. product image from Shopify CDN → WhatsApp header)."""
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    files = {'file': (filename, image_bytes, content_type)}
+    data = {'messaging_product': 'whatsapp'}
+    try:
+        resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+        if resp.status_code in [200, 201]:
+            media_id = resp.json().get('id')
+            logger.info(f"Media (bytes) uploaded OK, ID: {media_id}")
+            return media_id
+        else:
+            logger.error(f"Media (bytes) upload failed ({resp.status_code}): {resp.json()}")
+            return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Media (bytes) upload exception: {e}")
+        return None
+
+
 def save_uploaded_image(image_file):
     """
     Save uploaded image temporarily and return file path
