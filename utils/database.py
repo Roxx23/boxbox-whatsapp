@@ -224,6 +224,22 @@ class Database:
                 )
             ''')
             
+            # Automation settings table (order confirmation, fulfillment, abandoned cart)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS automation_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    enabled INTEGER DEFAULT 0,
+                    template_name TEXT DEFAULT '',
+                    template_language TEXT DEFAULT 'en_US',
+                    delay_hours INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, event_type)
+                )
+            ''')
+
             # Add shopify_created_at column if it doesn't exist (migration for existing DBs)
             try:
                 cursor.execute('ALTER TABLE customers ADD COLUMN shopify_created_at TEXT')
@@ -235,6 +251,18 @@ class Database:
                 'ALTER TABLE messages ADD COLUMN template_params TEXT',
                 'ALTER TABLE messages ADD COLUMN template_language TEXT',
                 'ALTER TABLE messages ADD COLUMN button_params TEXT',
+            ]:
+                try:
+                    cursor.execute(col)
+                except Exception:
+                    pass
+
+            # Migrations for automation features
+            for col in [
+                'ALTER TABLE shopify_orders ADD COLUMN fulfillment_sent INTEGER DEFAULT 0',
+                'ALTER TABLE shopify_orders ADD COLUMN fulfillment_sent_at TEXT',
+                'ALTER TABLE abandoned_carts ADD COLUMN cart_url TEXT',
+                "ALTER TABLE automation_settings ADD COLUMN extra_data TEXT DEFAULT '{}'",
             ]:
                 try:
                     cursor.execute(col)
@@ -815,10 +843,10 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT OR REPLACE INTO abandoned_carts 
+                INSERT OR REPLACE INTO abandoned_carts
                 (user_id, shopify_cart_id, customer_id, customer_email, customer_phone,
-                 cart_token, cart_items, total_price, currency, abandoned_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cart_token, cart_items, total_price, currency, abandoned_at, cart_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_id,
                 cart_data.get('id'),
@@ -829,6 +857,7 @@ class Database:
                 json.dumps(cart_data.get('line_items', [])),
                 cart_data.get('total_price'),
                 cart_data.get('currency'),
+                datetime.now().isoformat(),
                 cart_data.get('abandoned_checkout_url')
             ))
             return cursor.lastrowid
@@ -863,11 +892,28 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                UPDATE abandoned_carts 
+                UPDATE abandoned_carts
                 SET recovered = 1, recovered_at = ?
                 WHERE shopify_cart_id = ?
             ''', (datetime.now().isoformat(), shopify_cart_id))
-    
+
+    def get_abandoned_carts_ready_for_reminder(self, user_id, delay_hours=1):
+        """Get carts past the delay threshold that haven't been reminded yet"""
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(hours=delay_hours)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM abandoned_carts
+                WHERE user_id = ?
+                  AND reminder_sent = 0
+                  AND recovered = 0
+                  AND customer_phone IS NOT NULL AND customer_phone != ''
+                  AND created_at <= ?
+                ORDER BY created_at ASC
+            ''', (user_id, cutoff.isoformat()))
+            return [dict(row) for row in cursor.fetchall()]
+
     # Order Methods
     def add_order(self, user_id, order_data):
         """Add or update order"""
@@ -912,11 +958,102 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                UPDATE shopify_orders 
+                UPDATE shopify_orders
                 SET confirmation_sent = 1, confirmation_sent_at = ?
                 WHERE id = ?
             ''', (datetime.now().isoformat(), order_id))
-    
+
+    def mark_fulfillment_sent(self, order_id):
+        """Mark fulfillment notification as sent"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shopify_orders
+                SET fulfillment_sent = 1, fulfillment_sent_at = ?
+                WHERE id = ?
+            ''', (datetime.now().isoformat(), order_id))
+
+    def get_order_by_shopify_id(self, shopify_order_id):
+        """Get order row by Shopify order ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM shopify_orders WHERE shopify_order_id = ?',
+                           (str(shopify_order_id),))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def mark_order_fulfillment_received(self, shopify_order_id):
+        """Update fulfillment_status to 'fulfilled' for an existing order"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shopify_orders
+                SET fulfillment_status = 'fulfilled', updated_at = ?
+                WHERE shopify_order_id = ?
+            ''', (datetime.now().isoformat(), str(shopify_order_id)))
+
+    # Automation Settings Methods
+    def get_automation_settings(self, user_id):
+        """Return automation settings dict keyed by event_type, with defaults."""
+        defaults = {
+            'order_confirmation': {
+                'enabled': 0, 'template_name': '', 'template_language': 'en_US',
+                'delay_hours': 0, 'extra_data': {}
+            },
+            'fulfillment': {
+                'enabled': 0, 'template_name': '', 'template_language': 'en_US',
+                'delay_hours': 0, 'extra_data': {}
+            },
+            'abandoned_cart': {
+                'enabled': 0, 'template_name': '', 'template_language': 'en_US',
+                'delay_hours': 1,
+                'extra_data': {'discount_code': '', 'recovery_url': ''}
+            },
+        }
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM automation_settings WHERE user_id = ?', (user_id,))
+            rows = cursor.fetchall()
+        for row in rows:
+            row = dict(row)
+            et = row['event_type']
+            if et in defaults:
+                try:
+                    extra = json.loads(row.get('extra_data') or '{}')
+                except Exception:
+                    extra = {}
+                defaults[et] = {
+                    'enabled': int(row['enabled']),
+                    'template_name': row['template_name'] or '',
+                    'template_language': row['template_language'] or 'en_US',
+                    'delay_hours': int(row['delay_hours']) if row['delay_hours'] else
+                                   (1 if et == 'abandoned_cart' else 0),
+                    'extra_data': extra,
+                }
+        return defaults
+
+    def save_automation_setting(self, user_id, event_type, enabled, template_name,
+                                template_language, delay_hours=0, extra_data=None):
+        """Upsert a single automation setting row."""
+        now = datetime.now().isoformat()
+        extra_json = json.dumps(extra_data or {})
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO automation_settings
+                    (user_id, event_type, enabled, template_name, template_language,
+                     delay_hours, extra_data, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, event_type, int(enabled), template_name, template_language,
+                  delay_hours, extra_json, now, now))
+            cursor.execute('''
+                UPDATE automation_settings
+                SET enabled = ?, template_name = ?, template_language = ?,
+                    delay_hours = ?, extra_data = ?, updated_at = ?
+                WHERE user_id = ? AND event_type = ?
+            ''', (int(enabled), template_name, template_language, delay_hours,
+                  extra_json, now, user_id, event_type))
+
     # Template Usage Methods
     def track_template_usage(self, user_id, username, template_name):
         """Track template usage"""

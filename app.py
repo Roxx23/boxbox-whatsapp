@@ -7,6 +7,10 @@ import atexit
 import threading
 import logging
 import json
+import hmac
+import hashlib
+import base64
+import time
 from datetime import datetime
 
 from utils.personalize import personalize
@@ -66,6 +70,183 @@ logger.info(f"⚙️ Rate limit: {MAX_REQUESTS} requests per {TIME_WINDOW}s with
 from utils.background_scheduler import set_message_queue, set_waba_id
 set_message_queue(message_queue)
 set_waba_id(WABA_ID)
+
+
+# ============================================================
+# AUTOMATION HELPERS
+# ============================================================
+
+def _format_items(line_items, max_items=3):
+    """Format line_items list into a short readable string.
+
+    Examples:
+        [Blue Sneakers x1, Black Jeans x2]
+        [White T-Shirt, Blue Cap & 2 more]
+    """
+    if not line_items:
+        return 'your items'
+    parts = []
+    for item in line_items[:max_items]:
+        title = item.get('title') or item.get('name') or 'Item'
+        qty   = int(item.get('quantity') or 1)
+        parts.append(f"{title} x{qty}" if qty > 1 else title)
+    result = ', '.join(parts)
+    extra  = len(line_items) - max_items
+    if extra > 0:
+        result += f" & {extra} more"
+    return result
+
+
+def _get_webhook_user_id():
+    """Return the user_id to use for webhook processing.
+
+    Prefers the user who has automation settings saved (the real owner),
+    then the most recently active user, then the first user in users.json.
+    This prevents the bug where users[0] has id='1' but the actual
+    logged-in user has a different id.
+    """
+    # 1. User with automation settings configured
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT user_id FROM automation_settings LIMIT 1')
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+    except Exception:
+        pass
+
+    # 2. Most recently active user
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT user_id FROM activity_log ORDER BY timestamp DESC LIMIT 1'
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+    except Exception:
+        pass
+
+    # 3. Fall back to first user
+    users = user_manager.get_all_users()
+    return users[0].id if users else None
+
+
+def _normalize_phone_webhook(phone):
+    """Normalize a phone number from Shopify webhooks to E.164 (+91XXXXXXXXXX)."""
+    if not phone:
+        return None
+    cleaned = ''.join(c for c in str(phone) if c.isdigit() or c == '+')
+    if not cleaned:
+        return None
+    if cleaned.startswith('+'):
+        return cleaned
+    elif len(cleaned) == 12 and cleaned.startswith('91'):
+        return '+' + cleaned
+    elif len(cleaned) == 11 and cleaned.startswith('0'):
+        return '+91' + cleaned[1:]
+    elif len(cleaned) == 10:
+        return '+91' + cleaned
+    return '+' + cleaned
+
+
+def _verify_shopify_hmac(raw_data, hmac_header):
+    """Verify Shopify webhook HMAC-SHA256 signature.
+    Returns True if valid, or if SHOPIFY_WEBHOOK_SECRET is not configured."""
+    secret = os.getenv('SHOPIFY_WEBHOOK_SECRET', '')
+    if not secret:
+        return True  # Permissive when no secret is set
+    if not hmac_header:
+        logger.warning("Shopify webhook missing HMAC header")
+        return False
+    h = hmac.new(secret.encode('utf-8'), raw_data, hashlib.sha256)
+    computed = base64.b64encode(h.digest()).decode('utf-8')
+    return hmac.compare_digest(computed, hmac_header)
+
+
+def _send_automation_message(phone, event_type, template_name, template_language, params):
+    """Send a single automation WhatsApp template message. Returns (success, wamid)."""
+    try:
+        status_code, response = send_template(phone, template_name, params,
+                                               lang=template_language)
+        success = status_code in [200, 201]
+        wamid = None
+        if success:
+            msgs = response.get('messages', [])
+            wamid = msgs[0].get('id') if msgs else None
+        logger.info(
+            f"{'✅' if success else '❌'} Automation [{event_type}] → {phone}: "
+            f"HTTP {status_code}"
+        )
+        return success, wamid
+    except Exception as e:
+        logger.error(f"❌ Automation send exception [{event_type}] → {phone}: {e}")
+        return False, None
+
+
+def _start_abandoned_cart_checker():
+    """Start a daemon thread that sends abandoned-cart reminders every 15 minutes."""
+
+    def _checker():
+        while True:
+            try:
+                time.sleep(15 * 60)  # wait first, then check
+                logger.debug("🛒 Abandoned-cart checker running…")
+                users = user_manager.get_all_users()
+                for user in users:
+                    settings = db.get_automation_settings(user.id)
+                    s = settings.get('abandoned_cart', {})
+                    if not s.get('enabled'):
+                        continue
+                    template_name = (s.get('template_name') or '').strip()
+                    template_language = s.get('template_language') or 'en_US'
+                    delay_hours = int(s.get('delay_hours') or 1)
+                    if not template_name:
+                        continue
+
+                    carts = db.get_abandoned_carts_ready_for_reminder(user.id, delay_hours)
+                    for cart in carts:
+                        phone = _normalize_phone_webhook(cart.get('customer_phone'))
+                        if not phone:
+                            continue
+
+                        cart_items = json.loads(cart['cart_items']) if cart['cart_items'] else []
+                        items_str = _format_items(cart_items)
+                        total = cart.get('total_price') or '0'
+                        # Derive a first name from email as fallback
+                        email = cart.get('customer_email') or ''
+                        first_name = email.split('@')[0] if email else 'there'
+
+                        # Template params: {{1}}=name, {{2}}=items, {{3}}=total
+                        # Discount code and website button are hardcoded in the template itself
+                        params = [first_name, items_str, f"₹{total}"]
+
+                        success, _ = _send_automation_message(
+                            phone, 'abandoned_cart', template_name, template_language, params
+                        )
+                        if success:
+                            db.mark_cart_reminder_sent(cart['id'])
+                            db.log_activity(
+                                user_id=user.id,
+                                username='System',
+                                action='Automation: Cart Reminder Sent',
+                                details=f"Cart #{cart.get('shopify_cart_id')} → {phone}"
+                            )
+                            logger.info(f"✅ Cart reminder sent to {phone}")
+                        else:
+                            logger.warning(f"⚠️ Cart reminder failed for {phone}")
+            except Exception as exc:
+                logger.error(f"❌ Abandoned-cart checker error: {exc}", exc_info=True)
+
+    t = threading.Thread(target=_checker, daemon=True, name='abandoned_cart_checker')
+    t.start()
+    logger.info("✅ Abandoned-cart background checker started")
+
+
+# Start abandoned-cart background checker
+_start_abandoned_cart_checker()
 
 
 # ============================================================
@@ -932,6 +1113,84 @@ def activity_log_page():
 
 
 # ============================================================
+# AUTOMATION SETTINGS
+# ============================================================
+
+@app.route("/automation", methods=["GET"])
+@login_required
+def automation_page():
+    """Automation settings — configure order/fulfillment/cart WhatsApp messages."""
+    settings = db.get_automation_settings(current_user.id)
+
+    # Fetch recent automation activity
+    recent_logs = []
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM activity_log
+                WHERE user_id = ? AND action LIKE 'Automation:%'
+                ORDER BY timestamp DESC
+                LIMIT 30
+            """, (current_user.id,))
+            recent_logs = [dict(r) for r in cursor.fetchall()]
+    except Exception as e:
+        logger.warning(f"Could not fetch automation logs: {e}")
+
+    # Fetch WhatsApp templates for the dropdown hint
+    try:
+        from utils.whatsapp import get_templates as _get_tpl
+        wa_templates = [t['name'] for t in _get_tpl(WABA_ID)
+                        if t.get('status') == 'APPROVED']
+    except Exception:
+        wa_templates = []
+
+    return render_template(
+        'automation.html',
+        settings=settings,
+        recent_logs=recent_logs,
+        wa_templates=wa_templates
+    )
+
+
+@app.route("/api/automation-settings", methods=["POST"])
+@login_required
+def save_automation_settings():
+    """Save automation settings (JSON body)."""
+    try:
+        data = request.json or {}
+
+        for event_type in ['order_confirmation', 'fulfillment', 'abandoned_cart']:
+            block = data.get(event_type, {})
+            extra_data = {}
+            if event_type == 'abandoned_cart':
+                extra_data = {}
+            db.save_automation_setting(
+                user_id=current_user.id,
+                event_type=event_type,
+                enabled=int(bool(block.get('enabled'))),
+                template_name=(block.get('template_name') or '').strip(),
+                template_language=(block.get('template_language') or 'en_US').strip(),
+                delay_hours=int(block.get('delay_hours') or
+                                (1 if event_type == 'abandoned_cart' else 0)),
+                extra_data=extra_data,
+            )
+
+        db.log_activity(
+            user_id=current_user.id,
+            username=current_user.username,
+            action='Automation Settings Saved',
+            details='Updated automation webhook settings',
+            ip_address=request.remote_addr
+        )
+        return jsonify({'success': True, 'message': 'Settings saved successfully'})
+
+    except Exception as e:
+        logger.error(f"❌ Error saving automation settings: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================
 # SHOPIFY & CUSTOMER MANAGEMENT
 # ============================================================
 
@@ -1421,6 +1680,10 @@ def process_incoming_message(message_data):
 def shopify_cart_create():
     """Handle Shopify abandoned cart/checkout webhook"""
     try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
         data = request.json
         logger.info(f"🛒 Abandoned cart webhook received")
         logger.info(f"🔍 Webhook data: {json.dumps(data, indent=2)}")
@@ -1453,13 +1716,11 @@ def shopify_cart_create():
         
         logger.info(f"📋 Cart data prepared: Phone={cart_data['phone']}, Email={cart_data['email']}, Items={len(cart_data['line_items'])}")
         
-        # Store abandoned cart for all users
-        users = user_manager.get_all_users()
-        if users:
-            user_id = users[0].id
+        # Store abandoned cart
+        user_id = _get_webhook_user_id()
+        if user_id:
             cart_id = db.add_abandoned_cart(user_id, cart_data)
-            logger.info(f"✅ Abandoned cart stored: {cart_id}")
-            
+            logger.info(f"✅ Abandoned cart stored: {cart_id} (user_id={user_id})")
             if not phone:
                 logger.warning(f"⚠️  Cart {cart_id} has no phone number - won't be able to send reminder")
         else:
@@ -1474,23 +1735,22 @@ def shopify_cart_create():
 
 @app.route("/shopify/webhook/order-create", methods=["POST"])
 def shopify_order_create():
-    """Handle Shopify order creation webhook"""
+    """Handle Shopify order creation webhook — stores order + auto-sends confirmation."""
     try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
         data = request.json
         logger.info(f"📦 Order webhook received: Order #{data.get('order_number') or data.get('name')}")
-        logger.info(f"🔍 Order data: {json.dumps(data, indent=2)}")
-        
+
         # Extract phone from multiple locations
-        phone = None
-        if data.get('phone'):
-            phone = data.get('phone')
-        elif data.get('customer') and data.get('customer', {}).get('phone'):
-            phone = data.get('customer', {}).get('phone')
-        elif data.get('billing_address') and data.get('billing_address', {}).get('phone'):
-            phone = data.get('billing_address', {}).get('phone')
-        
+        phone = (data.get('phone')
+                 or (data.get('customer') or {}).get('phone')
+                 or (data.get('billing_address') or {}).get('phone'))
+
         logger.info(f"📞 Extracted phone: {phone}")
-        
+
         order_data = {
             'id': str(data.get('id')),
             'order_number': str(data.get('order_number') or data.get('name', '')),
@@ -1498,36 +1758,181 @@ def shopify_order_create():
             'email': data.get('email'),
             'phone': phone,
             'total_price': data.get('total_price'),
-            'currency': data.get('currency', 'USD'),
+            'currency': data.get('currency', 'INR'),
             'financial_status': data.get('financial_status'),
             'fulfillment_status': data.get('fulfillment_status'),
             'line_items': data.get('line_items', [])
         }
-        
-        logger.info(f"📋 Order data prepared: Order #{order_data['order_number']}, Phone={order_data['phone']}, Items={len(order_data['line_items'])}")
-        
-        # Store order for all users
-        users = user_manager.get_all_users()
-        if users:
-            user_id = users[0].id
-            order_id = db.add_order(user_id, order_data)
-            logger.info(f"✅ Order stored: {order_id}")
-            
-            # Mark any abandoned cart as recovered
-            cart_token = data.get('cart_token')
-            if cart_token:
-                db.mark_cart_recovered(cart_token)
-                logger.info(f"✅ Cart recovered: {cart_token}")
-            
-            if not phone:
-                logger.warning(f"⚠️  Order {order_id} has no phone number - won't be able to send confirmation")
-        else:
+
+        user_id = _get_webhook_user_id()
+        if not user_id:
             logger.error("❌ No users found - cannot store order")
-        
+            return jsonify({"status": "ok"}), 200
+
+        order_db_id = db.add_order(user_id, order_data)
+        logger.info(f"✅ Order stored: DB id={order_db_id} (user_id={user_id})")
+
+        # Mark any abandoned cart as recovered
+        cart_token = data.get('cart_token')
+        if cart_token:
+            db.mark_cart_recovered(cart_token)
+            logger.info(f"✅ Cart recovered: {cart_token}")
+
+        # ---- Auto-send order confirmation if enabled ----
+        if phone:
+            settings = db.get_automation_settings(user_id)
+            s = settings.get('order_confirmation', {})
+            template_name = (s.get('template_name') or '').strip()
+
+            if s.get('enabled') and template_name:
+                phone_e164 = _normalize_phone_webhook(phone)
+                if phone_e164:
+                    first_name = (data.get('customer') or {}).get('first_name') or 'there'
+                    order_number = order_data['order_number']
+                    items_str = _format_items(data.get('line_items', []))
+                    total = f"₹{order_data['total_price']}" if order_data['total_price'] else ''
+                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=items, {{4}}=total
+                    params = [str(first_name), f"#{order_number}", items_str, total]
+                    lang = s.get('template_language') or 'en_US'
+
+                    success, _ = _send_automation_message(
+                        phone_e164, 'order_confirmation', template_name, lang, params
+                    )
+                    if success:
+                        db.mark_order_confirmation_sent(order_db_id)
+                    db.log_activity(
+                        user_id=user_id,
+                        username='System',
+                        action=('Automation: Order Confirmation Sent'
+                                if success else 'Automation: Order Confirmation Failed'),
+                        details=f"Order #{order_number} → {phone_e164}"
+                    )
+        else:
+            logger.warning(f"⚠️ Order {order_db_id} has no phone — skipping confirmation")
+
         return jsonify({"status": "ok"}), 200
-        
+
     except Exception as e:
         logger.error(f"❌ Error processing order webhook: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shopify/webhook/fulfillment", methods=["POST"])
+def shopify_fulfillment():
+    """Handle Shopify fulfillment webhook (orders/fulfilled OR fulfillments/create topic).
+    Sends a dispatch notification to the customer."""
+    try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        data = request.json
+        topic = request.headers.get('X-Shopify-Topic', '')
+        logger.info(f"🚚 Fulfillment webhook received (topic: {topic})")
+
+        # Determine if payload is a full order (orders/fulfilled) or a fulfillment object
+        is_fulfillment_object = ('order_id' in data and 'order_number' not in data
+                                 and 'fulfillments' not in data)
+
+        user_id = _get_webhook_user_id()
+        if not user_id:
+            return jsonify({"status": "ok"}), 200
+
+        if is_fulfillment_object:
+            # fulfillments/create payload — look up order from DB
+            shopify_order_id = str(data.get('order_id', ''))
+            tracking_number = data.get('tracking_number') or 'Will be provided'
+            tracking_url    = data.get('tracking_url') or ''
+            line_items = data.get('line_items', [])
+            order = db.get_order_by_shopify_id(shopify_order_id)
+            if not order:
+                logger.warning(f"⚠️ Order {shopify_order_id} not in DB — cannot send fulfillment msg")
+                return jsonify({"status": "ok", "note": "order not found"}), 200
+            phone = order.get('customer_phone')
+            order_number = order.get('order_number', '')
+            first_name = 'there'
+            order_db_id = order['id']
+            # If line_items not in fulfillment payload, restore from stored order
+            if not line_items:
+                try:
+                    line_items = json.loads(order.get('order_items') or '[]')
+                except Exception:
+                    line_items = []
+            db.mark_order_fulfillment_received(shopify_order_id)
+        else:
+            # orders/fulfilled payload — full order object
+            shopify_order_id = str(data.get('id', ''))
+            order_number = str(data.get('order_number') or data.get('name', ''))
+            phone = (data.get('phone')
+                     or (data.get('customer') or {}).get('phone')
+                     or (data.get('billing_address') or {}).get('phone'))
+            first_name = (data.get('customer') or {}).get('first_name') or 'there'
+            line_items = data.get('line_items', [])
+
+            # Get tracking info from last fulfillment
+            fulfillments = data.get('fulfillments') or []
+            tracking_number = 'Will be provided'
+            tracking_url    = ''
+            if fulfillments:
+                last = fulfillments[-1]
+                tracking_number = last.get('tracking_number') or 'Will be provided'
+                tracking_url    = last.get('tracking_url') or ''
+
+            # Upsert order so we have an id
+            order_data_payload = {
+                'id': shopify_order_id,
+                'order_number': order_number,
+                'customer': data.get('customer', {}),
+                'email': data.get('email'),
+                'phone': phone,
+                'total_price': data.get('total_price'),
+                'currency': data.get('currency', 'INR'),
+                'financial_status': data.get('financial_status'),
+                'fulfillment_status': 'fulfilled',
+                'line_items': line_items
+            }
+            order_db_id = db.add_order(user_id, order_data_payload)
+            db.mark_order_fulfillment_received(shopify_order_id)
+
+        logger.info(f"📞 Fulfillment phone: {phone}, order: #{order_number}, "
+                    f"tracking: {tracking_number}")
+
+        # ---- Auto-send dispatch notification if enabled ----
+        if phone:
+            settings = db.get_automation_settings(user_id)
+            s = settings.get('fulfillment', {})
+            template_name = (s.get('template_name') or '').strip()
+
+            if s.get('enabled') and template_name:
+                phone_e164 = _normalize_phone_webhook(phone)
+                if phone_e164:
+                    lang = s.get('template_language') or 'en_US'
+                    items_str = _format_items(line_items)
+                    # Use tracking URL if available (WhatsApp auto-linkifies it),
+                    # otherwise fall back to plain tracking number
+                    tracking_info = tracking_url if tracking_url else tracking_number
+                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=items, {{4}}=tracking link/number
+                    params = [str(first_name), f"#{order_number}", items_str, str(tracking_info)]
+
+                    success, _ = _send_automation_message(
+                        phone_e164, 'fulfillment', template_name, lang, params
+                    )
+                    if success:
+                        db.mark_fulfillment_sent(order_db_id)
+                    db.log_activity(
+                        user_id=user_id,
+                        username='System',
+                        action=('Automation: Dispatch Notification Sent'
+                                if success else 'Automation: Dispatch Notification Failed'),
+                        details=f"Order #{order_number} → {phone_e164}, tracking={tracking_number}"
+                    )
+        else:
+            logger.warning("⚠️ Fulfillment webhook has no phone — skipping notification")
+
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error processing fulfillment webhook: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 

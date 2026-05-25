@@ -1,0 +1,485 @@
+{% extends "base.html" %}
+{% block page_title %}Automation{% endblock %}
+
+{% block content %}
+<style>
+  .auto-page { max-width: 860px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  .page-header { margin-bottom: 2rem; }
+  .page-header h1 { font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 0 0 .3rem; }
+  .page-header p  { color: var(--text-muted); margin: 0; font-size: .9rem; }
+
+  /* Cards */
+  .auto-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .auto-card.enabled { border-color: var(--border-gold); }
+  .auto-card-header {
+    display: flex; align-items: center; gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .auto-card-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; flex-shrink: 0;
+  }
+  .auto-card-icon.green  { background: rgba(52,211,153,.12); color: #34d399; }
+  .auto-card-icon.blue   { background: rgba(96,165,250,.12);  color: #60a5fa; }
+  .auto-card-icon.orange { background: rgba(251,146,60,.12);  color: #fb923c; }
+  .auto-card-title { flex: 1; }
+  .auto-card-title h3 { margin: 0 0 .15rem; font-size: 1rem; font-weight: 600; color: var(--text); }
+  .auto-card-title p  { margin: 0; font-size: .8rem; color: var(--text-muted); }
+
+  /* Toggle switch */
+  .toggle-wrap { display: flex; align-items: center; gap: .5rem; }
+  .toggle-label { font-size: .8rem; color: var(--text-muted); }
+  .toggle {
+    position: relative; display: inline-block; width: 44px; height: 24px;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: rgba(255,255,255,.1); border-radius: 24px;
+    transition: .25s;
+  }
+  .toggle-slider:before {
+    content: ''; position: absolute;
+    width: 18px; height: 18px; border-radius: 50%;
+    left: 3px; bottom: 3px;
+    background: rgba(255,255,255,.4);
+    transition: .25s;
+  }
+  .toggle input:checked + .toggle-slider { background: var(--gold); }
+  .toggle input:checked + .toggle-slider:before {
+    transform: translateX(20px); background: #0a0a0a;
+  }
+
+  /* Card body */
+  .auto-card-body { padding: 1.25rem; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .form-row.three { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 600px) { .form-row, .form-row.three { grid-template-columns: 1fr; } }
+
+  .field label {
+    display: block; font-size: .78rem; font-weight: 600;
+    color: var(--text-muted); margin-bottom: .4rem; letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .field input, .field select {
+    width: 100%;
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: .55rem .8rem;
+    font-size: .88rem;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--gold); }
+  .field input::placeholder { color: var(--text-dim); }
+  .field select option { background: #1a1a1a; }
+
+  .param-hint {
+    margin-top: .75rem;
+    padding: .65rem .9rem;
+    background: rgba(212,168,75,.06);
+    border: 1px solid rgba(212,168,75,.15);
+    border-radius: 8px;
+    font-size: .78rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .param-hint strong { color: var(--gold); }
+
+  /* Setup guide card */
+  .guide-card {
+    background: rgba(96,165,250,.05);
+    border: 1px solid rgba(96,165,250,.2);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.75rem;
+  }
+  .guide-card h4 {
+    margin: 0 0 .75rem; font-size: .95rem; color: #60a5fa; font-weight: 600;
+  }
+  .guide-card p { font-size: .83rem; color: var(--text-muted); margin: 0 0 .6rem; }
+  .webhook-url {
+    background: rgba(0,0,0,.3); border: 1px solid var(--border);
+    border-radius: 6px; padding: .5rem .8rem;
+    font-family: monospace; font-size: .8rem; color: var(--text);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: .5rem; gap: .5rem; flex-wrap: wrap;
+  }
+  .webhook-url .topic-badge {
+    font-size: .7rem; padding: .2rem .5rem; border-radius: 4px;
+    background: rgba(212,168,75,.15); color: var(--gold);
+    font-family: sans-serif; white-space: nowrap;
+  }
+  .copy-btn {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; padding: .2rem; font-size: .8rem;
+    transition: color .2s;
+  }
+  .copy-btn:hover { color: var(--gold); }
+
+  /* Save button */
+  .save-row { display: flex; justify-content: flex-end; margin-top: 1.5rem; }
+  .btn-save {
+    background: var(--gold); color: #0a0a0a;
+    border: none; border-radius: 8px;
+    padding: .7rem 2rem; font-weight: 700; font-size: .9rem;
+    cursor: pointer; transition: opacity .2s;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .btn-save:hover { opacity: .85; }
+  .btn-save:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* Recent logs */
+  .logs-section { margin-top: 2.5rem; }
+  .logs-section h3 { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 1rem; }
+  .log-row {
+    display: flex; align-items: flex-start; gap: .75rem;
+    padding: .7rem 0; border-bottom: 1px solid var(--border);
+    font-size: .82rem;
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: .25rem;
+  }
+  .log-dot.ok     { background: #34d399; }
+  .log-dot.fail   { background: #f87171; }
+  .log-dot.neutral{ background: var(--text-dim); }
+  .log-action { color: var(--text); font-weight: 500; }
+  .log-detail { color: var(--text-muted); margin-top: .1rem; }
+  .log-time   { color: var(--text-dim); margin-left: auto; white-space: nowrap; font-size: .75rem; }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 1.5rem; right: 1.5rem;
+    padding: .75rem 1.25rem; border-radius: 8px;
+    font-size: .88rem; font-weight: 500;
+    opacity: 0; transition: opacity .3s; pointer-events: none;
+    z-index: 9999;
+  }
+  #toast.show { opacity: 1; }
+  #toast.success { background: #1a2e22; border: 1px solid #34d399; color: #34d399; }
+  #toast.error   { background: #2e1a1a; border: 1px solid #f87171; color: #f87171; }
+</style>
+
+<div class="auto-page">
+  <!-- Header -->
+  <div class="page-header">
+    <h1><i class="fas fa-bolt" style="color:var(--gold);margin-right:.5rem;"></i>Automation</h1>
+    <p>Automatically send WhatsApp messages when Shopify events happen.</p>
+  </div>
+
+  <!-- Setup Guide -->
+  <div class="guide-card">
+    <h4><i class="fas fa-plug" style="margin-right:.5rem;"></i>Shopify Webhook Setup</h4>
+    <p>Go to <strong>Shopify Admin → Settings → Notifications → Webhooks</strong> and add these webhooks:</p>
+
+    <div class="webhook-url">
+      <span>https://dashboard.boxbox.in/shopify/webhook/order-create</span>
+      <span class="topic-badge">orders/create</span>
+      <button class="copy-btn" onclick="copyUrl(this, 'https://dashboard.boxbox.in/shopify/webhook/order-create')" title="Copy">
+        <i class="fas fa-copy"></i>
+      </button>
+    </div>
+    <div class="webhook-url">
+      <span>https://dashboard.boxbox.in/shopify/webhook/fulfillment</span>
+      <span class="topic-badge">orders/fulfilled</span>
+      <button class="copy-btn" onclick="copyUrl(this, 'https://dashboard.boxbox.in/shopify/webhook/fulfillment')" title="Copy">
+        <i class="fas fa-copy"></i>
+      </button>
+    </div>
+    <div class="webhook-url">
+      <span>https://dashboard.boxbox.in/shopify/webhook/cart-create</span>
+      <span class="topic-badge">checkouts/create</span>
+      <button class="copy-btn" onclick="copyUrl(this, 'https://dashboard.boxbox.in/shopify/webhook/cart-create')" title="Copy">
+        <i class="fas fa-copy"></i>
+      </button>
+    </div>
+
+    <p style="margin-top:.75rem;margin-bottom:0;">
+      <i class="fas fa-shield-alt" style="color:var(--gold);margin-right:.3rem;"></i>
+      Optional: Set <code>SHOPIFY_WEBHOOK_SECRET</code> in your <code>.env</code> to verify webhook signatures.
+    </p>
+  </div>
+
+  <!-- ===== Order Confirmation ===== -->
+  <div class="auto-card" id="card-order_confirmation">
+    <div class="auto-card-header">
+      <div class="auto-card-icon green"><i class="fas fa-check-circle"></i></div>
+      <div class="auto-card-title">
+        <h3>Order Confirmation</h3>
+        <p>Sent immediately when a customer places an order</p>
+      </div>
+      <div class="toggle-wrap">
+        <span class="toggle-label" id="label-order_confirmation">
+          {{ 'On' if settings.order_confirmation.enabled else 'Off' }}
+        </span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-order_confirmation"
+                 {{ 'checked' if settings.order_confirmation.enabled }}
+                 onchange="updateToggleLabel('order_confirmation')">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="auto-card-body">
+      <div class="form-row">
+        <div class="field">
+          <label>Template Name</label>
+          <input type="text" id="tpl-order_confirmation"
+                 value="{{ settings.order_confirmation.template_name }}"
+                 placeholder="e.g. order_confirmation"
+                 list="tpl-list">
+        </div>
+        <div class="field">
+          <label>Language</label>
+          <select id="lang-order_confirmation">
+            {% for code, label in [('en_US','English (US)'), ('en','English'), ('hi','Hindi')] %}
+            <option value="{{ code }}"
+              {{ 'selected' if settings.order_confirmation.template_language == code }}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="param-hint">
+        <strong>Template variables expected (4 variables):</strong><br>
+        <code>{{"{{"}}1{{"}}"}}</code> = Customer first name &nbsp;·&nbsp;
+        <code>{{"{{"}}2{{"}}"}}</code> = Order number &nbsp;·&nbsp;
+        <code>{{"{{"}}3{{"}}"}}</code> = Items ordered &nbsp;·&nbsp;
+        <code>{{"{{"}}4{{"}}"}}</code> = Order total (₹)<br>
+        <em>Example: "Hi {{"{{"}}1{{"}}"}}, your order {{"{{"}}2{{"}}"}} is confirmed! 🎉 Items: {{"{{"}}3{{"}}"}}. Total: {{"{{"}}4{{"}}"}}"</em>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Order Dispatched ===== -->
+  <div class="auto-card" id="card-fulfillment">
+    <div class="auto-card-header">
+      <div class="auto-card-icon blue"><i class="fas fa-truck"></i></div>
+      <div class="auto-card-title">
+        <h3>Order Dispatched</h3>
+        <p>Sent when you mark an order as fulfilled in Shopify</p>
+      </div>
+      <div class="toggle-wrap">
+        <span class="toggle-label" id="label-fulfillment">
+          {{ 'On' if settings.fulfillment.enabled else 'Off' }}
+        </span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-fulfillment"
+                 {{ 'checked' if settings.fulfillment.enabled }}
+                 onchange="updateToggleLabel('fulfillment')">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="auto-card-body">
+      <div class="form-row">
+        <div class="field">
+          <label>Template Name</label>
+          <input type="text" id="tpl-fulfillment"
+                 value="{{ settings.fulfillment.template_name }}"
+                 placeholder="e.g. order_dispatched"
+                 list="tpl-list">
+        </div>
+        <div class="field">
+          <label>Language</label>
+          <select id="lang-fulfillment">
+            {% for code, label in [('en_US','English (US)'), ('en','English'), ('hi','Hindi')] %}
+            <option value="{{ code }}"
+              {{ 'selected' if settings.fulfillment.template_language == code }}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="param-hint">
+        <strong>Template variables expected (4 variables):</strong><br>
+        <code>{{"{{"}}1{{"}}"}}</code> = Customer first name &nbsp;·&nbsp;
+        <code>{{"{{"}}2{{"}}"}}</code> = Order number &nbsp;·&nbsp;
+        <code>{{"{{"}}3{{"}}"}}</code> = Items dispatched &nbsp;·&nbsp;
+        <code>{{"{{"}}4{{"}}"}}</code> = Tracking link (URL if available, else tracking number)<br>
+        <em>Example: "Hi {{"{{"}}1{{"}}"}}, your order {{"{{"}}2{{"}}"}} has been dispatched! 🚚 Items: {{"{{"}}3{{"}}"}}. Track here: {{"{{"}}4{{"}}"}}"</em>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Abandoned Cart ===== -->
+  <div class="auto-card" id="card-abandoned_cart">
+    <div class="auto-card-header">
+      <div class="auto-card-icon orange"><i class="fas fa-shopping-cart"></i></div>
+      <div class="auto-card-title">
+        <h3>Abandoned Cart Recovery</h3>
+        <p>Sent after a customer leaves items in their cart without buying</p>
+      </div>
+      <div class="toggle-wrap">
+        <span class="toggle-label" id="label-abandoned_cart">
+          {{ 'On' if settings.abandoned_cart.enabled else 'Off' }}
+        </span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-abandoned_cart"
+                 {{ 'checked' if settings.abandoned_cart.enabled }}
+                 onchange="updateToggleLabel('abandoned_cart')">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="auto-card-body">
+      <div class="form-row three">
+        <div class="field">
+          <label>Template Name</label>
+          <input type="text" id="tpl-abandoned_cart"
+                 value="{{ settings.abandoned_cart.template_name }}"
+                 placeholder="e.g. cart_reminder"
+                 list="tpl-list">
+        </div>
+        <div class="field">
+          <label>Language</label>
+          <select id="lang-abandoned_cart">
+            {% for code, label in [('en_US','English (US)'), ('en','English'), ('hi','Hindi')] %}
+            <option value="{{ code }}"
+              {{ 'selected' if settings.abandoned_cart.template_language == code }}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Delay (hours)</label>
+          <input type="number" id="delay-abandoned_cart"
+                 value="{{ settings.abandoned_cart.delay_hours or 1 }}"
+                 min="1" max="72" step="1" placeholder="1">
+        </div>
+      </div>
+      <div class="param-hint">
+        <strong>Template variables expected (3 variables):</strong><br>
+        <code>{{"{{"}}1{{"}}"}}</code> = Customer name &nbsp;·&nbsp;
+        <code>{{"{{"}}2{{"}}"}}</code> = Cart items &nbsp;·&nbsp;
+        <code>{{"{{"}}3{{"}}"}}</code> = Cart total (₹)<br>
+        <em>Example: "Hey {{"{{"}}1{{"}}"}}, you left {{"{{"}}2{{"}}"}} worth {{"{{"}}3{{"}}"}} in your cart! Use code BOXBOX5 for 5% off 🎁"</em><br>
+        <i class="fas fa-info-circle" style="color:#60a5fa;margin-right:.3rem;"></i>
+        Discount code and website button are hardcoded in the template itself.<br>
+        <i class="fas fa-clock" style="color:var(--gold);margin-right:.3rem;"></i>
+        Sent by a background job every 15 minutes.
+      </div>
+    </div>
+  </div>
+
+  <!-- Template autocomplete datalist -->
+  <datalist id="tpl-list">
+    {% for name in wa_templates %}
+    <option value="{{ name }}">
+    {% endfor %}
+  </datalist>
+
+  <!-- Save button -->
+  <div class="save-row">
+    <button class="btn-save" id="saveBtn" onclick="saveSettings()">
+      <i class="fas fa-save"></i> Save Settings
+    </button>
+  </div>
+
+  <!-- Recent Automation Activity -->
+  <div class="logs-section">
+    <h3>Recent Automation Activity</h3>
+    {% if recent_logs %}
+      {% for log in recent_logs %}
+      <div class="log-row">
+        <div class="log-dot {{ 'ok' if 'Sent' in log.action else ('fail' if 'Failed' in log.action else 'neutral') }}"></div>
+        <div style="flex:1">
+          <div class="log-action">{{ log.action | replace('Automation: ', '') }}</div>
+          <div class="log-detail">{{ log.details or '' }}</div>
+        </div>
+        <div class="log-time">{{ log.timestamp[:16] if log.timestamp else '' }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p style="color:var(--text-dim);font-size:.85rem;">No automation activity yet. Enable automations and configure Shopify webhooks to get started.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  function updateToggleLabel(key) {
+    const cb = document.getElementById('toggle-' + key);
+    const lbl = document.getElementById('label-' + key);
+    const card = document.getElementById('card-' + key);
+    lbl.textContent = cb.checked ? 'On' : 'Off';
+    card.classList.toggle('enabled', cb.checked);
+  }
+
+  // Initialise enabled states on load
+  ['order_confirmation', 'fulfillment', 'abandoned_cart'].forEach(k => {
+    const cb = document.getElementById('toggle-' + k);
+    if (cb && cb.checked) document.getElementById('card-' + k).classList.add('enabled');
+  });
+
+  function copyUrl(btn, url) {
+    navigator.clipboard.writeText(url).then(() => {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-check" style="color:#34d399"></i>';
+      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    });
+  }
+
+  function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'show ' + type;
+    setTimeout(() => { t.className = ''; }, 3000);
+  }
+
+  async function saveSettings() {
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+    const payload = {};
+    for (const key of ['order_confirmation', 'fulfillment', 'abandoned_cart']) {
+      const tpl   = document.getElementById('tpl-'  + key)?.value.trim() || '';
+      const lang  = document.getElementById('lang-' + key)?.value || 'en_US';
+      const cb    = document.getElementById('toggle-' + key);
+      const delay = document.getElementById('delay-' + key);
+      payload[key] = {
+        enabled: cb ? cb.checked : false,
+        template_name: tpl,
+        template_language: lang,
+        delay_hours: delay ? parseInt(delay.value) || 1 : 0
+      };
+    }
+
+    try {
+      const resp = await fetch('/api/automation-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (data.success) {
+        showToast('✅ Settings saved!', 'success');
+      } else {
+        showToast('❌ ' + (data.error || 'Failed to save'), 'error');
+      }
+    } catch (err) {
+      showToast('❌ Network error', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save Settings';
+    }
+  }
+</script>
+{% endblock %}
