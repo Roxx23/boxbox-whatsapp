@@ -1988,6 +1988,10 @@ def shopify_fulfillment():
                 tracking_number = last.get('tracking_number') or 'Will be provided'
                 tracking_url    = last.get('tracking_url') or ''
 
+            # Fallback: use Shopify's order status page if no courier URL
+            if not tracking_url:
+                tracking_url = data.get('order_status_url') or ''
+
             # Upsert order so we have an id
             order_data_payload = {
                 'id': shopify_order_id,
@@ -2005,9 +2009,11 @@ def shopify_fulfillment():
             db.mark_order_fulfillment_received(shopify_order_id)
 
         # Save tracking URL for /track/<order_ref> redirect
+        # tracking_url is courier URL if available, otherwise Shopify order status page
         if tracking_url:
             try:
                 db.save_order_tracking_url(shopify_order_id, tracking_url)
+                logger.info(f"📌 Tracking URL saved for order {shopify_order_id}: {tracking_url}")
             except Exception as e:
                 logger.warning(f"Could not save tracking URL: {e}")
 
