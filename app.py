@@ -104,14 +104,44 @@ def _format_items(line_items, max_items=3):
 
 
 def _get_product_image_url(line_items):
-    """Return the src URL of the first product image from a Shopify line_items list."""
+    """Return the src URL of the first product image from a Shopify line_items list.
+
+    Shopify order webhooks often don't include line_items[].image.src, so we
+    fall back to the Shopify Admin API using the product_id from the line item.
+    """
     if not line_items:
         return None
+
+    # 1. Try webhook payload directly (works sometimes)
     for item in line_items:
         img = item.get('image') or {}
         src = img.get('src') or img.get('url')
         if src:
             return src
+
+    # 2. Fetch from Shopify Admin API using product_id
+    product_id = line_items[0].get('product_id')
+    if product_id:
+        try:
+            import requests as _req
+            shop  = os.getenv('SHOPIFY_SHOP_NAME', '')
+            token = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
+            if shop and token:
+                url = f"https://{shop}.myshopify.com/admin/api/2024-01/products/{product_id}.json"
+                resp = _req.get(url,
+                                headers={"X-Shopify-Access-Token": token},
+                                timeout=10)
+                if resp.status_code == 200:
+                    images = resp.json().get('product', {}).get('images', [])
+                    if images:
+                        src = images[0].get('src')
+                        logger.info(f"Product image fetched from Shopify API: {src}")
+                        return src
+                else:
+                    logger.warning(f"Shopify product image API returned {resp.status_code} for product {product_id}")
+        except Exception as e:
+            logger.warning(f"Could not fetch product image from Shopify API: {e}")
+
     return None
 
 
