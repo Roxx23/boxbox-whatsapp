@@ -901,27 +901,43 @@ def index():
         # IMMEDIATE SENDING (WITH RATE LIMITING)
         # ==============================================================
         
-        # Create campaign record
-        campaign_name = f"Campaign {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        # Resolve campaign — new or add to existing
+        campaign_mode = request.form.get("campaign_mode", "new")
         campaign_type = 'Template' if selected_template else 'Text'
-        campaign_id = db.create_campaign(
-            user_id=current_user.id,
-            username=current_user.username,
-            campaign_name=campaign_name,
-            campaign_type=campaign_type,
-            template_name=template_name if selected_template else None,
-            recipient_count=len(df),
-            scheduled_time=None
-        )
-        
-        # Set campaign status to running
-        db.update_campaign_status(campaign_id, 'running')
-        
-        # Log campaign creation
+
+        if campaign_mode == "existing":
+            try:
+                campaign_id = int(request.form.get("campaign_id_existing", ""))
+                existing = db.get_campaign(campaign_id)
+                if not existing or existing['user_id'] != current_user.id:
+                    flash("❌ Invalid campaign selected.", "error")
+                    return redirect("/")
+                campaign_name = existing['campaign_name']
+                db.add_to_campaign_recipient_count(campaign_id, len(df))
+                db.update_campaign_status(campaign_id, 'running')
+            except (ValueError, TypeError):
+                flash("❌ Invalid campaign selected.", "error")
+                return redirect("/")
+        else:
+            campaign_name = request.form.get("campaign_name_new", "").strip()
+            if not campaign_name:
+                campaign_name = f"Campaign {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            campaign_id = db.create_campaign(
+                user_id=current_user.id,
+                username=current_user.username,
+                campaign_name=campaign_name,
+                campaign_type=campaign_type,
+                template_name=template_name if selected_template else None,
+                recipient_count=len(df),
+                scheduled_time=None
+            )
+            db.update_campaign_status(campaign_id, 'running')
+
+        # Log campaign send
         db.log_activity(
             user_id=current_user.id,
             username=current_user.username,
-            action='Campaign Started',
+            action='Campaign Started' if campaign_mode != 'existing' else 'Campaign Batch Added',
             details=f"Campaign: {campaign_name}, Recipients: {len(df)}, Type: {campaign_type}",
             ip_address=request.remote_addr
         )
@@ -1039,13 +1055,15 @@ def index():
             flash(f"✅ {len(df)} text messages queued for sending! Monitor progress at /queue-status", "success")
             return redirect("/")
 
+    recent_campaigns = db.get_user_campaigns(current_user.id, limit=15)
     return render_template(
         "index.html",
         results=results,
         templates=templates,
         template_param_count=template_param_count,
         csv_columns=csv_columns,
-        current_date=datetime.now().strftime('%Y-%m-%d')
+        current_date=datetime.now().strftime('%Y-%m-%d'),
+        recent_campaigns=recent_campaigns
     )
 
 
@@ -1127,6 +1145,26 @@ def campaign_details(campaign_id):
     return render_template('campaign_details.html',
                          campaign=campaign,
                          messages=messages)
+
+
+@app.route("/api/campaigns/<int:campaign_id>/delete", methods=["POST"])
+@login_required
+def delete_campaign(campaign_id):
+    """Delete a campaign and all its messages."""
+    campaign = db.get_campaign(campaign_id)
+    if not campaign or campaign['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Campaign not found'}), 404
+    if campaign['status'] == 'running':
+        return jsonify({'success': False, 'error': 'Cannot delete a campaign that is currently running'}), 400
+    db.delete_campaign(campaign_id)
+    db.log_activity(
+        user_id=current_user.id,
+        username=current_user.username,
+        action='Campaign Deleted',
+        details=f"Deleted campaign: {campaign['campaign_name']} (ID {campaign_id})",
+        ip_address=request.remote_addr
+    )
+    return jsonify({'success': True})
 
 
 @app.route("/api/campaigns/<int:campaign_id>/resend-unsent", methods=["POST"])

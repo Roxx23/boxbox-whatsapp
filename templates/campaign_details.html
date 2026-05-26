@@ -45,9 +45,41 @@
     <div class="page-title"><i class="fas fa-bullhorn me-2" style="color:#a5b4fc;"></i>{{ campaign.campaign_name }}</div>
     <div class="page-subtitle">Campaign Details</div>
   </div>
-  <a href="{{ url_for('campaigns_page') }}" class="btn btn-outline-secondary btn-sm">
-    <i class="fas fa-arrow-left me-1"></i>Back to Campaigns
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('campaigns_page') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back to Campaigns
+    </a>
+    {% if campaign.status != 'running' %}
+    <button class="btn btn-sm"
+            style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;"
+            onclick="confirmDelete()">
+      <i class="fas fa-trash-alt me-1"></i>Delete Campaign
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:#1a1a2e;border:1px solid rgba(239,68,68,0.3);">
+      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.08);">
+        <h5 class="modal-title" style="color:#f87171;"><i class="fas fa-trash-alt me-2"></i>Delete Campaign</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="color:#e2e8f0;">
+        <p>Delete <strong style="color:#fff;">{{ campaign.campaign_name }}</strong>?</p>
+        <p style="color:rgba(255,255,255,0.5);font-size:0.875rem;">This will permanently remove the campaign and all its message history. This cannot be undone.</p>
+      </div>
+      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,0.08);">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm" id="confirmDeleteBtn"
+                style="background:rgba(239,68,68,0.85);color:#fff;border:none;">
+          <i class="fas fa-trash-alt me-1"></i>Yes, Delete
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Header -->
@@ -260,6 +292,31 @@
 {% block scripts %}
 <script>
   let currentPhone = '', currentMessageId = 0;
+
+  function confirmDelete() {
+    new bootstrap.Modal(document.getElementById('deleteModal')).show();
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const btn = document.getElementById('confirmDeleteBtn');
+    if (btn) {
+      btn.addEventListener('click', function() {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting…';
+        fetch('/api/campaigns/{{ campaign.id }}/delete', { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              window.location.href = '{{ url_for("campaigns_page") }}';
+            } else {
+              alert('Error: ' + data.error);
+              btn.disabled = false;
+              btn.innerHTML = '<i class="fas fa-trash-alt me-1"></i>Yes, Delete';
+            }
+          });
+      });
+    }
+  });
 
   function resendUnsent() {
     if (!confirm('Re-queue all unsent/failed messages in this campaign?')) return;

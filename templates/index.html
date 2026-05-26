@@ -230,6 +230,44 @@
   {% endwith %}
 
   <form method="POST" enctype="multipart/form-data">
+    <!-- Campaign selector -->
+    <div class="mb-4">
+      <div class="section-label">Campaign</div>
+      <div class="btn-group w-100 mb-3" role="group">
+        <input type="radio" class="btn-check" name="campaign_mode" id="campaign_new" value="new" checked autocomplete="off" onchange="toggleCampaignMode()">
+        <label class="btn btn-outline-primary" for="campaign_new"><i class="fas fa-plus me-1"></i> New Campaign</label>
+        <input type="radio" class="btn-check" name="campaign_mode" id="campaign_existing" value="existing" autocomplete="off" onchange="toggleCampaignMode()">
+        <label class="btn btn-outline-primary" for="campaign_existing"><i class="fas fa-folder-open me-1"></i> Add to Existing</label>
+      </div>
+
+      <div id="campaign_new_section">
+        <input type="text" name="campaign_name_new" id="campaign_name_new" class="form-control"
+               placeholder="e.g. Diwali Sale, Re-engagement June" maxlength="100">
+        <div class="form-text">Leave blank to auto-name with timestamp.</div>
+      </div>
+
+      <div id="campaign_existing_section" style="display:none;">
+        {% if recent_campaigns %}
+        <select name="campaign_id_existing" id="campaign_id_existing" class="form-select">
+          <option value="">— Pick a campaign —</option>
+          {% for c in recent_campaigns %}
+          <option value="{{ c.id }}">
+            {{ c.campaign_name }}
+            &nbsp;·&nbsp;{{ c.status }}
+            &nbsp;·&nbsp;{{ c.recipient_count }} recipients
+            {% if c.template_name %}&nbsp;·&nbsp;{{ c.template_name }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <div class="form-text">New messages will be added into the selected campaign.</div>
+        {% else %}
+        <div class="warning-badge"><i class="fas fa-info-circle me-1"></i>No campaigns yet — create your first one above.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="section-divider"></div>
+
     <!-- Source selector -->
     <div class="mb-4">
       <div class="section-label">Recipient Source</div>
@@ -260,7 +298,7 @@
       <label class="form-label">Customers</label>
       <div class="alert alert-info d-flex justify-content-between align-items-center">
         <span id="customer_count">0 customers selected</span>
-        <button type="button" class="btn btn-primary btn-sm" onclick="location.href='{{ url_for('customers_page') }}'">
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveCampaignState(); location.href='{{ url_for('customers_page') }}'">
           <i class="fas fa-users me-1"></i>Select
         </button>
       </div>
@@ -341,6 +379,7 @@
 let csvColumns = [];
 
 window.addEventListener('DOMContentLoaded', function() {
+  // Restore customer selection (set by customers page before navigating back)
   const sel = sessionStorage.getItem('selectedCustomers');
   if (sel) {
     const customers = JSON.parse(sel);
@@ -349,12 +388,44 @@ window.addEventListener('DOMContentLoaded', function() {
     updateCustomerSelection(customers);
     sessionStorage.removeItem('selectedCustomers');
   }
+
+  // Restore campaign selection saved before navigating to customers page
+  const savedCampaign = sessionStorage.getItem('savedCampaignState');
+  if (savedCampaign) {
+    const state = JSON.parse(savedCampaign);
+    if (state.mode === 'existing') {
+      document.getElementById('campaign_existing').checked = true;
+      toggleCampaignMode();
+      const select = document.getElementById('campaign_id_existing');
+      if (select) select.value = state.campaign_id || '';
+    } else {
+      document.getElementById('campaign_new').checked = true;
+      toggleCampaignMode();
+      document.getElementById('campaign_name_new').value = state.campaign_name || '';
+    }
+    sessionStorage.removeItem('savedCampaignState');
+  }
+
   loadScheduledJobs();
   loadDashboardStats();
   loadQueueStatus();
   setInterval(loadScheduledJobs, 5000);
   setInterval(loadQueueStatus, 3000);
 });
+
+function toggleCampaignMode() {
+  const isNew = document.getElementById('campaign_new').checked;
+  document.getElementById('campaign_new_section').style.display = isNew ? 'block' : 'none';
+  document.getElementById('campaign_existing_section').style.display = isNew ? 'none' : 'block';
+}
+
+function saveCampaignState() {
+  const isNew = document.getElementById('campaign_new').checked;
+  const state = isNew
+    ? { mode: 'new', campaign_name: document.getElementById('campaign_name_new').value }
+    : { mode: 'existing', campaign_id: document.getElementById('campaign_id_existing').value };
+  sessionStorage.setItem('savedCampaignState', JSON.stringify(state));
+}
 
 function toggleSource() {
   const csv = document.querySelector('input[name="source_type"]:checked').value === 'csv';

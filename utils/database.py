@@ -344,6 +344,23 @@ class Database:
 
             return [dict(row) for row in cursor.fetchall()]
     
+    def delete_campaign(self, campaign_id):
+        """Delete a campaign and all its messages"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM messages WHERE campaign_id = ?', (campaign_id,))
+            cursor.execute('DELETE FROM campaigns WHERE id = ?', (campaign_id,))
+
+    def add_to_campaign_recipient_count(self, campaign_id, count):
+        """Increment an existing campaign's recipient_count by count"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE campaigns
+                SET recipient_count = recipient_count + ?
+                WHERE id = ?
+            ''', (count, campaign_id))
+
     def get_all_campaigns(self, limit=100):
         """Get all campaigns (admin view)"""
         with self.get_connection() as conn:

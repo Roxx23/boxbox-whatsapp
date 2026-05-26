@@ -104,6 +104,14 @@
            class="btn btn-outline-primary btn-sm">
           <i class="fas fa-eye me-1"></i>Details
         </a>
+
+        {% if campaign.status != 'running' %}
+        <button class="btn btn-sm"
+                style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;"
+                onclick="confirmDelete({{ campaign.id }}, '{{ campaign.campaign_name | replace("'", "\\'") }}')">
+          <i class="fas fa-trash-alt"></i>
+        </button>
+        {% endif %}
       </div>
 
     </div>
@@ -120,4 +128,60 @@
     </a>
   </div>
 {% endif %}
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:#1a1a2e;border:1px solid rgba(239,68,68,0.3);">
+      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.08);">
+        <h5 class="modal-title" style="color:#f87171;"><i class="fas fa-trash-alt me-2"></i>Delete Campaign</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="color:#e2e8f0;">
+        <p>Delete <strong id="deleteCampaignName" style="color:#fff;"></strong>?</p>
+        <p style="color:rgba(255,255,255,0.5);font-size:0.875rem;">This will permanently remove the campaign and all its message history. This cannot be undone.</p>
+      </div>
+      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,0.08);">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm" id="confirmDeleteBtn"
+                style="background:rgba(239,68,68,0.85);color:#fff;border:none;">
+          <i class="fas fa-trash-alt me-1"></i>Yes, Delete
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _deleteId = null;
+
+function confirmDelete(id, name) {
+  _deleteId = id;
+  document.getElementById('deleteCampaignName').textContent = name;
+  new bootstrap.Modal(document.getElementById('deleteModal')).show();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+    if (!_deleteId) return;
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting…';
+
+    fetch(`/api/campaigns/${_deleteId}/delete`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          location.reload();
+        } else {
+          alert('Error: ' + data.error);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-trash-alt me-1"></i>Yes, Delete';
+        }
+      });
+  });
+});
+</script>
 {% endblock %}
