@@ -302,7 +302,7 @@
             {% for campaign in campaigns %}
             <tr>
               <td><strong style="color:#e2e8f0;">{{ campaign.campaign_name or 'Unnamed' }}</strong></td>
-              <td>{{ campaign.recipient_count }}</td>
+              <td style="color:#e2e8f0;">{{ campaign.recipient_count }}</td>
               <td style="color:#34d399;">{{ campaign.success_count }}</td>
               <td style="color:{% if campaign.failed_count > 0 %}#f87171{% else %}rgba(255,255,255,0.25){% endif %};">{{ campaign.failed_count }}</td>
               <td>
