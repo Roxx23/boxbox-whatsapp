@@ -324,17 +324,24 @@ class Database:
             row = cursor.fetchone()
             return dict(row) if row else None
     
-    def get_user_campaigns(self, user_id, limit=50):
-        """Get campaigns for a user"""
+    def get_user_campaigns(self, user_id, limit=None):
+        """Get campaigns for a user. Pass limit=N to cap results; omit for all."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM campaigns 
-                WHERE user_id = ? 
-                ORDER BY created_at DESC 
-                LIMIT ?
-            ''', (user_id, limit))
-            
+            if limit is not None:
+                cursor.execute('''
+                    SELECT * FROM campaigns
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ''', (user_id, limit))
+            else:
+                cursor.execute('''
+                    SELECT * FROM campaigns
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                ''', (user_id,))
+
             return [dict(row) for row in cursor.fetchall()]
     
     def get_all_campaigns(self, limit=100):
@@ -380,11 +387,16 @@ class Database:
             if not row:
                 return
             msg = dict(row)
+            if msg['status'] == 'failed':
+                return  # already failed — avoid double-counting campaign stats
             cursor.execute(
                 "UPDATE messages SET status = 'failed', error_message = ? WHERE whatsapp_message_id = ?",
                 (f"[{error_code}] {error_message}", whatsapp_message_id)
             )
-            if msg['status'] == 'sent' and msg['campaign_id']:
+            # Any previously-counted status (sent/delivered/read/replied) must move
+            # from success_count → failed_count. Only 'sent' was handled before; this
+            # also covers late "failed" webhooks that arrive after a "delivered" event.
+            if msg['status'] in ('sent', 'delivered', 'read', 'replied') and msg['campaign_id']:
                 cursor.execute('''
                     UPDATE campaigns
                     SET success_count = MAX(0, success_count - 1),
@@ -1179,12 +1191,33 @@ class Database:
                 cursor.execute('SELECT COUNT(*) as count FROM campaigns')
             stats['total_campaigns'] = cursor.fetchone()['count']
             
-            # Total messages
+            # Total messages (exclude queued/pending — only count messages that were
+            # actually dispatched to the WhatsApp API)
             if user_id:
-                cursor.execute('SELECT COUNT(*) as count FROM messages WHERE user_id = ?', (user_id,))
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM messages WHERE user_id = ? "
+                    "AND status IN ('sent','delivered','read','replied','failed')",
+                    (user_id,)
+                )
             else:
-                cursor.execute('SELECT COUNT(*) as count FROM messages')
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM messages "
+                    "WHERE status IN ('sent','delivered','read','replied','failed')"
+                )
             stats['total_messages'] = cursor.fetchone()['count']
+
+            # Total failed messages directly from the messages table (source of truth,
+            # cross-checks the aggregated campaign.failed_count)
+            if user_id:
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM messages WHERE user_id = ? AND status = 'failed'",
+                    (user_id,)
+                )
+            else:
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM messages WHERE status = 'failed'"
+                )
+            stats['total_failed_messages'] = cursor.fetchone()['count']
             
             # Success rate
             if user_id:

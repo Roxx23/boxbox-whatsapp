@@ -35,21 +35,28 @@
     display: flex; align-items: center; justify-content: space-between;
   }
 
-  /* Funnel */
+  /* Funnel — full-width bars with a gradient fill so small % still look proportional */
   .funnel-stage { margin-bottom: 0.75rem; }
   .funnel-bar {
-    background: var(--stage-color);
+    /* Colored fill = --stage-fill %, rest is a dark track */
+    background: linear-gradient(
+      to right,
+      var(--stage-color) 0%,
+      var(--stage-color) var(--stage-fill),
+      rgba(255,255,255,0.05) var(--stage-fill),
+      rgba(255,255,255,0.05) 100%
+    );
     border-radius: 8px; padding: 0.9rem 1.25rem;
     display: flex; justify-content: space-between; align-items: center;
-    width: max(var(--stage-width), 200px); min-width: 200px;
-    transition: all 0.2s; position: relative; overflow: hidden;
+    width: 100%;
+    transition: background 0.4s; position: relative; overflow: hidden;
   }
   .funnel-bar::before {
     content: ''; position: absolute; inset: 0;
-    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.08));
+    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.06));
     pointer-events: none;
   }
-  .funnel-bar:hover { transform: translateX(4px); }
+  .funnel-bar:hover { filter: brightness(1.08); }
   .funnel-label { display: flex; align-items: center; gap: 0.75rem; color: white; font-weight: 600; }
   .funnel-icon {
     width: 34px; height: 34px;
@@ -83,8 +90,9 @@
   .bg-gradient-purple  { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
 
   @media (max-width: 640px) {
-    .funnel-bar { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    .funnel-bar { flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 0.75rem 1rem; }
     .funnel-stats { width: 100%; justify-content: space-between; }
+    .funnel-count { font-size: 1.2rem; }
   }
 </style>
 {% endblock %}
@@ -114,7 +122,7 @@
     <div class="stat-card">
       <div class="d-flex justify-content-between align-items-start">
         <div>
-          <div class="stat-label">Total Messages</div>
+          <div class="stat-label">Messages Sent</div>
           <div class="stat-value">{{ stats.total_messages }}</div>
         </div>
         <div class="stat-icon bg-gradient-green"><i class="fas fa-envelope"></i></div>
@@ -127,6 +135,7 @@
         <div>
           <div class="stat-label">Success Rate</div>
           <div class="stat-value">{{ "%.1f"|format(stats.success_rate) }}%</div>
+          <div class="stat-sub">{{ stats.success_count }} ok · {{ stats.failed_count }} failed</div>
         </div>
         <div class="stat-icon bg-gradient-purple"><i class="fas fa-check-circle"></i></div>
       </div>
@@ -136,10 +145,15 @@
     <div class="stat-card">
       <div class="d-flex justify-content-between align-items-start">
         <div>
-          <div class="stat-label">Active Campaigns</div>
-          <div class="stat-value">{{ stats.active_campaigns }}</div>
+          <div class="stat-label">Failed Messages</div>
+          <div class="stat-value" style="color:#f87171;">{{ stats.total_failed_messages }}</div>
+          <div class="stat-sub">
+            {% if stats.total_messages > 0 %}
+              {{ "%.1f"|format(stats.total_failed_messages / stats.total_messages * 100) }}% of dispatched
+            {% else %}—{% endif %}
+          </div>
         </div>
-        <div class="stat-icon bg-gradient-orange"><i class="fas fa-rocket"></i></div>
+        <div class="stat-icon" style="background:linear-gradient(135deg,#ef4444,#b91c1c);"><i class="fas fa-times-circle"></i></div>
       </div>
     </div>
   </div>
@@ -229,35 +243,44 @@
 <div class="chart-card mb-3">
   <div class="chart-title"><i class="fas fa-filter me-2" style="color:#a5b4fc;"></i>Message Engagement Funnel</div>
 
-  <div style="max-width:820px;">
-    <div class="funnel-stage" style="--stage-width:100%; --stage-color:#667eea;">
+  <div style="width:100%;">
+    {% set s = stats.success_count %}
+    <div class="funnel-stage" style="--stage-fill:100%; --stage-color:#667eea;">
       <div class="funnel-bar">
         <div class="funnel-label"><span class="funnel-icon"><i class="fas fa-paper-plane"></i></span><span>Sent</span></div>
         <div class="funnel-stats"><span class="funnel-count">{{ stats.success_count }}</span><span class="funnel-percent">100%</span></div>
       </div>
     </div>
-    <div class="funnel-stage" style="--stage-width:{{ stats.delivery_rate if stats.success_count > 0 else 0 }}%; --stage-color:#10b981;">
+    <div class="funnel-stage" style="--stage-fill:{{ '%.2f'|format(stats.delivery_rate if s > 0 else 0) }}%; --stage-color:#10b981;">
       <div class="funnel-bar">
         <div class="funnel-label"><span class="funnel-icon"><i class="fas fa-check-double"></i></span><span>Delivered</span></div>
         <div class="funnel-stats"><span class="funnel-count">{{ stats.delivered_count }}</span><span class="funnel-percent">{{ "%.1f"|format(stats.delivery_rate) }}%</span></div>
       </div>
     </div>
-    <div class="funnel-stage" style="--stage-width:{{ stats.read_rate if stats.success_count > 0 else 0 }}%; --stage-color:#0ea5e9;">
+    <div class="funnel-stage" style="--stage-fill:{{ '%.2f'|format(stats.read_rate if s > 0 else 0) }}%; --stage-color:#0ea5e9;">
       <div class="funnel-bar">
         <div class="funnel-label"><span class="funnel-icon"><i class="fas fa-eye"></i></span><span>Read</span></div>
         <div class="funnel-stats"><span class="funnel-count">{{ stats.read_count }}</span><span class="funnel-percent">{{ "%.1f"|format(stats.read_rate) }}%</span></div>
       </div>
     </div>
-    <div class="funnel-stage" style="--stage-width:{{ stats.reply_rate if stats.success_count > 0 else 0 }}%; --stage-color:#a78bfa;">
+    <div class="funnel-stage" style="--stage-fill:{{ '%.2f'|format(stats.reply_rate if s > 0 else 0) }}%; --stage-color:#a78bfa;">
       <div class="funnel-bar">
         <div class="funnel-label"><span class="funnel-icon"><i class="fas fa-reply"></i></span><span>Replied</span></div>
         <div class="funnel-stats"><span class="funnel-count">{{ stats.replied_count }}</span><span class="funnel-percent">{{ "%.1f"|format(stats.reply_rate) }}%</span></div>
       </div>
     </div>
-    <div class="funnel-stage" style="--stage-width:{{ stats.click_rate if stats.success_count > 0 else 0 }}%; --stage-color:#f59e0b;">
+    <div class="funnel-stage" style="--stage-fill:{{ '%.2f'|format(stats.click_rate if s > 0 else 0) }}%; --stage-color:#f59e0b;">
       <div class="funnel-bar">
         <div class="funnel-label"><span class="funnel-icon"><i class="fas fa-mouse-pointer"></i></span><span>Clicked</span></div>
         <div class="funnel-stats"><span class="funnel-count">{{ stats.clicked_count }}</span><span class="funnel-percent">{{ "%.1f"|format(stats.click_rate) }}%</span></div>
+      </div>
+    </div>
+    {% set total_dispatched = stats.success_count + stats.failed_count %}
+    {% set fail_rate = (stats.failed_count / total_dispatched * 100) if total_dispatched > 0 else 0 %}
+    <div class="funnel-stage" style="--stage-fill:{{ '%.2f'|format(fail_rate) }}%; --stage-color:#ef4444;">
+      <div class="funnel-bar">
+        <div class="funnel-label"><span class="funnel-icon"><i class="fas fa-times-circle"></i></span><span>Failed</span></div>
+        <div class="funnel-stats"><span class="funnel-count">{{ stats.failed_count }}</span><span class="funnel-percent">{{ "%.1f"|format(fail_rate) }}%</span></div>
       </div>
     </div>
   </div>
@@ -272,7 +295,7 @@
         <table class="table table-sm table-hover mb-0" style="font-size:0.83rem;">
           <thead>
             <tr>
-              <th>Name</th><th>Recipients</th><th>Sent</th><th>Status</th><th>Date</th><th></th>
+              <th>Name</th><th>Recipients</th><th>Sent</th><th>Failed</th><th>Status</th><th>Date</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -281,6 +304,7 @@
               <td><strong style="color:#e2e8f0;">{{ campaign.campaign_name or 'Unnamed' }}</strong></td>
               <td>{{ campaign.recipient_count }}</td>
               <td style="color:#34d399;">{{ campaign.success_count }}</td>
+              <td style="color:{% if campaign.failed_count > 0 %}#f87171{% else %}rgba(255,255,255,0.25){% endif %};">{{ campaign.failed_count }}</td>
               <td>
                 {% if campaign.status == 'completed' %}<span style="color:#34d399;font-size:0.72rem;font-weight:600;">✓ Done</span>
                 {% elif campaign.status == 'running' %}<span style="color:#a5b4fc;font-size:0.72rem;font-weight:600;">⟳ Running</span>

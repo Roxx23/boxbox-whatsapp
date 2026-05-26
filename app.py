@@ -1108,7 +1108,7 @@ def analytics_dashboard():
 @login_required
 def campaigns_page():
     """View all campaigns"""
-    campaigns = db.get_user_campaigns(current_user.id, limit=50)
+    campaigns = db.get_user_campaigns(current_user.id)  # no limit — show everything
     return render_template('campaigns.html', campaigns=campaigns)
 
 
