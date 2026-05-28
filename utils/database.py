@@ -918,7 +918,7 @@ class Database:
             ''', (datetime.now().isoformat(), cart_id))
     
     def mark_cart_recovered(self, shopify_cart_id):
-        """Mark cart as recovered"""
+        """Mark cart as recovered (by Shopify cart token)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -926,6 +926,16 @@ class Database:
                 SET recovered = 1, recovered_at = ?
                 WHERE shopify_cart_id = ?
             ''', (datetime.now().isoformat(), shopify_cart_id))
+
+    def mark_cart_recovered_by_id(self, cart_id):
+        """Mark cart as recovered by internal DB id (fallback when token doesn't match)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE abandoned_carts
+                SET recovered = 1, recovered_at = ?
+                WHERE id = ?
+            ''', (datetime.now().isoformat(), cart_id))
 
     def get_abandoned_carts_ready_for_reminder(self, user_id, delay_hours=1):
         """Get carts past the delay threshold that haven't been reminded yet"""

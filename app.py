@@ -288,6 +288,24 @@ def _start_abandoned_cart_checker():
                         if not phone:
                             continue
 
+                        # Safety check: skip if the customer placed an order after abandoning
+                        # (handles cases where mark_cart_recovered failed due to token mismatch)
+                        try:
+                            with db.get_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute('''
+                                    SELECT COUNT(*) as cnt FROM shopify_orders
+                                    WHERE customer_phone = ?
+                                    AND created_at > ?
+                                ''', (phone, cart['abandoned_at']))
+                                row = cursor.fetchone()
+                                if row and row['cnt'] > 0:
+                                    db.mark_cart_recovered_by_id(cart['id'])
+                                    logger.info(f"⏭️ Skipping cart {cart['id']} — {phone} placed an order after abandoning")
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"Could not check order status for cart {cart['id']}: {e}")
+
                         cart_items = json.loads(cart['cart_items']) if cart['cart_items'] else []
                         items_str = _format_items(cart_items)
                         total = cart.get('total_price') or '0'
