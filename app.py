@@ -1842,12 +1842,17 @@ def shopify_cart_create():
         
         logger.info(f"📞 Extracted phone: {phone}")
         
+        # Use cart token as the unique ID — always present, unique per checkout.
+        # data.get('id') is sometimes absent/null in Shopify webhook payloads,
+        # which caused all carts to be stored as shopify_cart_id='None' and
+        # each new cart replaced the previous one (INSERT OR REPLACE bug).
+        cart_token = data.get('token') or data.get('cart_token') or str(data.get('id'))
         cart_data = {
-            'id': str(data.get('id')),
+            'id': cart_token,
             'customer_id': data.get('customer', {}).get('id') if data.get('customer') else None,
             'email': data.get('email'),
             'phone': phone,
-            'token': data.get('token') or data.get('cart_token'),
+            'token': cart_token,
             'line_items': data.get('line_items', []),
             'total_price': data.get('total_price') or data.get('subtotal_price'),
             'currency': data.get('currency', 'USD'),
