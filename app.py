@@ -1873,6 +1873,63 @@ def shopify_cart_create():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/shopify/webhook/cart-update", methods=["POST"])
+def shopify_cart_update():
+    """Handle Shopify checkouts/update webhook.
+    Shopify fires checkouts/create before the customer enters contact info.
+    This handler catches the update when they fill in phone/email, so we
+    can send a reminder if they abandon later.
+    """
+    try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        data = request.json
+        cart_token = data.get('token') or data.get('cart_token')
+        if not cart_token:
+            return jsonify({"status": "ok"}), 200
+
+        # Extract phone from multiple locations
+        phone = (data.get('phone')
+                 or (data.get('customer') or {}).get('phone')
+                 or (data.get('billing_address') or {}).get('phone')
+                 or (data.get('shipping_address') or {}).get('phone'))
+        email = data.get('email') or (data.get('customer') or {}).get('email')
+
+        if not phone and not email:
+            return jsonify({"status": "ok"}), 200  # Still no contact info, nothing to update
+
+        user_id = _get_webhook_user_id()
+        if not user_id:
+            return jsonify({"status": "ok"}), 200
+
+        # Update the existing cart record with phone/email now that we have it
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE abandoned_carts
+                    SET customer_phone = COALESCE(NULLIF(?, ''), customer_phone),
+                        customer_email = COALESCE(NULLIF(?, ''), customer_email)
+                    WHERE shopify_cart_id = ? AND reminder_sent = 0 AND recovered = 0
+                ''', (phone, email, cart_token))
+                updated = cursor.rowcount
+                conn.commit()
+            if updated:
+                logger.info(f"✅ Cart {cart_token} updated with phone={phone}, email={email}")
+            else:
+                logger.debug(f"Cart {cart_token} not found or already sent/recovered")
+        except Exception as e:
+            logger.warning(f"Could not update cart contact info: {e}")
+
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error processing cart update webhook: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/shopify/webhook/order-create", methods=["POST"])
 def shopify_order_create():
     """Handle Shopify order creation webhook — stores order + auto-sends confirmation."""
