@@ -939,8 +939,8 @@ class Database:
                   AND reminder_sent = 0
                   AND recovered = 0
                   AND customer_phone IS NOT NULL AND customer_phone != ''
-                  AND created_at <= ?
-                ORDER BY created_at ASC
+                  AND abandoned_at <= ?
+                ORDER BY abandoned_at ASC
             ''', (user_id, cutoff.isoformat()))
             return [dict(row) for row in cursor.fetchall()]
 
