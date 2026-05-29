@@ -6,45 +6,45 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   .stat-card {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.09);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 14px; padding: 1.25rem 1.5rem;
     margin-bottom: 1rem; transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
   }
   .stat-card:hover {
-    background: rgba(255,255,255,0.08);
+    border-color: rgba(37,211,102,0.25);
     transform: translateY(-3px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    box-shadow: 0 8px 24px rgba(37,211,102,0.08);
   }
   .stat-icon {
     width: 48px; height: 48px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
     font-size: 1.2rem; color: white; flex-shrink: 0;
   }
-  .stat-value { font-size: 1.75rem; font-weight: 700; color: #fff; margin: 0.3rem 0 0; }
-  .stat-label { font-size: 0.78rem; color: rgba(255,255,255,0.45); font-weight: 500; }
-  .stat-sub   { font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-top: 0.15rem; }
+  .stat-value { font-size: 1.75rem; font-weight: 700; color: var(--text); margin: 0.3rem 0 0; }
+  .stat-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 500; }
+  .stat-sub   { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.15rem; }
 
   .chart-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 14px; padding: 1.5rem; margin-bottom: 1.25rem;
+    box-shadow: var(--shadow-sm);
   }
   .chart-title {
-    font-weight: 600; font-size: 0.9rem; color: #e2e8f0; margin-bottom: 1rem;
+    font-weight: 600; font-size: 0.9rem; color: var(--text); margin-bottom: 1rem;
     display: flex; align-items: center; justify-content: space-between;
   }
 
-  /* Funnel — full-width bars with a gradient fill so small % still look proportional */
   .funnel-stage { margin-bottom: 0.75rem; }
   .funnel-bar {
-    /* Colored fill = --stage-fill %, rest is a dark track */
     background: linear-gradient(
       to right,
       var(--stage-color) 0%,
       var(--stage-color) var(--stage-fill),
-      rgba(255,255,255,0.05) var(--stage-fill),
-      rgba(255,255,255,0.05) 100%
+      rgba(15,23,42,0.04) var(--stage-fill),
+      rgba(15,23,42,0.04) 100%
     );
     border-radius: 8px; padding: 0.9rem 1.25rem;
     display: flex; justify-content: space-between; align-items: center;
@@ -53,39 +53,39 @@
   }
   .funnel-bar::before {
     content: ''; position: absolute; inset: 0;
-    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.06));
+    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.1));
     pointer-events: none;
   }
-  .funnel-bar:hover { filter: brightness(1.08); }
+  .funnel-bar:hover { filter: brightness(1.06); }
   .funnel-label { display: flex; align-items: center; gap: 0.75rem; color: white; font-weight: 600; }
   .funnel-icon {
     width: 34px; height: 34px;
-    background: rgba(255,255,255,0.2); border-radius: 50%;
+    background: rgba(255,255,255,0.25); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
   }
   .funnel-stats { display: flex; align-items: center; gap: 1rem; color: white; }
   .funnel-count { font-size: 1.5rem; font-weight: 700; }
   .funnel-percent {
     font-size: 0.85rem; font-weight: 600;
-    background: rgba(255,255,255,0.2); padding: 0.2rem 0.65rem;
+    background: rgba(255,255,255,0.25); padding: 0.2rem 0.65rem;
     border-radius: 20px; min-width: 60px; text-align: center;
   }
 
-  /* Table */
   .data-table-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 14px; padding: 1.25rem; margin-bottom: 1.25rem;
+    box-shadow: var(--shadow-sm);
   }
   .data-table-card h5 {
-    font-size: 0.9rem; font-weight: 600; color: #e2e8f0; margin-bottom: 1rem;
+    font-size: 0.9rem; font-weight: 600; color: var(--text); margin-bottom: 1rem;
   }
 
   .badge-status {
     display: inline-block; padding: 0.25rem 0.7rem; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
   }
-  .bg-gradient-blue    { background: linear-gradient(135deg, #667eea, #764ba2); }
-  .bg-gradient-green   { background: linear-gradient(135deg, #10b981, #059669); }
+  .bg-gradient-blue    { background: linear-gradient(135deg, #3B82F6, #1D4ED8); }
+  .bg-gradient-green   { background: linear-gradient(135deg, #25D366, #128C7E); }
   .bg-gradient-orange  { background: linear-gradient(135deg, #f59e0b, #d97706); }
   .bg-gradient-purple  { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
 
@@ -100,7 +100,7 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
   <div>
-    <div class="page-title"><i class="fas fa-chart-line me-2" style="color:#a5b4fc;"></i>Analytics</div>
+    <div class="page-title"><i class="fas fa-chart-line me-2" style="color:var(--gold);"></i>Analytics</div>
     <div class="page-subtitle">Performance overview across all campaigns</div>
   </div>
 </div>
@@ -146,7 +146,7 @@
       <div class="d-flex justify-content-between align-items-start">
         <div>
           <div class="stat-label">Failed Messages</div>
-          <div class="stat-value" style="color:#f87171;">{{ stats.total_failed_messages }}</div>
+          <div class="stat-value" style="color:#DC2626;">{{ stats.total_failed_messages }}</div>
           <div class="stat-sub">
             {% if stats.total_messages > 0 %}
               {{ "%.1f"|format(stats.total_failed_messages / stats.total_messages * 100) }}% of dispatched
@@ -160,7 +160,7 @@
 </div>
 
 <!-- Engagement stats -->
-<div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:rgba(255,255,255,0.3);margin:1.25rem 0 0.75rem;">
+<div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-dim);margin:1.25rem 0 0.75rem;">
   Engagement Metrics
 </div>
 <div class="row g-3 mb-3">
@@ -219,21 +219,21 @@
   <div class="col-lg-8">
     <div class="chart-card">
       <div class="chart-title">
-        <span><i class="fas fa-chart-line me-2" style="color:#a5b4fc;"></i>Campaign Activity (Last 30 Days)</span>
-        <span style="font-size:0.75rem;color:rgba(255,255,255,0.3);">{{ chart_data.total }} campaigns</span>
+        <span><i class="fas fa-chart-line me-2" style="color:var(--gold);"></i>Campaign Activity (Last 30 Days)</span>
+        <span style="font-size:0.75rem;color:var(--text-dim);">{{ chart_data.total }} campaigns</span>
       </div>
       <canvas id="campaignChart"></canvas>
       {% if chart_data.total == 0 %}
-      <div class="text-center mt-2" style="color:rgba(255,255,255,0.3);font-size:0.8rem;">No campaign activity in last 30 days</div>
+      <div class="text-center mt-2" style="color:var(--text-dim);font-size:0.8rem;">No campaign activity in last 30 days</div>
       {% endif %}
     </div>
   </div>
   <div class="col-lg-4">
     <div class="chart-card" style="height:100%;">
-      <div class="chart-title"><i class="fas fa-chart-pie me-2" style="color:#a5b4fc;"></i>Success vs Failed</div>
+      <div class="chart-title"><i class="fas fa-chart-pie me-2" style="color:var(--gold);"></i>Success vs Failed</div>
       <canvas id="successChart"></canvas>
       {% if stats.success_count == 0 and stats.failed_count == 0 %}
-      <div class="text-center mt-2" style="color:rgba(255,255,255,0.3);font-size:0.8rem;">No messages sent yet</div>
+      <div class="text-center mt-2" style="color:var(--text-dim);font-size:0.8rem;">No messages sent yet</div>
       {% endif %}
     </div>
   </div>
@@ -241,7 +241,7 @@
 
 <!-- Engagement funnel -->
 <div class="chart-card mb-3">
-  <div class="chart-title"><i class="fas fa-filter me-2" style="color:#a5b4fc;"></i>Message Engagement Funnel</div>
+  <div class="chart-title"><i class="fas fa-filter me-2" style="color:var(--gold);"></i>Message Engagement Funnel</div>
 
   <div style="width:100%;">
     {% set s = stats.success_count %}
@@ -290,7 +290,7 @@
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="data-table-card">
-      <h5><i class="fas fa-list me-2" style="color:#a5b4fc;"></i>Recent Campaigns</h5>
+      <h5><i class="fas fa-list me-2" style="color:var(--gold);"></i>Recent Campaigns</h5>
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0" style="font-size:0.83rem;">
           <thead>
@@ -301,19 +301,19 @@
           <tbody>
             {% for campaign in campaigns %}
             <tr>
-              <td><strong style="color:#e2e8f0;">{{ campaign.campaign_name or 'Unnamed' }}</strong></td>
-              <td style="color:#e2e8f0;">{{ campaign.recipient_count }}</td>
-              <td style="color:#34d399;">{{ campaign.success_count }}</td>
-              <td style="color:{% if campaign.failed_count > 0 %}#f87171{% else %}rgba(255,255,255,0.25){% endif %};">{{ campaign.failed_count }}</td>
+              <td><strong style="color:var(--text);">{{ campaign.campaign_name or 'Unnamed' }}</strong></td>
+              <td style="color:var(--text);">{{ campaign.recipient_count }}</td>
+              <td style="color:#16A34A;">{{ campaign.success_count }}</td>
+              <td style="color:{% if campaign.failed_count > 0 %}#DC2626{% else %}var(--text-dim){% endif %};">{{ campaign.failed_count }}</td>
               <td>
-                {% if campaign.status == 'completed' %}<span style="color:#34d399;font-size:0.72rem;font-weight:600;">✓ Done</span>
-                {% elif campaign.status == 'running' %}<span style="color:#a5b4fc;font-size:0.72rem;font-weight:600;">⟳ Running</span>
-                {% elif campaign.status == 'scheduled' %}<span style="color:#7dd3fc;font-size:0.72rem;font-weight:600;">⏰ Sched.</span>
-                {% elif campaign.status == 'failed' %}<span style="color:#f87171;font-size:0.72rem;font-weight:600;">✗ Failed</span>
-                {% else %}<span style="color:rgba(255,255,255,0.4);font-size:0.72rem;">{{ campaign.status.capitalize() }}</span>
+                {% if campaign.status == 'completed' %}<span style="color:#16A34A;font-size:0.72rem;font-weight:600;">✓ Done</span>
+                {% elif campaign.status == 'running' %}<span style="color:#2563EB;font-size:0.72rem;font-weight:600;">⟳ Running</span>
+                {% elif campaign.status == 'scheduled' %}<span style="color:#0284C7;font-size:0.72rem;font-weight:600;">⏰ Sched.</span>
+                {% elif campaign.status == 'failed' %}<span style="color:#DC2626;font-size:0.72rem;font-weight:600;">✗ Failed</span>
+                {% else %}<span style="color:var(--text-muted);font-size:0.72rem;">{{ campaign.status.capitalize() }}</span>
                 {% endif %}
               </td>
-              <td style="color:rgba(255,255,255,0.4);">{{ campaign.created_at[:10] }}</td>
+              <td style="color:var(--text-muted);">{{ campaign.created_at[:10] }}</td>
               <td>
                 <a href="{{ url_for('campaign_details', campaign_id=campaign.id) }}"
                    class="btn btn-outline-primary" style="padding:0.15rem 0.5rem;font-size:0.72rem;">
@@ -325,7 +325,7 @@
           </tbody>
         </table>
         {% if not campaigns %}
-        <div class="text-center py-3" style="color:rgba(255,255,255,0.3);font-size:0.83rem;">No campaigns yet</div>
+        <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No campaigns yet</div>
         {% endif %}
       </div>
     </div>
@@ -333,22 +333,22 @@
 
   <div class="col-lg-6">
     <div class="data-table-card">
-      <h5><i class="fas fa-file-alt me-2" style="color:#a5b4fc;"></i>Most Used Templates</h5>
+      <h5><i class="fas fa-file-alt me-2" style="color:var(--gold);"></i>Most Used Templates</h5>
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0" style="font-size:0.83rem;">
           <thead><tr><th>Template</th><th>Used</th><th>Last Used</th></tr></thead>
           <tbody>
             {% for template in template_stats[:10] %}
             <tr>
-              <td style="color:#e2e8f0;font-family:monospace;font-size:0.8rem;">{{ template.template_name }}</td>
-              <td><span style="background:rgba(139,124,248,0.18);color:#c4b5fd;padding:0.15rem 0.5rem;border-radius:10px;font-size:0.72rem;font-weight:600;">{{ template.times_used }}</span></td>
-              <td style="color:rgba(255,255,255,0.4);">{{ template.last_used[:10] if template.last_used else '—' }}</td>
+              <td style="color:var(--text);font-family:monospace;font-size:0.8rem;">{{ template.template_name }}</td>
+              <td><span style="background:rgba(37,211,102,0.1);color:var(--gold-dark);padding:0.15rem 0.5rem;border-radius:10px;font-size:0.72rem;font-weight:600;">{{ template.times_used }}</span></td>
+              <td style="color:var(--text-muted);">{{ template.last_used[:10] if template.last_used else '—' }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
         {% if not template_stats %}
-        <div class="text-center py-3" style="color:rgba(255,255,255,0.3);font-size:0.83rem;">No template usage yet</div>
+        <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No template usage yet</div>
         {% endif %}
       </div>
     </div>
@@ -360,12 +360,7 @@
 <script>
 const campaignData = {{ chart_data | tojson }};
 
-const chartDefaults = {
-  color: 'rgba(255,255,255,0.55)',
-  borderColor: 'rgba(255,255,255,0.1)'
-};
-
-Chart.defaults.color = chartDefaults.color;
+Chart.defaults.color = '#64748B';
 
 new Chart(document.getElementById('campaignChart'), {
   type: 'line',
@@ -374,11 +369,11 @@ new Chart(document.getElementById('campaignChart'), {
     datasets: [{
       label: 'Campaigns',
       data: campaignData.counts,
-      borderColor: '#8b7cf8',
-      backgroundColor: 'rgba(139,124,248,0.12)',
+      borderColor: '#25D366',
+      backgroundColor: 'rgba(37,211,102,0.08)',
       tension: 0.4, fill: true, borderWidth: 2,
-      pointRadius: 4, pointBackgroundColor: '#8b7cf8',
-      pointBorderColor: 'rgba(255,255,255,0.5)', pointBorderWidth: 1.5,
+      pointRadius: 4, pointBackgroundColor: '#25D366',
+      pointBorderColor: '#fff', pointBorderWidth: 2,
       pointHoverRadius: 6
     }]
   },
@@ -387,18 +382,18 @@ new Chart(document.getElementById('campaignChart'), {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(14,12,40,0.95)',
-        borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        padding: 10, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)'
+        backgroundColor: 'rgba(15,23,42,0.9)',
+        borderColor: 'rgba(15,23,42,0.1)', borderWidth: 1,
+        padding: 10, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.75)'
       }
     },
     scales: {
       y: {
-        beginAtZero: true, ticks: { stepSize: 1, precision: 0, color: 'rgba(255,255,255,0.4)' },
-        grid: { color: 'rgba(255,255,255,0.06)' }, border: { display: false }
+        beginAtZero: true, ticks: { stepSize: 1, precision: 0, color: '#94A3B8' },
+        grid: { color: 'rgba(15,23,42,0.06)' }, border: { display: false }
       },
       x: {
-        ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, color: 'rgba(255,255,255,0.35)' },
+        ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 10, color: '#94A3B8' },
         grid: { display: false }, border: { display: false }
       }
     }
@@ -413,17 +408,17 @@ new Chart(document.getElementById('successChart'), {
     labels: ['Success', 'Failed'],
     datasets: [{
       data: sc + fc > 0 ? [sc, fc] : [1, 0],
-      backgroundColor: sc + fc > 0 ? ['#10b981', '#ef4444'] : ['rgba(255,255,255,0.1)'],
+      backgroundColor: sc + fc > 0 ? ['#25D366', '#EF4444'] : ['rgba(15,23,42,0.08)'],
       borderWidth: 0, borderRadius: 4
     }]
   },
   options: {
     responsive: true, cutout: '68%',
     plugins: {
-      legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.5)', padding: 16, boxWidth: 12 } },
+      legend: { position: 'bottom', labels: { color: '#64748B', padding: 16, boxWidth: 12 } },
       tooltip: {
-        backgroundColor: 'rgba(14,12,40,0.95)',
-        borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+        backgroundColor: 'rgba(15,23,42,0.9)',
+        borderColor: 'rgba(15,23,42,0.1)', borderWidth: 1,
         enabled: sc + fc > 0
       }
     }

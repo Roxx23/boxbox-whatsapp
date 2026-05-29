@@ -8,40 +8,40 @@
 
   .section-divider {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
     margin: 1.75rem 0;
   }
 
   .header-type-selector { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
   .header-type-option {
     flex: 1; min-width: 120px; padding: 0.875rem;
-    background: rgba(255,255,255,0.04);
-    border: 1.5px solid rgba(255,255,255,0.1);
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
     border-radius: 10px; cursor: pointer; text-align: center;
-    transition: all 0.18s; font-size: 0.875rem; font-weight: 500;
+    transition: all 0.18s; font-size: 0.875rem; font-weight: 500; color: var(--text);
   }
-  .header-type-option:hover { background: rgba(102,126,234,0.1); border-color: rgba(102,126,234,0.3); }
-  .header-type-option.active { background: rgba(139,124,248,0.18); border-color: #8b7cf8; color: #c4b5fd; }
+  .header-type-option:hover { background: rgba(37,211,102,0.06); border-color: rgba(37,211,102,0.25); }
+  .header-type-option.active { background: rgba(37,211,102,0.1); border-color: var(--gold); color: var(--gold-dark); }
   .header-type-option input[type="radio"] { display: none; }
 
   .image-upload-zone {
-    border: 2px dashed rgba(102,126,234,0.35);
+    border: 2px dashed rgba(37,211,102,0.3);
     border-radius: 12px; padding: 2rem; text-align: center;
-    background: rgba(102,126,234,0.04); cursor: pointer; transition: all 0.2s;
+    background: rgba(37,211,102,0.03); cursor: pointer; transition: all 0.2s;
   }
-  .image-upload-zone:hover { background: rgba(102,126,234,0.1); border-color: #8b7cf8; }
-  .image-upload-zone.has-file { border-color: #10b981; background: rgba(16,185,129,0.07); }
+  .image-upload-zone:hover { background: rgba(37,211,102,0.07); border-color: var(--gold); }
+  .image-upload-zone.has-file { border-color: #16A34A; background: rgba(22,163,74,0.05); }
 
   .image-preview { max-width: 200px; max-height: 200px; margin: 1rem auto; border-radius: 8px; }
 
   .btn-create {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--gold);
     border: none; border-radius: 10px;
     padding: 0.875rem 2rem; font-size: 1rem; font-weight: 600;
     color: #fff; width: 100%; margin-top: 1.5rem;
-    transition: all 0.2s;
+    transition: all 0.2s; box-shadow: 0 4px 14px rgba(37,211,102,0.25);
   }
-  .btn-create:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(102,126,234,0.45); }
+  .btn-create:hover { background: var(--gold-light); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(37,211,102,0.35); color: #fff; }
 
   #header_image_section, #header_text_section { display: none; }
 </style>
@@ -51,7 +51,7 @@
 <div class="create-form-wrap">
   <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
     <div>
-      <div class="page-title"><i class="fas fa-plus-circle me-2" style="color:#a5b4fc;"></i>Create Template</div>
+      <div class="page-title"><i class="fas fa-plus-circle me-2" style="color:var(--gold);"></i>Create Template</div>
       <div class="page-subtitle">Design a new WhatsApp Business message template</div>
     </div>
     <a href="{{ url_for('templates_manager') }}" class="btn btn-outline-secondary btn-sm">
@@ -102,7 +102,7 @@
       <div class="section-divider"></div>
 
       <div class="mb-4">
-        <label class="form-label">Header Type <span style="color:rgba(255,255,255,0.35);font-weight:400;">(Optional)</span></label>
+        <label class="form-label">Header Type <span style="color:var(--text-dim);font-weight:400;">(Optional)</span></label>
         <div class="header-type-selector">
           <label class="header-type-option">
             <input type="radio" name="header_type" value="NONE" checked onchange="updateHeaderSection()">
@@ -130,7 +130,7 @@
           <div id="uploadPrompt">
             <div style="font-size:1.75rem;">📁</div>
             <div style="font-weight:600;margin-top:0.5rem;">Click to choose an image</div>
-            <div style="color:rgba(255,255,255,0.35);font-size:0.82rem;margin-top:0.25rem;">JPG, PNG, WebP — max 5 MB</div>
+            <div style="color:var(--text-dim);font-size:0.82rem;margin-top:0.25rem;">JPG, PNG, WebP — max 5 MB</div>
           </div>
           <div id="imagePreview" style="display:none;">
             <img id="previewImage" class="image-preview" alt="Preview">
@@ -151,14 +151,14 @@
       </div>
 
       <div class="mb-4">
-        <label class="form-label">Footer Text <span style="color:rgba(255,255,255,0.3);font-weight:400;">(Optional)</span></label>
+        <label class="form-label">Footer Text <span style="color:var(--text-dim);font-weight:400;">(Optional)</span></label>
         <input type="text" name="footer_text" class="form-control" placeholder="e.g., Powered by YourBrand">
       </div>
 
       <div class="section-divider"></div>
 
       <div class="mb-4">
-        <label class="form-label">Call-to-Action Button <span style="color:rgba(255,255,255,0.3);font-weight:400;">(Optional)</span></label>
+        <label class="form-label">Call-to-Action Button <span style="color:var(--text-dim);font-weight:400;">(Optional)</span></label>
         <div class="row g-3">
           <div class="col-md-4">
             <select name="button_type_1" class="form-select">

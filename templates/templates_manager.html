@@ -8,68 +8,71 @@
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.5rem;
   }
   .stat-box {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.09);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px; padding: 1rem 1.25rem; text-align: center;
+    box-shadow: var(--shadow-sm);
   }
-  .stat-box .num { font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
-  .stat-box .lbl { font-size: 0.7rem; color: rgba(255,255,255,0.38); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.2rem; }
+  .stat-box .num { font-size: 1.75rem; font-weight: 700; line-height: 1.2; color: var(--text); }
+  .stat-box .lbl { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.2rem; }
 
   .template-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px; padding: 1.1rem 1.25rem;
     margin-bottom: 0.75rem; transition: all 0.18s;
+    box-shadow: var(--shadow-sm);
   }
   .template-card:hover {
-    background: rgba(255,255,255,0.07);
-    border-color: rgba(255,255,255,0.14);
+    border-color: rgba(37,211,102,0.25);
+    box-shadow: var(--shadow);
   }
 
-  .template-name { font-weight: 600; font-size: 0.93rem; color: #e2e8f0; font-family: monospace; }
+  .template-name { font-weight: 600; font-size: 0.93rem; color: var(--text); font-family: monospace; }
 
   .status-badge {
     font-size: 0.68rem; font-weight: 700; padding: 0.22rem 0.65rem;
     border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em;
   }
-  .status-APPROVED { background: rgba(16,185,129,0.18); color: #34d399; }
-  .status-PENDING  { background: rgba(251,191,36,0.18);  color: #fcd34d; }
-  .status-REJECTED { background: rgba(239,68,68,0.18);   color: #f87171; }
-  .status-PAUSED   { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.5); }
-  .status-DISABLED { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.5); }
+  .status-APPROVED { background: rgba(22,163,74,0.1);  color: #15803D; }
+  .status-PENDING  { background: rgba(245,158,11,0.1); color: #92400E; }
+  .status-REJECTED { background: rgba(239,68,68,0.1);  color: #DC2626; }
+  .status-PAUSED   { background: rgba(15,23,42,0.06);  color: var(--text-muted); }
+  .status-DISABLED { background: rgba(15,23,42,0.06);  color: var(--text-muted); }
 
   .category-badge {
     font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.55rem;
     border-radius: 6px; text-transform: uppercase; letter-spacing: 0.04em;
-    background: rgba(167,139,250,0.18); color: #c4b5fd;
+    background: rgba(124,58,237,0.08); color: #6D28D9;
   }
 
   .component-pill {
     font-size: 0.65rem; padding: 0.15rem 0.45rem;
-    border-radius: 4px; background: rgba(255,255,255,0.07);
-    color: rgba(255,255,255,0.45); margin-right: 0.25rem; margin-top: 0.4rem; display: inline-block;
+    border-radius: 4px; background: var(--surface3);
+    color: var(--text-muted); margin-right: 0.25rem; margin-top: 0.4rem; display: inline-block;
   }
 
   .body-preview {
-    font-size: 0.82rem; color: rgba(255,255,255,0.5);
-    background: rgba(255,255,255,0.04);
+    font-size: 0.82rem; color: var(--text-muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
     border-radius: 7px; padding: 0.6rem 0.875rem;
     margin-top: 0.625rem; white-space: pre-wrap; word-break: break-word;
     max-height: 72px; overflow: hidden; position: relative;
   }
   .body-preview.expanded { max-height: none; }
-  .show-more { font-size: 0.72rem; color: #a5b4fc; cursor: pointer; margin-top: 0.2rem; display: inline-block; }
+  .show-more { font-size: 0.72rem; color: var(--gold-dark); cursor: pointer; margin-top: 0.2rem; display: inline-block; }
   .show-more:hover { text-decoration: underline; }
 
   .filter-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
   .filter-tab {
     padding: 0.3rem 0.875rem; border-radius: 20px;
-    font-size: 0.8rem; font-weight: 500; color: rgba(255,255,255,0.5);
-    background: transparent; border: 1px solid rgba(255,255,255,0.1);
+    font-size: 0.8rem; font-weight: 500; color: var(--text-muted);
+    background: var(--surface); border: 1px solid var(--border);
     cursor: pointer; transition: all 0.15s; text-decoration: none;
   }
-  .filter-tab:hover { color: #fff; background: rgba(255,255,255,0.07); }
-  .filter-tab.active { background: rgba(139,124,248,0.25); color: #fff; border-color: rgba(139,124,248,0.4); }
+  .filter-tab:hover { color: var(--text); background: var(--surface3); border-color: #CBD5E1; }
+  .filter-tab.active { background: rgba(37,211,102,0.1); color: var(--gold-dark); border-color: rgba(37,211,102,0.3); }
 </style>
 {% endblock %}
 
@@ -142,7 +145,7 @@
             <span class="category-badge ms-2">{{ t.category }}</span>
           </div>
           <div class="d-flex align-items-center gap-2">
-            <small style="color:rgba(255,255,255,0.3);font-size:0.75rem;">{{ t.language }}</small>
+            <small style="color:var(--text-dim);font-size:0.75rem;">{{ t.language }}</small>
             <button class="btn btn-outline-danger btn-sm" style="padding:0.25rem 0.5rem;font-size:0.75rem;"
                     onclick="deleteTemplate('{{ t.name }}', this)" title="Delete">
               <i class="fas fa-trash-alt"></i>
@@ -171,7 +174,7 @@
       </div>
       {% endfor %}
     {% else %}
-      <div class="text-center py-5" style="color:rgba(255,255,255,0.35);">
+      <div class="text-center py-5" style="color:var(--text-dim);">
         <i class="fas fa-layer-group fa-3x mb-3 d-block" style="opacity:0.2;"></i>
         No templates found.
         <a href="{{ url_for('create_template_page') }}" style="color:#a5b4fc;">Create your first template</a>.
@@ -179,7 +182,7 @@
     {% endif %}
   </div>
 
-  <div id="noResults" class="text-center py-4" style="display:none;color:rgba(255,255,255,0.3);">
+  <div id="noResults" class="text-center py-4" style="display:none;color:var(--text-dim);">
     <i class="fas fa-search fa-2x mb-2 d-block" style="opacity:0.3;"></i>No templates match your search.
   </div>
 </div>

@@ -8,7 +8,7 @@
   .timeline::before {
     content: '';
     position: absolute; left: 7px; top: 6px; bottom: 0;
-    width: 2px; background: rgba(139,124,248,0.25);
+    width: 2px; background: rgba(37,211,102,0.2);
   }
 
   .timeline-item {
@@ -18,20 +18,20 @@
     content: '';
     position: absolute; left: -1.75rem; top: 4px;
     width: 12px; height: 12px; border-radius: 50%;
-    background: #8b7cf8; border: 2px solid rgba(139,124,248,0.35);
-    box-shadow: 0 0 0 4px rgba(139,124,248,0.1);
+    background: var(--gold); border: 2px solid rgba(37,211,102,0.3);
+    box-shadow: 0 0 0 4px rgba(37,211,102,0.08);
   }
   .timeline-item:last-child { padding-bottom: 0; }
 
   .timeline-action {
-    font-weight: 600; font-size: 0.9rem; color: #fff; margin-bottom: 0.2rem;
+    font-weight: 600; font-size: 0.9rem; color: var(--text); margin-bottom: 0.2rem;
   }
   .timeline-details {
-    color: rgba(255,255,255,0.5); font-size: 0.83rem; margin-bottom: 0.3rem;
+    color: var(--text-muted); font-size: 0.83rem; margin-bottom: 0.3rem;
   }
   .timeline-meta {
     display: flex; align-items: center; gap: 1rem;
-    font-size: 0.75rem; color: rgba(255,255,255,0.3);
+    font-size: 0.75rem; color: var(--text-dim);
   }
 </style>
 {% endblock %}
@@ -39,12 +39,12 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
   <div>
-    <div class="page-title"><i class="fas fa-history me-2" style="color:#a5b4fc;"></i>Activity Log</div>
+    <div class="page-title"><i class="fas fa-history me-2" style="color:var(--gold);"></i>Activity Log</div>
     <div class="page-subtitle">Your recent actions and events</div>
   </div>
 </div>
 
-<div class="glass-card" style="padding: 1.75rem;">
+<div class="surface-card" style="padding: 1.75rem;">
   {% if activities %}
     <div class="timeline">
       {% for activity in activities %}
@@ -63,8 +63,8 @@
       {% endfor %}
     </div>
   {% else %}
-    <div class="text-center py-4" style="color:rgba(255,255,255,0.35);">
-      <i class="fas fa-history fa-3x mb-3 d-block" style="opacity:0.25;"></i>
+    <div class="text-center py-4" style="color:var(--text-dim);">
+      <i class="fas fa-history fa-3x mb-3 d-block" style="opacity:0.3;"></i>
       No activity recorded yet.
     </div>
   {% endif %}

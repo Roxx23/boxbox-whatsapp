@@ -13,7 +13,7 @@
     display: flex; align-items: center; gap: 1rem;
     transition: border-color 0.2s;
   }
-  .cust-stat:hover { border-color: var(--border-gold); }
+  .cust-stat:hover { border-color: rgba(37,211,102,0.3); }
   .cust-stat-icon {
     width: 44px; height: 44px; border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
@@ -52,7 +52,7 @@
   }
   .search-wrap input:focus {
     border-color: var(--gold);
-    box-shadow: 0 0 0 3px rgba(212,168,75,0.12);
+    box-shadow: 0 0 0 3px rgba(37,211,102,0.1);
     background: var(--surface2);
     color: var(--text);
   }
@@ -72,24 +72,24 @@
     border: 1px solid transparent;
   }
   .seg-item:hover {
-    background: rgba(212,168,75,0.07);
-    border-color: rgba(212,168,75,0.15);
+    background: rgba(37,211,102,0.06);
+    border-color: rgba(37,211,102,0.18);
   }
   .seg-item.active {
-    background: rgba(212,168,75,0.12);
-    border-color: rgba(212,168,75,0.3);
+    background: rgba(37,211,102,0.08);
+    border-color: rgba(37,211,102,0.25);
   }
-  .seg-item.active .seg-name { color: var(--gold); font-weight: 600; }
+  .seg-item.active .seg-name { color: var(--gold-dark); font-weight: 600; }
   .seg-name { font-size: 0.85rem; color: var(--text); transition: color 0.18s; }
   .seg-count {
     font-size: 0.72rem; padding: 0.15rem 0.55rem;
     border-radius: 20px;
-    background: rgba(212,168,75,0.12);
-    color: var(--gold);
+    background: rgba(37,211,102,0.1);
+    color: var(--gold-dark);
     font-weight: 600;
   }
   .seg-item.active .seg-count {
-    background: rgba(212,168,75,0.2);
+    background: rgba(37,211,102,0.15);
   }
   .seg-delete-btn {
     background: none; border: none; padding: 0 0.25rem;
@@ -109,7 +109,7 @@
   }
   .filter-row .form-control:focus {
     border-color: var(--gold);
-    box-shadow: 0 0 0 3px rgba(212,168,75,0.1);
+    box-shadow: 0 0 0 3px rgba(37,211,102,0.1);
     background: var(--surface2);
     color: var(--text);
   }
@@ -146,10 +146,10 @@
     white-space: nowrap;
   }
   .cust-table tbody tr {
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    border-bottom: 1px solid rgba(15,23,42,0.04);
     transition: background 0.15s;
   }
-  .cust-table tbody tr:hover { background: rgba(212,168,75,0.04); }
+  .cust-table tbody tr:hover { background: rgba(37,211,102,0.03); }
   .cust-table tbody td {
     padding: 0.8rem 1rem;
     vertical-align: middle;
@@ -165,9 +165,9 @@
   /* Avatar initials */
   .cust-avatar {
     width: 32px; height: 32px; border-radius: 8px;
-    background: rgba(212,168,75,0.12);
-    border: 1px solid rgba(212,168,75,0.2);
-    color: var(--gold); font-size: 0.72rem; font-weight: 700;
+    background: rgba(37,211,102,0.1);
+    border: 1px solid rgba(37,211,102,0.2);
+    color: var(--gold-dark); font-size: 0.72rem; font-weight: 700;
     display: inline-flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
@@ -177,16 +177,16 @@
 
   .phone-mono {
     font-family: monospace; font-size: 0.82rem;
-    color: rgba(255,255,255,0.55);
+    color: var(--text-muted);
   }
 
   .order-badge {
     display: inline-block; padding: 0.15rem 0.55rem;
     border-radius: 20px; font-size: 0.72rem; font-weight: 600;
-    background: rgba(212,168,75,0.1); color: var(--gold);
+    background: rgba(37,211,102,0.1); color: var(--gold-dark);
   }
 
-  .spent-val { font-weight: 600; color: var(--gold-light); }
+  .spent-val { font-weight: 600; color: var(--gold-dark); }
 
   .date-val { color: var(--text-muted); font-size: 0.78rem; }
   .date-never { color: var(--text-dim); font-size: 0.78rem; }
@@ -196,9 +196,9 @@
     font-size: 0.7rem; padding: 0.15rem 0.45rem;
     border-radius: 20px; margin-right: 0.2rem;
   }
-  .ep-sent    { background: rgba(74,158,186,0.15); color: #7ecde8; }
-  .ep-read    { background: rgba(61,179,122,0.15); color: #6edbaa; }
-  .ep-replied { background: rgba(212,168,75,0.15); color: var(--gold); }
+  .ep-sent    { background: rgba(37,99,235,0.08);  color: #1D4ED8; }
+  .ep-read    { background: rgba(22,163,74,0.08);  color: #15803D; }
+  .ep-replied { background: rgba(37,211,102,0.1);  color: var(--gold-dark); }
 
   /* Empty state */
   .empty-state {
@@ -238,7 +238,7 @@
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
     <div class="cust-stat">
-      <div class="cust-stat-icon" style="background:rgba(212,168,75,0.12);">
+      <div class="cust-stat-icon" style="background:rgba(37,211,102,0.1);">
         <i class="fas fa-users" style="color:var(--gold);"></i>
       </div>
       <div>
@@ -271,7 +271,7 @@
   </div>
   <div class="col-6 col-md-3">
     <div class="cust-stat">
-      <div class="cust-stat-icon" style="background:rgba(212,168,75,0.12);">
+      <div class="cust-stat-icon" style="background:rgba(37,211,102,0.1);">
         <i class="fas fa-star" style="color:var(--gold);"></i>
       </div>
       <div>
@@ -379,13 +379,13 @@
     <div class="table-panel">
       <div class="table-panel-header">
         <h6>
-          <i class="fas fa-table me-2" style="color:var(--gold);opacity:0.7;"></i>
+          <i class="fas fa-table me-2" style="color:var(--gold);"></i>
           <span id="visibleCount">{{ customers|length }}</span> Customers
         </h6>
         <div class="d-flex align-items-center gap-2">
           <span id="selectedBadge" class="d-none"
-                style="font-size:0.78rem;color:var(--gold);padding:0.25rem 0.75rem;
-                       background:rgba(212,168,75,0.1);border-radius:20px;border:1px solid rgba(212,168,75,0.2);">
+                style="font-size:0.78rem;color:var(--gold-dark);padding:0.25rem 0.75rem;
+                       background:rgba(37,211,102,0.1);border-radius:20px;border:1px solid rgba(37,211,102,0.2);">
             <i class="fas fa-check-circle me-1"></i><span id="selectedCount">0</span> selected
           </span>
         </div>
@@ -513,9 +513,9 @@
               </div>
             </div>
           </div>
-          <div style="background:rgba(74,158,186,0.08);border:1px solid rgba(74,158,186,0.2);
-                      border-radius:8px;padding:0.75rem 1rem;font-size:0.82rem;color:rgba(255,255,255,0.5);">
-            <i class="fas fa-info-circle me-1" style="color:#4a9eba;"></i>
+          <div style="background:rgba(37,99,235,0.05);border:1px solid rgba(37,99,235,0.15);
+                      border-radius:8px;padding:0.75rem 1rem;font-size:0.82rem;color:var(--text-muted);">
+            <i class="fas fa-info-circle me-1" style="color:#2563EB;"></i>
             Leave fields empty to skip that filter.
           </div>
         </form>

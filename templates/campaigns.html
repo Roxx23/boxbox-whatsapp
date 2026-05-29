@@ -5,35 +5,36 @@
 {% block head %}
 <style>
   .campaign-card {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.09);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1.5rem;
     margin-bottom: 1rem;
     transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
   }
   .campaign-card:hover {
-    background: rgba(255,255,255,0.08);
+    border-color: rgba(37,211,102,0.25);
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    box-shadow: var(--shadow);
   }
-  .campaign-name { font-weight: 600; font-size: 1rem; color: #fff; }
-  .campaign-meta { color: rgba(255,255,255,0.45); font-size: 0.83rem; }
+  .campaign-name { font-weight: 600; font-size: 1rem; color: var(--text); }
+  .campaign-meta { color: var(--text-muted); font-size: 0.83rem; }
 
   .status-pill {
     display: inline-flex; align-items: center; gap: 0.4rem;
     padding: 0.3rem 0.85rem; border-radius: 20px;
     font-size: 0.78rem; font-weight: 600;
   }
-  .status-completed { background: rgba(16,185,129,0.18); color: #34d399; }
-  .status-running   { background: rgba(102,126,234,0.18); color: #a5b4fc; }
-  .status-scheduled { background: rgba(99,179,237,0.18);  color: #7dd3fc; }
-  .status-failed    { background: rgba(239,68,68,0.18);   color: #f87171; }
-  .status-default   { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.6); }
+  .status-completed { background: rgba(22,163,74,0.1);  color: #15803D; }
+  .status-running   { background: rgba(37,99,235,0.1);  color: #1D4ED8; }
+  .status-scheduled { background: rgba(2,132,199,0.1);  color: #0369A1; }
+  .status-failed    { background: rgba(239,68,68,0.1);  color: #DC2626; }
+  .status-default   { background: rgba(15,23,42,0.06);  color: var(--text-muted); }
 
   .stat-mini { text-align: center; }
-  .stat-mini .num { font-size: 1.35rem; font-weight: 700; }
-  .stat-mini .lbl { font-size: 0.72rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-mini .num { font-size: 1.35rem; font-weight: 700; color: var(--text); }
+  .stat-mini .lbl { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 
   .progress-wrap { margin-top: 0.6rem; }
   .progress { height: 5px; border-radius: 10px; }
@@ -43,7 +44,7 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
   <div>
-    <div class="page-title"><i class="fas fa-bullhorn me-2" style="color:#a5b4fc;"></i>Campaigns</div>
+    <div class="page-title"><i class="fas fa-bullhorn me-2" style="color:var(--gold);"></i>Campaigns</div>
     <div class="page-subtitle">All your message campaigns in one place</div>
   </div>
 </div>
@@ -65,7 +66,7 @@
         {% if campaign.scheduled_time %}
         <div class="campaign-meta mt-1">
           <i class="fas fa-clock me-1" style="color:#7dd3fc;"></i>
-          <span style="color:#7dd3fc;">Scheduled: {{ campaign.scheduled_time }}</span>
+          <span style="color:#0369A1;">Scheduled: {{ campaign.scheduled_time }}</span>
         </div>
         {% endif %}
       </div>
@@ -81,8 +82,8 @@
             <div class="progress-bar bg-danger"  style="width: {{ (campaign.failed_count  / campaign.recipient_count * 100) if campaign.recipient_count > 0 else 0 }}%"></div>
           </div>
           <div class="d-flex justify-content-between mt-1">
-            <small style="color:#34d399;font-size:0.75rem;">✓ {{ campaign.success_count }}</small>
-            <small style="color:#f87171;font-size:0.75rem;">✗ {{ campaign.failed_count }}</small>
+            <small style="color:#16A34A;font-size:0.75rem;">✓ {{ campaign.success_count }}</small>
+            <small style="color:#DC2626;font-size:0.75rem;">✗ {{ campaign.failed_count }}</small>
           </div>
         </div>
       </div>
@@ -107,7 +108,7 @@
 
         {% if campaign.status != 'running' %}
         <button class="btn btn-sm"
-                style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;"
+                style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#DC2626;"
                 onclick="confirmDelete({{ campaign.id }}, '{{ campaign.campaign_name | replace("'", "\\'") }}')">
           <i class="fas fa-trash-alt"></i>
         </button>
@@ -119,10 +120,10 @@
   {% endfor %}
 
 {% else %}
-  <div class="glass-card text-center py-5 mt-2">
-    <i class="fas fa-bullhorn fa-3x mb-3" style="color:rgba(255,255,255,0.15);"></i>
-    <p class="mb-1" style="color:rgba(255,255,255,0.5);">No campaigns yet.</p>
-    <p style="color:rgba(255,255,255,0.3);font-size:0.875rem;">Start sending messages from the Dashboard to create your first campaign.</p>
+  <div class="surface-card text-center py-5 mt-2">
+    <i class="fas fa-bullhorn fa-3x mb-3" style="color:var(--text-dim);display:block;"></i>
+    <p class="mb-1" style="color:var(--text-muted);">No campaigns yet.</p>
+    <p style="color:var(--text-dim);font-size:0.875rem;">Start sending messages from the Dashboard to create your first campaign.</p>
     <a href="{{ url_for('index') }}" class="btn btn-primary btn-sm mt-2">
       <i class="fas fa-paper-plane me-1"></i>Go to Dashboard
     </a>
@@ -132,19 +133,19 @@
 <!-- Delete confirmation modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content" style="background:#1a1a2e;border:1px solid rgba(239,68,68,0.3);">
-      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.08);">
-        <h5 class="modal-title" style="color:#f87171;"><i class="fas fa-trash-alt me-2"></i>Delete Campaign</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" style="color:#DC2626;"><i class="fas fa-trash-alt me-2"></i>Delete Campaign</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" style="color:#e2e8f0;">
-        <p>Delete <strong id="deleteCampaignName" style="color:#fff;"></strong>?</p>
-        <p style="color:rgba(255,255,255,0.5);font-size:0.875rem;">This will permanently remove the campaign and all its message history. This cannot be undone.</p>
+      <div class="modal-body">
+        <p>Delete <strong id="deleteCampaignName" style="color:var(--text);"></strong>?</p>
+        <p style="color:var(--text-muted);font-size:0.875rem;">This will permanently remove the campaign and all its message history. This cannot be undone.</p>
       </div>
-      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,0.08);">
+      <div class="modal-footer">
         <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-sm" id="confirmDeleteBtn"
-                style="background:rgba(239,68,68,0.85);color:#fff;border:none;">
+                style="background:#DC2626;color:#fff;border:none;border-radius:8px;">
           <i class="fas fa-trash-alt me-1"></i>Yes, Delete
         </button>
       </div>

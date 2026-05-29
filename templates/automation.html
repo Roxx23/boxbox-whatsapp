@@ -44,19 +44,20 @@
   .toggle input { opacity: 0; width: 0; height: 0; }
   .toggle-slider {
     position: absolute; cursor: pointer; inset: 0;
-    background: rgba(255,255,255,.1); border-radius: 24px;
+    background: #CBD5E1; border-radius: 24px;
     transition: .25s;
   }
   .toggle-slider:before {
     content: ''; position: absolute;
     width: 18px; height: 18px; border-radius: 50%;
     left: 3px; bottom: 3px;
-    background: rgba(255,255,255,.4);
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.2);
     transition: .25s;
   }
   .toggle input:checked + .toggle-slider { background: var(--gold); }
   .toggle input:checked + .toggle-slider:before {
-    transform: translateX(20px); background: #0a0a0a;
+    transform: translateX(20px); background: #fff;
   }
 
   /* Card body */
@@ -72,45 +73,45 @@
   }
   .field input, .field select {
     width: 100%;
-    background: rgba(255,255,255,.05);
+    background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
     padding: .55rem .8rem;
     font-size: .88rem;
     outline: none;
-    transition: border-color .2s;
+    transition: border-color .2s, box-shadow .2s;
   }
-  .field input:focus, .field select:focus { border-color: var(--gold); }
+  .field input:focus, .field select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(37,211,102,0.1); }
   .field input::placeholder { color: var(--text-dim); }
-  .field select option { background: #1a1a1a; }
+  .field select option { background: #fff; color: var(--text); }
 
   .param-hint {
     margin-top: .75rem;
     padding: .65rem .9rem;
-    background: rgba(212,168,75,.06);
-    border: 1px solid rgba(212,168,75,.15);
+    background: rgba(37,211,102,.05);
+    border: 1px solid rgba(37,211,102,.15);
     border-radius: 8px;
     font-size: .78rem;
     color: var(--text-muted);
     line-height: 1.6;
   }
-  .param-hint strong { color: var(--gold); }
+  .param-hint strong { color: var(--gold-dark); }
 
   /* Setup guide card */
   .guide-card {
-    background: rgba(96,165,250,.05);
-    border: 1px solid rgba(96,165,250,.2);
+    background: rgba(37,99,235,.04);
+    border: 1px solid rgba(37,99,235,.15);
     border-radius: 12px;
     padding: 1.25rem;
     margin-bottom: 1.75rem;
   }
   .guide-card h4 {
-    margin: 0 0 .75rem; font-size: .95rem; color: #60a5fa; font-weight: 600;
+    margin: 0 0 .75rem; font-size: .95rem; color: #1D4ED8; font-weight: 600;
   }
   .guide-card p { font-size: .83rem; color: var(--text-muted); margin: 0 0 .6rem; }
   .webhook-url {
-    background: rgba(0,0,0,.3); border: 1px solid var(--border);
+    background: var(--surface2); border: 1px solid var(--border);
     border-radius: 6px; padding: .5rem .8rem;
     font-family: monospace; font-size: .8rem; color: var(--text);
     display: flex; align-items: center; justify-content: space-between;
@@ -118,7 +119,7 @@
   }
   .webhook-url .topic-badge {
     font-size: .7rem; padding: .2rem .5rem; border-radius: 4px;
-    background: rgba(212,168,75,.15); color: var(--gold);
+    background: rgba(37,211,102,.1); color: var(--gold-dark);
     font-family: sans-serif; white-space: nowrap;
   }
   .copy-btn {
@@ -131,7 +132,7 @@
   /* Save button */
   .save-row { display: flex; justify-content: flex-end; margin-top: 1.5rem; }
   .btn-save {
-    background: var(--gold); color: #0a0a0a;
+    background: var(--gold); color: #fff;
     border: none; border-radius: 8px;
     padding: .7rem 2rem; font-weight: 700; font-size: .9rem;
     cursor: pointer; transition: opacity .2s;
@@ -152,8 +153,8 @@
   .log-dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: .25rem;
   }
-  .log-dot.ok     { background: #34d399; }
-  .log-dot.fail   { background: #f87171; }
+  .log-dot.ok     { background: #16A34A; }
+  .log-dot.fail   { background: #DC2626; }
   .log-dot.neutral{ background: var(--text-dim); }
   .log-action { color: var(--text); font-weight: 500; }
   .log-detail { color: var(--text-muted); margin-top: .1rem; }

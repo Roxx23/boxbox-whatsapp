@@ -5,35 +5,38 @@
 {% block head %}
 <style>
   .detail-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 14px; padding: 1.75rem; margin-bottom: 1.25rem;
+    box-shadow: var(--shadow-sm);
   }
 
   .stat-box {
     text-align: center; padding: 1.25rem 0.875rem;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.07);
+    background: var(--surface2);
+    border: 1px solid var(--border);
     border-radius: 12px;
+    transition: border-color 0.2s;
   }
-  .stat-box h3 { font-size: 1.75rem; font-weight: 700; color: #fff; margin: 0.3rem 0; }
-  .stat-box p  { color: rgba(255,255,255,0.4); font-size: 0.78rem; margin: 0; }
-  .stat-box small { color: rgba(255,255,255,0.3); font-size: 0.72rem; }
+  .stat-box:hover { border-color: rgba(37,211,102,0.3); }
+  .stat-box h3 { font-size: 1.75rem; font-weight: 700; color: var(--text); margin: 0.3rem 0; }
+  .stat-box p  { color: var(--text-muted); font-size: 0.78rem; margin: 0; }
+  .stat-box small { color: var(--text-dim); font-size: 0.72rem; }
 
   .status-pill {
     display: inline-flex; align-items: center; gap: 0.4rem;
     padding: 0.35rem 1rem; border-radius: 20px;
     font-size: 0.8rem; font-weight: 600;
   }
-  .status-completed { background: rgba(16,185,129,0.18); color: #34d399; }
-  .status-running   { background: rgba(102,126,234,0.18); color: #a5b4fc; }
-  .status-scheduled { background: rgba(99,179,237,0.18);  color: #7dd3fc; }
-  .status-failed    { background: rgba(239,68,68,0.18);   color: #f87171; }
-  .status-default   { background: rgba(255,255,255,0.1);  color: rgba(255,255,255,0.6); }
+  .status-completed { background: rgba(22,163,74,0.1);  color: #15803D; }
+  .status-running   { background: rgba(37,99,235,0.1);  color: #1D4ED8; }
+  .status-scheduled { background: rgba(2,132,199,0.1);  color: #0369A1; }
+  .status-failed    { background: rgba(239,68,68,0.1);  color: #DC2626; }
+  .status-default   { background: rgba(15,23,42,0.06);  color: var(--text-muted); }
 
   .reply-card {
-    background: rgba(102,126,234,0.08);
-    border: 1px solid rgba(102,126,234,0.2);
+    background: rgba(37,211,102,0.04);
+    border: 1px solid rgba(37,211,102,0.15);
     border-radius: 10px; padding: 1rem;
   }
 </style>
@@ -42,7 +45,7 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
   <div>
-    <div class="page-title"><i class="fas fa-bullhorn me-2" style="color:#a5b4fc;"></i>{{ campaign.campaign_name }}</div>
+    <div class="page-title"><i class="fas fa-bullhorn me-2" style="color:var(--gold);"></i>{{ campaign.campaign_name }}</div>
     <div class="page-subtitle">Campaign Details</div>
   </div>
   <div class="d-flex gap-2">
@@ -51,7 +54,7 @@
     </a>
     {% if campaign.status != 'running' %}
     <button class="btn btn-sm"
-            style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);color:#f87171;"
+            style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#DC2626;border-radius:8px;"
             onclick="confirmDelete()">
       <i class="fas fa-trash-alt me-1"></i>Delete Campaign
     </button>
@@ -62,19 +65,19 @@
 <!-- Delete confirmation modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content" style="background:#1a1a2e;border:1px solid rgba(239,68,68,0.3);">
-      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.08);">
-        <h5 class="modal-title" style="color:#f87171;"><i class="fas fa-trash-alt me-2"></i>Delete Campaign</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" style="color:#DC2626;"><i class="fas fa-trash-alt me-2"></i>Delete Campaign</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" style="color:#e2e8f0;">
-        <p>Delete <strong style="color:#fff;">{{ campaign.campaign_name }}</strong>?</p>
-        <p style="color:rgba(255,255,255,0.5);font-size:0.875rem;">This will permanently remove the campaign and all its message history. This cannot be undone.</p>
+      <div class="modal-body">
+        <p>Delete <strong style="color:var(--text);">{{ campaign.campaign_name }}</strong>?</p>
+        <p style="color:var(--text-muted);font-size:0.875rem;">This will permanently remove the campaign and all its message history. This cannot be undone.</p>
       </div>
-      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,0.08);">
+      <div class="modal-footer">
         <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-sm" id="confirmDeleteBtn"
-                style="background:rgba(239,68,68,0.85);color:#fff;border:none;">
+                style="background:#DC2626;color:#fff;border:none;border-radius:8px;">
           <i class="fas fa-trash-alt me-1"></i>Yes, Delete
         </button>
       </div>
@@ -86,10 +89,10 @@
 <div class="detail-card">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
     <div>
-      <div style="color:rgba(255,255,255,0.45);font-size:0.82rem;">
+      <div style="color:var(--text-muted);font-size:0.82rem;">
         <i class="fas fa-calendar me-1"></i>Created: {{ campaign.created_at[:16] }}
         {% if campaign.scheduled_time %}
-        <br><i class="fas fa-clock me-1" style="color:#7dd3fc;"></i>Scheduled: {{ campaign.scheduled_time }}
+        <br><i class="fas fa-clock me-1" style="color:#0369A1;"></i>Scheduled: {{ campaign.scheduled_time }}
         {% endif %}
       </div>
     </div>
@@ -105,21 +108,21 @@
   <div class="row g-3 mb-4">
     <div class="col-md-2 col-6">
       <div class="stat-box">
-        <i class="fas fa-users" style="color:#a5b4fc;"></i>
+        <i class="fas fa-users" style="color:var(--gold);display:block;font-size:1.25rem;margin-bottom:0.5rem;"></i>
         <h3>{{ campaign.recipient_count }}</h3>
         <p>Recipients</p>
       </div>
     </div>
     <div class="col-md-2 col-6">
       <div class="stat-box">
-        <i class="fas fa-paper-plane" style="color:#34d399;"></i>
+        <i class="fas fa-paper-plane" style="color:#16A34A;display:block;font-size:1.25rem;margin-bottom:0.5rem;"></i>
         <h3>{{ campaign.success_count }}</h3>
         <p>Sent</p>
       </div>
     </div>
     <div class="col-md-2 col-6">
       <div class="stat-box">
-        <i class="fas fa-check-double" style="color:#10b981;"></i>
+        <i class="fas fa-check-double" style="color:#25D366;display:block;font-size:1.25rem;margin-bottom:0.5rem;"></i>
         <h3>{{ campaign.delivered_count or 0 }}</h3>
         <p>Delivered</p>
         <small>{% if campaign.success_count > 0 %}{{ "%.1f"|format((campaign.delivered_count or 0) * 100 / campaign.success_count) }}%{% else %}0%{% endif %}</small>
@@ -127,7 +130,7 @@
     </div>
     <div class="col-md-2 col-6">
       <div class="stat-box">
-        <i class="fas fa-eye" style="color:#38bdf8;"></i>
+        <i class="fas fa-eye" style="color:#2563EB;display:block;font-size:1.25rem;margin-bottom:0.5rem;"></i>
         <h3>{{ campaign.read_count or 0 }}</h3>
         <p>Read</p>
         <small>{% if campaign.success_count > 0 %}{{ "%.1f"|format((campaign.read_count or 0) * 100 / campaign.success_count) }}%{% else %}0%{% endif %}</small>
@@ -135,7 +138,7 @@
     </div>
     <div class="col-md-2 col-6">
       <div class="stat-box">
-        <i class="fas fa-reply" style="color:#c4b5fd;"></i>
+        <i class="fas fa-reply" style="color:#7C3AED;display:block;font-size:1.25rem;margin-bottom:0.5rem;"></i>
         <h3>{{ campaign.replied_count or 0 }}</h3>
         <p>Replied</p>
         <small>{% if campaign.success_count > 0 %}{{ "%.1f"|format((campaign.replied_count or 0) * 100 / campaign.success_count) }}%{% else %}0%{% endif %}</small>
@@ -143,7 +146,7 @@
     </div>
     <div class="col-md-2 col-6">
       <div class="stat-box">
-        <i class="fas fa-mouse-pointer" style="color:#fcd34d;"></i>
+        <i class="fas fa-mouse-pointer" style="color:#D97706;display:block;font-size:1.25rem;margin-bottom:0.5rem;"></i>
         <h3>{{ campaign.clicked_count or 0 }}</h3>
         <p>Clicked</p>
         <small>{% if campaign.success_count > 0 %}{{ "%.1f"|format((campaign.clicked_count or 0) * 100 / campaign.success_count) }}%{% else %}0%{% endif %}</small>
@@ -153,13 +156,13 @@
 
   <!-- Meta table -->
   <table class="table" style="font-size:0.875rem;">
-    <tr><td style="color:rgba(255,255,255,0.4);width:160px;">Type</td><td style="color:#e2e8f0;">{{ campaign.campaign_type }}</td></tr>
+    <tr><td style="color:var(--text-muted);width:160px;">Type</td><td style="color:var(--text);">{{ campaign.campaign_type }}</td></tr>
     {% if campaign.template_name %}
-    <tr><td style="color:rgba(255,255,255,0.4);">Template</td><td style="font-family:monospace;color:#e2e8f0;">{{ campaign.template_name }}</td></tr>
+    <tr><td style="color:var(--text-muted);">Template</td><td style="font-family:monospace;color:var(--text);">{{ campaign.template_name }}</td></tr>
     {% endif %}
-    <tr><td style="color:rgba(255,255,255,0.4);">User</td><td style="color:#e2e8f0;">{{ campaign.username }}</td></tr>
-    <tr><td style="color:rgba(255,255,255,0.4);">Started</td><td style="color:#e2e8f0;">{{ campaign.started_at[:16] if campaign.started_at else '—' }}</td></tr>
-    <tr><td style="color:rgba(255,255,255,0.4);">Completed</td><td style="color:#e2e8f0;">{{ campaign.completed_at[:16] if campaign.completed_at else '—' }}</td></tr>
+    <tr><td style="color:var(--text-muted);">User</td><td style="color:var(--text);">{{ campaign.username }}</td></tr>
+    <tr><td style="color:var(--text-muted);">Started</td><td style="color:var(--text);">{{ campaign.started_at[:16] if campaign.started_at else '—' }}</td></tr>
+    <tr><td style="color:var(--text-muted);">Completed</td><td style="color:var(--text);">{{ campaign.completed_at[:16] if campaign.completed_at else '—' }}</td></tr>
   </table>
 </div>
 
@@ -167,8 +170,8 @@
 {% if messages %}
 <div class="detail-card">
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-    <h5 style="font-weight:600;font-size:0.9rem;margin:0;color:#e2e8f0;">
-      <i class="fas fa-list me-2" style="color:#a5b4fc;"></i>Messages ({{ messages|length }})
+    <h5 style="font-weight:600;font-size:0.9rem;margin:0;color:var(--text);">
+      <i class="fas fa-list me-2" style="color:var(--gold);"></i>Messages ({{ messages|length }})
     </h5>
     {% set unsent_count = messages|selectattr('status','in',['queued','failed'])|list|length %}
     {% if unsent_count > 0 %}
@@ -190,29 +193,29 @@
         <tr data-status="{{ message.status }}"
             data-phone="{{ message.phone_number }}"
             data-name="{{ message.recipient_name or '' }}">
-          <td style="color:rgba(255,255,255,0.3);">{{ loop.index }}</td>
-          <td style="color:#e2e8f0;font-weight:500;">{{ message.recipient_name or '—' }}</td>
-          <td style="font-family:monospace;color:rgba(255,255,255,0.6);">{{ message.phone_number }}</td>
+          <td style="color:var(--text-dim);">{{ loop.index }}</td>
+          <td style="color:var(--text);font-weight:500;">{{ message.recipient_name or '—' }}</td>
+          <td style="font-family:monospace;color:var(--text-muted);">{{ message.phone_number }}</td>
           <td>
-            {% if message.status == 'sent' %}<span style="color:#34d399;font-size:0.72rem;font-weight:600;">✓ Sent</span>
-            {% elif message.status == 'failed' %}<span style="color:#f87171;font-size:0.72rem;font-weight:600;">✗ Failed</span>
-            {% elif message.status == 'queued' %}<span style="color:#fcd34d;font-size:0.72rem;font-weight:600;">⏳ Queued</span>
-            {% else %}<span style="color:rgba(255,255,255,0.4);font-size:0.72rem;">{{ message.status }}</span>
+            {% if message.status == 'sent' %}<span style="color:#16A34A;font-size:0.72rem;font-weight:600;">✓ Sent</span>
+            {% elif message.status == 'failed' %}<span style="color:#DC2626;font-size:0.72rem;font-weight:600;">✗ Failed</span>
+            {% elif message.status == 'queued' %}<span style="color:#92400E;font-size:0.72rem;font-weight:600;">⏳ Queued</span>
+            {% else %}<span style="color:var(--text-dim);font-size:0.72rem;">{{ message.status }}</span>
             {% endif %}
           </td>
           <td>
-            {% if message.delivered_at %}<i class="fas fa-check-circle" style="color:#10b981;"></i> <small style="color:rgba(255,255,255,0.35);">{{ message.delivered_at[11:16] }}</small>
-            {% else %}<i class="fas fa-minus" style="color:rgba(255,255,255,0.2);"></i>{% endif %}
+            {% if message.delivered_at %}<i class="fas fa-check-circle" style="color:#25D366;"></i> <small style="color:var(--text-dim);">{{ message.delivered_at[11:16] }}</small>
+            {% else %}<i class="fas fa-minus" style="color:var(--text-dim);"></i>{% endif %}
           </td>
           <td>
-            {% if message.read_at %}<i class="fas fa-eye" style="color:#38bdf8;"></i> <small style="color:rgba(255,255,255,0.35);">{{ message.read_at[11:16] }}</small>
-            {% else %}<i class="fas fa-minus" style="color:rgba(255,255,255,0.2);"></i>{% endif %}
+            {% if message.read_at %}<i class="fas fa-eye" style="color:#2563EB;"></i> <small style="color:var(--text-dim);">{{ message.read_at[11:16] }}</small>
+            {% else %}<i class="fas fa-minus" style="color:var(--text-dim);"></i>{% endif %}
           </td>
           <td>
-            {% if message.replied_at %}<i class="fas fa-reply" style="color:#c4b5fd;"></i> <small style="color:rgba(255,255,255,0.35);">{{ message.replied_at[11:16] }}</small>
-            {% else %}<i class="fas fa-minus" style="color:rgba(255,255,255,0.2);"></i>{% endif %}
+            {% if message.replied_at %}<i class="fas fa-reply" style="color:#7C3AED;"></i> <small style="color:var(--text-dim);">{{ message.replied_at[11:16] }}</small>
+            {% else %}<i class="fas fa-minus" style="color:var(--text-dim);"></i>{% endif %}
           </td>
-          <td style="color:rgba(255,255,255,0.4);">{{ message.sent_at[11:16] if message.sent_at else '—' }}</td>
+          <td style="color:var(--text-muted);">{{ message.sent_at[11:16] if message.sent_at else '—' }}</td>
           <td>
             {% if message.replied_at %}
               <button class="btn btn-outline-primary" style="padding:0.2rem 0.6rem;font-size:0.72rem;"
@@ -243,12 +246,12 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div style="color:rgba(255,255,255,0.5);font-size:0.83rem;margin-bottom:0.875rem;">
-          Phone: <span id="modalPhone" style="color:#a5b4fc;font-family:monospace;"></span>
+        <div style="color:var(--text-muted);font-size:0.83rem;margin-bottom:0.875rem;">
+          Phone: <span id="modalPhone" style="color:var(--gold-dark);font-family:monospace;"></span>
         </div>
         <div class="reply-card">
-          <div style="font-size:0.75rem;color:rgba(255,255,255,0.4);margin-bottom:0.5rem;">Their Reply:</div>
-          <p id="modalReplyText" style="margin:0;color:#e2e8f0;"></p>
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.5rem;">Their Reply:</div>
+          <p id="modalReplyText" style="margin:0;color:var(--text);"></p>
         </div>
       </div>
       <div class="modal-footer">
@@ -270,8 +273,8 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div style="color:rgba(255,255,255,0.5);font-size:0.83rem;margin-bottom:0.875rem;">
-          Phone: <span id="quickPhone" style="color:#a5b4fc;font-family:monospace;"></span>
+        <div style="color:var(--text-muted);font-size:0.83rem;margin-bottom:0.875rem;">
+          Phone: <span id="quickPhone" style="color:var(--gold-dark);font-family:monospace;"></span>
         </div>
         <div class="mb-3">
           <label class="form-label">Your Message</label>

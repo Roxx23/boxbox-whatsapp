@@ -4,373 +4,644 @@
 
 {% block head %}
 <style>
-  /* Stat cards */
+  /* ── Page entrance ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Stat cards ── */
+  .stats-row > [class*="col"] { animation: fadeUp 0.4s cubic-bezier(0.4,0,0.2,1) both; }
+  .stats-row > [class*="col"]:nth-child(1) { animation-delay: 0.04s; }
+  .stats-row > [class*="col"]:nth-child(2) { animation-delay: 0.09s; }
+  .stats-row > [class*="col"]:nth-child(3) { animation-delay: 0.14s; }
+  .stats-row > [class*="col"]:nth-child(4) { animation-delay: 0.19s; }
+
   .stat-card {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 14px; padding: 1.25rem 1.5rem;
-    text-align: center; transition: all 0.2s; cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.125rem 1.25rem;
+    display: flex; align-items: center; gap: 1rem;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition:
+      box-shadow 0.2s cubic-bezier(0.4,0,0.2,1),
+      border-color 0.2s,
+      transform 0.2s cubic-bezier(0.4,0,0.2,1);
+    text-decoration: none; color: inherit;
   }
   .stat-card:hover {
-    background: rgba(255,255,255,0.08);
-    transform: translateY(-4px);
-    box-shadow: 0 10px 24px rgba(102,126,234,0.2);
-  }
-  .stat-card i { font-size: 2rem; margin-bottom: 0.6rem; background: linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-  .stat-card h3 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.3rem; }
-  .stat-card p  { color: rgba(255,255,255,0.45); margin: 0; font-size: 0.82rem; }
-
-  /* Main form card */
-  .main-card {
-    background: rgba(255,255,255,0.05);
-    backdrop-filter: blur(12px);
-    border-radius: 16px; border: 1px solid rgba(255,255,255,0.09);
-    padding: 2rem; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-    margin-bottom: 1.5rem;
+    border-color: rgba(37,211,102,0.22);
+    box-shadow: 0 6px 20px rgba(13,17,23,0.08), 0 2px 6px rgba(13,17,23,0.04);
+    transform: translateY(-2px);
+    color: inherit;
   }
 
-  /* Sections */
-  .section-divider { height: 1px; background: linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent); margin: 1.75rem 0; }
+  .stat-icon-bg {
+    width: 44px; height: 44px; border-radius: 11px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12), 0 0 0 1px rgba(255,255,255,0.2) inset;
+  }
+  .stat-card-text h3 {
+    font-family: var(--font-display);
+    font-size: 1.6rem; font-weight: 700; color: var(--text);
+    margin: 0 0 0.1rem; line-height: 1;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-card-text p {
+    color: var(--text-dim); margin: 0;
+    font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
 
-  .section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.3); margin-bottom: 0.75rem; }
+  /* ── Two-column layout ── */
+  .dashboard-layout {
+    display: grid; grid-template-columns: 1fr 316px; gap: 1.5rem; align-items: start;
+  }
+  @media (max-width: 992px) { .dashboard-layout { grid-template-columns: 1fr; } }
 
-  /* File upload */
+  /* ── Form card ── */
+  .form-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    animation: fadeUp 0.45s 0.15s cubic-bezier(0.4,0,0.2,1) both;
+  }
+  .form-card-section {
+    padding: 1.375rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .form-card-section:last-child { border-bottom: none; padding: 1.25rem 1.5rem; }
+
+  .form-section-header {
+    display: flex; align-items: center; gap: 0.7rem;
+    margin-bottom: 1.125rem;
+  }
+  .form-section-num {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--gold); color: #fff;
+    font-size: 0.62rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(37,211,102,0.4);
+  }
+  .form-section-title {
+    font-size: 0.68rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+
+  /* ── Option cards ── */
+  .option-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
+
+  .option-card {
+    position: relative; cursor: pointer;
+    border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
+    transition:
+      border-color 0.18s cubic-bezier(0.4,0,0.2,1),
+      box-shadow 0.18s cubic-bezier(0.4,0,0.2,1),
+      background 0.18s;
+    user-select: none;
+  }
+  .option-card:hover {
+    border-color: rgba(37,211,102,0.35);
+    background: rgba(37,211,102,0.015);
+    box-shadow: 0 2px 8px rgba(13,17,23,0.06);
+  }
+  .option-card.selected {
+    border-color: var(--gold);
+    background: rgba(37,211,102,0.025);
+    box-shadow: 0 0 0 3px rgba(37,211,102,0.1), var(--shadow-xs);
+  }
+  .option-card input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+
+  .option-card-icon {
+    width: 30px; height: 30px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; margin-bottom: 0.5rem;
+    background: var(--surface3); color: var(--text-dim);
+    transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  }
+  .option-card.selected .option-card-icon {
+    background: var(--gold); color: #fff;
+    box-shadow: 0 2px 8px rgba(37,211,102,0.38);
+  }
+  .option-card-title {
+    font-weight: 600; font-size: 0.82rem; color: var(--text);
+    margin-bottom: 0.15rem; line-height: 1.3;
+  }
+  .option-card-desc { font-size: 0.72rem; color: var(--text-dim); line-height: 1.45; }
+
+  .option-card-check {
+    position: absolute; top: 0.75rem; right: 0.75rem;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid var(--border); background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.18s cubic-bezier(0.4,0,0.2,1);
+    font-size: 0.45rem; color: transparent;
+  }
+  .option-card.selected .option-card-check {
+    background: var(--gold); border-color: var(--gold); color: #fff;
+    box-shadow: 0 1px 4px rgba(37,211,102,0.45);
+  }
+
+  /* ── Sub panel ── */
+  .option-sub-panel {
+    margin-top: 0.75rem; padding: 1rem;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 9px;
+  }
+
+  /* ── File upload ── */
   .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
   .file-upload-input  { position: absolute; left:0; top:0; opacity:0; cursor:pointer; width:100%; height:100%; }
   .file-upload-label  {
-    display: flex; align-items: center; justify-content: center; padding: 1.5rem;
-    background: rgba(102,126,234,0.06); border: 2px dashed rgba(102,126,234,0.3);
-    border-radius: 10px; cursor: pointer; transition: all 0.2s; gap: 0.75rem;
-    font-size: 0.9rem; color: rgba(255,255,255,0.55);
+    display: flex; align-items: center; justify-content: center; padding: 1.25rem 1.5rem;
+    background: rgba(37,211,102,0.025);
+    border: 1.5px dashed rgba(37,211,102,0.22);
+    border-radius: 9px; cursor: pointer; transition: all 0.18s; gap: 0.75rem;
+    font-size: 0.875rem; color: var(--text-muted);
   }
-  .file-upload-label:hover { background: rgba(102,126,234,0.12); border-color: #8b7cf8; color: #fff; }
-  .file-name { margin-top: 0.4rem; color: #34d399; font-size: 0.83rem; }
+  .file-upload-label:hover {
+    background: rgba(37,211,102,0.06);
+    border-color: var(--gold); color: var(--text);
+  }
+  .file-upload-label i { font-size: 1rem; color: var(--gold); }
+  .file-name { margin-top: 0.5rem; color: var(--success); font-size: 0.8rem; font-weight: 500; }
 
-  /* Radio group */
-  .radio-group { display: flex; gap: 1.5rem; flex-wrap: wrap; }
-  .radio-item  { display: flex; align-items: center; gap: 0.45rem; }
-  .radio-item label { margin: 0; cursor: pointer; font-size: 0.9rem; }
-
-  /* Param section */
+  /* ── Param section ── */
   .param-section {
-    background: rgba(102,126,234,0.07);
-    border: 1px solid rgba(102,126,234,0.18);
-    border-radius: 10px; padding: 1.25rem; margin-top: 0.875rem;
+    background: rgba(37,211,102,0.025);
+    border: 1px solid rgba(37,211,102,0.12);
+    border-radius: 9px; padding: 1.125rem; margin-top: 0.75rem;
   }
-  .param-header { color: #fcd34d; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.875rem; }
-  .param-item   { margin-bottom: 0.875rem; }
+  .param-header {
+    color: var(--gold-dark); font-weight: 600; font-size: 0.82rem;
+    margin-bottom: 0.875rem; display: flex; align-items: center; gap: 0.5rem;
+  }
+  .param-item { margin-bottom: 0.75rem; }
   .param-item:last-child { margin-bottom: 0; }
 
-  .info-badge    { background: rgba(16,185,129,0.1); color: #34d399; border: 1px solid rgba(16,185,129,0.25); padding: 0.4rem 0.875rem; border-radius: 8px; font-size: 0.83rem; display: inline-block; }
-  .warning-badge { background: rgba(251,191,36,0.1); color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); padding: 0.4rem 0.875rem; border-radius: 8px; font-size: 0.83rem; display: inline-block; }
+  .info-badge {
+    background: rgba(22,163,74,0.06); color: #15803D;
+    border: 1px solid rgba(22,163,74,0.14);
+    padding: 0.375rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.4rem;
+  }
+  .warning-badge {
+    background: rgba(245,158,11,0.06); color: #92400E;
+    border: 1px solid rgba(245,158,11,0.14);
+    padding: 0.375rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.4rem;
+  }
 
-  /* Submit button */
+  /* ── Schedule selector ── */
+  .schedule-options { display: flex; gap: 0.5rem; }
+  .schedule-option {
+    flex: 1; padding: 0.65rem 1rem;
+    border-radius: 9px; border: 1.5px solid var(--border);
+    background: var(--surface); cursor: pointer;
+    text-align: center; font-size: 0.83rem; font-weight: 500;
+    color: var(--text-muted); user-select: none;
+    display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+    box-shadow: var(--shadow-xs);
+    transition: all 0.18s cubic-bezier(0.4,0,0.2,1);
+  }
+  .schedule-option:hover {
+    border-color: rgba(37,211,102,0.35); color: var(--text);
+    background: rgba(37,211,102,0.01);
+  }
+  .schedule-option.selected {
+    border-color: var(--gold); color: var(--text); font-weight: 600;
+    background: rgba(37,211,102,0.03);
+    box-shadow: 0 0 0 3px rgba(37,211,102,0.1);
+  }
+  .schedule-option input[type="radio"] { display: none; }
+  .schedule-option i { font-size: 0.78rem; opacity: 0.65; transition: opacity 0.15s; }
+  .schedule-option.selected i { opacity: 1; color: var(--gold); }
+
+  /* ── THE CTA ── */
   .btn-submit {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border: none; border-radius: 10px; padding: 0.9rem 2rem;
-    font-size: 1rem; font-weight: 600; color: #fff; width: 100%;
-    margin-top: 1.5rem; box-shadow: 0 4px 14px rgba(102,126,234,0.35);
-    transition: all 0.2s;
+    background: linear-gradient(180deg, #2FD96B 0%, #25D366 55%, #1DBF5A 100%);
+    border: none; border-radius: 11px;
+    padding: 0.95rem 2rem;
+    font-size: 0.925rem; font-weight: 700;
+    font-family: var(--font-display);
+    color: #fff; width: 100%;
+    letter-spacing: 0.01em; cursor: pointer;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.18) inset,
+      0 -1px 0 rgba(0,0,0,0.1) inset,
+      0 4px 14px rgba(37,211,102,0.38),
+      0 1px 4px rgba(37,211,102,0.2);
+    transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    display: flex; align-items: center; justify-content: center; gap: 0.6rem;
   }
-  .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102,126,234,0.5); }
-
-  /* Jobs + queue cards */
-  .monitor-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 14px; padding: 1.5rem; margin-bottom: 1.25rem;
+  .btn-submit:hover {
+    background: linear-gradient(180deg, #34E071 0%, #28D96A 55%, #21C55E 100%);
+    transform: translateY(-1.5px);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.2) inset,
+      0 -1px 0 rgba(0,0,0,0.12) inset,
+      0 8px 24px rgba(37,211,102,0.45),
+      0 2px 8px rgba(37,211,102,0.25);
+    color: #fff;
   }
-  .monitor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
-  .monitor-title  { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 0.6rem; color: #e2e8f0; }
-  .monitor-count  { background: rgba(251,191,36,0.18); color: #fcd34d; padding: 0.2rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+  .btn-submit:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.12) inset, 0 2px 8px rgba(37,211,102,0.2);
+  }
+  .btn-submit-arrow {
+    opacity: 0.8; transition: transform 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.2s;
+    font-size: 0.85rem;
+  }
+  .btn-submit:hover .btn-submit-arrow { transform: translateX(4px); opacity: 1; }
 
+  /* ── Right side panel ── */
+  .side-col { animation: fadeUp 0.45s 0.22s cubic-bezier(0.4,0,0.2,1) both; }
+
+  .side-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; margin-bottom: 1rem;
+    box-shadow: var(--shadow-sm); overflow: hidden;
+  }
+  .side-card-header {
+    padding: 0.875rem 1.125rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .side-card-title {
+    font-weight: 700; font-size: 0.68rem; color: var(--text-muted);
+    display: flex; align-items: center; gap: 0.5rem;
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .side-card-title i { color: var(--gold); font-size: 0.7rem; opacity: 0.9; }
+  .side-card-count {
+    background: rgba(37,211,102,0.1); color: var(--gold-dark);
+    padding: 0.1rem 0.5rem; border-radius: 20px;
+    font-size: 0.68rem; font-weight: 700;
+    border: 1px solid rgba(37,211,102,0.15);
+    margin-left: 0.35rem;
+  }
+  .side-card-body { padding: 0.75rem; }
+
+  /* ── Job items ── */
   .job-item {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 10px; padding: 1rem 1.25rem;
-    margin-bottom: 0.75rem; display: grid;
-    grid-template-columns: 48px 1fr auto; gap: 1rem; align-items: center;
-    transition: all 0.2s;
+    display: grid; grid-template-columns: 30px 1fr auto;
+    gap: 0.625rem; align-items: start;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 0.35rem;
+    background: var(--surface2);
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
-  .job-item:hover { background: rgba(255,255,255,0.07); transform: translateX(3px); }
-
-  .job-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+  .job-item:last-child { margin-bottom: 0; }
+  .job-item:hover {
+    border-color: rgba(37,211,102,0.2);
+    box-shadow: 0 1px 4px rgba(13,17,23,0.05);
+  }
+  .job-icon {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; flex-shrink: 0; margin-top: 1px;
+  }
   .status-pending  { background: linear-gradient(135deg, #f093fb, #f5576c); }
   .status-waiting  { background: linear-gradient(135deg, #4facfe, #00f2fe); animation: pulse 2s infinite; }
-  .status-sending  { background: linear-gradient(135deg, #43e97b, #38f9d7); animation: pulse 1.5s infinite; }
-  .status-completed{ background: linear-gradient(135deg, #10b981, #34d399); }
+  .status-sending  { background: linear-gradient(135deg, #25D366, #128C7E); animation: pulse 1.5s infinite; }
+  .status-completed{ background: linear-gradient(135deg, #16A34A, #22C55E); }
   .status-failed   { background: linear-gradient(135deg, #ef4444, #f97316); }
-  .status-cancelled{ background: rgba(255,255,255,0.1); }
+  .status-cancelled{ background: rgba(13,17,23,0.08); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.58} }
 
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+  .job-info strong {
+    display: block; color: var(--text); font-size: 0.78rem;
+    font-weight: 600; margin-bottom: 0.22rem; line-height: 1.3;
+  }
+  .job-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; font-size: 0.68rem; color: var(--text-dim); }
+  .job-meta span { display: flex; align-items: center; gap: 0.2rem; }
 
-  .job-info strong { display: block; color: #e2e8f0; font-size: 0.9rem; margin-bottom: 0.4rem; }
-  .job-meta { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.78rem; color: rgba(255,255,255,0.4); }
-  .job-meta span { display: flex; align-items: center; gap: 0.25rem; }
-
-  .status-badge { padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; display: inline-block; margin-bottom: 0.3rem; }
-  .badge-pending  { background:#f093fb; color:white; }
-  .badge-waiting  { background:#4facfe; color:white; }
-  .badge-sending  { background:#43e97b; color:white; }
-  .badge-completed{ background:#10b981; color:white; }
-  .badge-failed   { background:#ef4444; color:white; }
-  .badge-cancelled{ background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.7); }
+  .status-badge {
+    padding: 0.13rem 0.48rem; border-radius: 20px;
+    font-size: 0.58rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    display: inline-block; margin-bottom: 0.18rem;
+  }
+  .badge-pending  { background: rgba(192,38,211,0.1); color: #9D174D; }
+  .badge-waiting  { background: rgba(2,132,199,0.1);  color: #0369A1; }
+  .badge-sending  { background: rgba(37,211,102,0.1); color: var(--gold-dark); }
+  .badge-completed{ background: rgba(22,163,74,0.1);  color: #15803D; }
+  .badge-failed   { background: rgba(239,68,68,0.1);  color: #DC2626; }
+  .badge-cancelled{ background: rgba(13,17,23,0.06);  color: var(--text-dim); }
 
   .btn-cancel {
-    background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3);
-    border-radius: 8px; padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600;
-    color: #f87171; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+    background: transparent; border: 1px solid rgba(239,68,68,0.18);
+    border-radius: 6px; padding: 0.22rem 0.55rem;
+    font-size: 0.68rem; font-weight: 600;
+    color: #DC2626; cursor: pointer; transition: all 0.15s; white-space: nowrap;
   }
-  .btn-cancel:hover:not(:disabled) { background: rgba(239,68,68,0.25); border-color: rgba(239,68,68,0.5); }
-  .btn-cancel:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-cancel:hover:not(:disabled) { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.3); }
+  .btn-cancel:disabled { opacity: 0.28; cursor: not-allowed; }
 
-  .no-jobs { text-align: center; color: rgba(255,255,255,0.3); padding: 2rem; }
-  .loading-jobs { text-align: center; color: rgba(255,255,255,0.3); padding: 1.5rem; font-size: 0.875rem; }
+  .no-jobs { text-align: center; color: var(--text-dim); padding: 1.5rem 1rem; font-size: 0.78rem; }
+  .loading-jobs { text-align: center; color: var(--text-muted); padding: 1.125rem; font-size: 0.78rem; }
 
-  #param_box { animation: fadeIn 0.3s ease; }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  /* ── Queue tiles ── */
+  .queue-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.375rem; }
+  .queue-tile { padding: 0.6rem 0.7rem; border-radius: 8px; text-align: center; border: 1px solid transparent; }
+  .queue-tile-label { font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .queue-tile-val   { font-size: 1.15rem; font-weight: 700; font-family: var(--font-display); letter-spacing: -0.03em; }
+  .queue-eta { margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 0.4rem 0.75rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; }
 
-  @media (max-width: 640px) {
-    .job-item { grid-template-columns: 1fr; text-align: center; }
-    .job-meta { justify-content: center; }
-  }
+  #param_box { animation: fadeUp 0.25s ease; }
 </style>
 {% endblock %}
 
 {% block content %}
-<!-- Stats row -->
-<div class="row g-3 mb-4">
+
+<!-- Stats -->
+<div class="row g-3 stats-row" style="margin-bottom: 1.5rem;">
   <div class="col-6 col-md-3">
-    <div class="stat-card" onclick="location.href='{{ url_for('analytics_dashboard') }}'">
-      <i class="fas fa-chart-line"></i>
-      <h3 id="totalCampaigns">—</h3>
-      <p>Campaigns</p>
-    </div>
+    <a class="stat-card" href="{{ url_for('analytics_dashboard') }}">
+      <div class="stat-icon-bg" style="background: linear-gradient(135deg, #25D366, #128C7E); box-shadow: 0 3px 10px rgba(37,211,102,0.3);">
+        <i class="fas fa-bullhorn"></i>
+      </div>
+      <div class="stat-card-text">
+        <h3 id="totalCampaigns">—</h3>
+        <p>Campaigns</p>
+      </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="stat-card" onclick="location.href='{{ url_for('analytics_dashboard') }}'">
-      <i class="fas fa-envelope"></i>
-      <h3 id="totalMessages">—</h3>
-      <p>Messages Sent</p>
-    </div>
+    <a class="stat-card" href="{{ url_for('analytics_dashboard') }}">
+      <div class="stat-icon-bg" style="background: linear-gradient(135deg, #3B82F6, #1D4ED8); box-shadow: 0 3px 10px rgba(59,130,246,0.3);">
+        <i class="fas fa-paper-plane"></i>
+      </div>
+      <div class="stat-card-text">
+        <h3 id="totalMessages">—</h3>
+        <p>Messages Sent</p>
+      </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="stat-card" onclick="location.href='{{ url_for('campaigns_page') }}'">
-      <i class="fas fa-rocket"></i>
-      <h3 id="activeCampaigns">—</h3>
-      <p>Active</p>
-    </div>
+    <a class="stat-card" href="{{ url_for('campaigns_page') }}">
+      <div class="stat-icon-bg" style="background: linear-gradient(135deg, #F59E0B, #D97706); box-shadow: 0 3px 10px rgba(245,158,11,0.3);">
+        <i class="fas fa-bolt"></i>
+      </div>
+      <div class="stat-card-text">
+        <h3 id="activeCampaigns">—</h3>
+        <p>Active</p>
+      </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="stat-card" onclick="location.href='{{ url_for('analytics_dashboard') }}'">
-      <i class="fas fa-check-circle"></i>
-      <h3 id="successRate">—</h3>
-      <p>Success Rate</p>
-    </div>
+    <a class="stat-card" href="{{ url_for('analytics_dashboard') }}">
+      <div class="stat-icon-bg" style="background: linear-gradient(135deg, #10B981, #059669); box-shadow: 0 3px 10px rgba(16,185,129,0.3);">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="stat-card-text">
+        <h3 id="successRate">—</h3>
+        <p>Success Rate</p>
+      </div>
+    </a>
   </div>
 </div>
 
-<!-- Queue Monitor (hidden until send) -->
-<div class="monitor-card" id="queueMonitorSection" style="display:none;">
-  <div class="monitor-header">
-    <div class="monitor-title">
-      <i class="fas fa-stream" style="color:#a5b4fc;"></i> Queue Monitor
-      <span class="monitor-count" id="queueCount">0</span>
-    </div>
-    <button class="btn btn-outline-secondary btn-sm" onclick="loadQueueStatus()">
-      <i class="fas fa-sync me-1"></i>Refresh
-    </button>
-  </div>
-  <div id="queueStatus"><div class="loading-jobs">Loading queue…</div></div>
-</div>
+<!-- Two-column layout -->
+<div class="dashboard-layout">
 
-<!-- Automation quick actions -->
-<div class="monitor-card">
-  <div class="monitor-header">
-    <div class="monitor-title"><i class="fas fa-bolt" style="color:#fcd34d;"></i> Automation</div>
-  </div>
-  <div class="row g-3">
-    <div class="col-md-6">
-      <button class="btn btn-primary w-100" onclick="sendCartReminders()" style="padding:0.875rem;text-align:left;">
-        <i class="fas fa-shopping-cart me-2"></i><strong>Send Cart Reminders</strong>
-        <small class="d-block mt-1" style="opacity:0.7;font-weight:400;">Remind customers of abandoned carts</small>
-      </button>
-    </div>
-    <div class="col-md-6">
-      <button class="btn btn-success w-100" onclick="sendOrderConfirmations()" style="padding:0.875rem;text-align:left;">
-        <i class="fas fa-check-circle me-2"></i><strong>Send Order Confirmations</strong>
-        <small class="d-block mt-1" style="opacity:0.7;font-weight:400;">Confirm recent orders</small>
-      </button>
-    </div>
-  </div>
-</div>
+  <!-- ── LEFT: Send form ── -->
+  <div>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="flash-alert mb-3">{% for m in messages %}<div>{{ m }}</div>{% endfor %}</div>
+      {% endif %}
+    {% endwith %}
 
-<!-- Scheduled jobs -->
-<div class="monitor-card" id="scheduledJobsSection">
-  <div class="monitor-header">
-    <div class="monitor-title">
-      <i class="fas fa-calendar-alt" style="color:#a5b4fc;"></i> Scheduled Jobs
-      <span class="monitor-count" id="jobsCount">0</span>
-    </div>
-    <button class="btn btn-outline-secondary btn-sm" onclick="loadScheduledJobs()">
-      <i class="fas fa-sync me-1"></i>Refresh
-    </button>
-  </div>
-  <div id="jobsList"><div class="loading-jobs">Loading jobs…</div></div>
-</div>
+    <form method="POST" enctype="multipart/form-data">
+      <div class="form-card">
 
-<!-- Send form -->
-<div class="main-card">
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      <div class="flash-alert mb-3">
-        {% for m in messages %}<div>{{ m }}</div>{% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+        <!-- ① Campaign -->
+        <div class="form-card-section">
+          <div class="form-section-header">
+            <div class="form-section-num">1</div>
+            <div class="form-section-title">Campaign</div>
+          </div>
 
-  <form method="POST" enctype="multipart/form-data">
-    <!-- Campaign selector -->
-    <div class="mb-4">
-      <div class="section-label">Campaign</div>
-      <div class="btn-group w-100 mb-3" role="group">
-        <input type="radio" class="btn-check" name="campaign_mode" id="campaign_new" value="new" checked autocomplete="off" onchange="toggleCampaignMode()">
-        <label class="btn btn-outline-primary" for="campaign_new"><i class="fas fa-plus me-1"></i> New Campaign</label>
-        <input type="radio" class="btn-check" name="campaign_mode" id="campaign_existing" value="existing" autocomplete="off" onchange="toggleCampaignMode()">
-        <label class="btn btn-outline-primary" for="campaign_existing"><i class="fas fa-folder-open me-1"></i> Add to Existing</label>
-      </div>
+          <div class="option-cards mb-3">
+            <label class="option-card selected" id="card_campaign_new" onclick="selectCampaignMode('new')">
+              <input type="radio" name="campaign_mode" value="new" checked>
+              <div class="option-card-icon"><i class="fas fa-plus"></i></div>
+              <div class="option-card-title">New Campaign</div>
+              <div class="option-card-desc">Create a fresh campaign</div>
+              <div class="option-card-check"><i class="fas fa-check"></i></div>
+            </label>
+            <label class="option-card" id="card_campaign_existing" onclick="selectCampaignMode('existing')">
+              <input type="radio" name="campaign_mode" value="existing">
+              <div class="option-card-icon"><i class="fas fa-folder-open"></i></div>
+              <div class="option-card-title">Add to Existing</div>
+              <div class="option-card-desc">Append to a prior campaign</div>
+              <div class="option-card-check"><i class="fas fa-check"></i></div>
+            </label>
+          </div>
 
-      <div id="campaign_new_section">
-        <input type="text" name="campaign_name_new" id="campaign_name_new" class="form-control"
-               placeholder="e.g. Diwali Sale, Re-engagement June" maxlength="100">
-        <div class="form-text">Leave blank to auto-name with timestamp.</div>
-      </div>
+          <div id="campaign_new_section">
+            <input type="text" name="campaign_name_new" id="campaign_name_new" class="form-control"
+                   placeholder="e.g. Diwali Sale, Re-engagement June" maxlength="100">
+            <div class="form-text">Leave blank to auto-name with timestamp.</div>
+          </div>
 
-      <div id="campaign_existing_section" style="display:none;">
-        {% if recent_campaigns %}
-        <select name="campaign_id_existing" id="campaign_id_existing" class="form-select">
-          <option value="">— Pick a campaign —</option>
-          {% for c in recent_campaigns %}
-          <option value="{{ c.id }}">
-            {{ c.campaign_name }}
-            &nbsp;·&nbsp;{{ c.status }}
-            &nbsp;·&nbsp;{{ c.recipient_count }} recipients
-            {% if c.template_name %}&nbsp;·&nbsp;{{ c.template_name }}{% endif %}
-          </option>
-          {% endfor %}
-        </select>
-        <div class="form-text">New messages will be added into the selected campaign.</div>
-        {% else %}
-        <div class="warning-badge"><i class="fas fa-info-circle me-1"></i>No campaigns yet — create your first one above.</div>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="section-divider"></div>
-
-    <!-- Source selector -->
-    <div class="mb-4">
-      <div class="section-label">Recipient Source</div>
-      <div class="btn-group w-100" role="group">
-        <input type="radio" class="btn-check" name="source_type" id="source_csv" value="csv" checked autocomplete="off" onchange="toggleSource()">
-        <label class="btn btn-outline-primary" for="source_csv"><i class="fas fa-table me-1"></i> Upload CSV</label>
-
-        <input type="radio" class="btn-check" name="source_type" id="source_customers" value="customers" autocomplete="off" onchange="toggleSource()">
-        <label class="btn btn-outline-primary" for="source_customers"><i class="fas fa-users me-1"></i> Select Customers</label>
-      </div>
-    </div>
-
-    <!-- CSV upload -->
-    <div class="mb-4" id="csv_section">
-      <label class="form-label">CSV File</label>
-      <div class="file-upload-wrapper">
-        <input type="file" name="csv_file" id="csv_file" class="file-upload-input" accept=".csv">
-        <div class="file-upload-label">
-          <i class="fas fa-upload"></i>
-          <span id="file-text">Click to upload or drag and drop a .csv file</span>
+          <div id="campaign_existing_section" style="display:none;">
+            {% if recent_campaigns %}
+            <select name="campaign_id_existing" id="campaign_id_existing" class="form-select">
+              <option value="">— Pick a campaign —</option>
+              {% for c in recent_campaigns %}
+              <option value="{{ c.id }}">{{ c.campaign_name }} · {{ c.status }} · {{ c.recipient_count }} recipients{% if c.template_name %} · {{ c.template_name }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">New messages will be added into the selected campaign.</div>
+            {% else %}
+            <div class="warning-badge"><i class="fas fa-info-circle"></i> No campaigns yet — create your first one above.</div>
+            {% endif %}
+          </div>
         </div>
-      </div>
-      <div id="file-name-display" class="file-name"></div>
-    </div>
 
-    <!-- Customer selection -->
-    <div class="mb-4" id="customer_section" style="display:none;">
-      <label class="form-label">Customers</label>
-      <div class="alert alert-info d-flex justify-content-between align-items-center">
-        <span id="customer_count">0 customers selected</span>
-        <button type="button" class="btn btn-primary btn-sm" onclick="saveCampaignState(); location.href='{{ url_for('customers_page') }}'">
-          <i class="fas fa-users me-1"></i>Select
+        <!-- ② Recipients -->
+        <div class="form-card-section">
+          <div class="form-section-header">
+            <div class="form-section-num">2</div>
+            <div class="form-section-title">Recipients</div>
+          </div>
+
+          <div class="option-cards mb-3">
+            <label class="option-card selected" id="card_source_csv" onclick="selectSource('csv')">
+              <input type="radio" name="source_type" id="source_csv" value="csv" checked>
+              <div class="option-card-icon"><i class="fas fa-file-csv"></i></div>
+              <div class="option-card-title">Upload CSV</div>
+              <div class="option-card-desc">Import from a spreadsheet file</div>
+              <div class="option-card-check"><i class="fas fa-check"></i></div>
+            </label>
+            <label class="option-card" id="card_source_customers" onclick="selectSource('customers')">
+              <input type="radio" name="source_type" id="source_customers" value="customers">
+              <div class="option-card-icon"><i class="fas fa-users"></i></div>
+              <div class="option-card-title">Customer List</div>
+              <div class="option-card-desc">Pick from your Shopify customers</div>
+              <div class="option-card-check"><i class="fas fa-check"></i></div>
+            </label>
+          </div>
+
+          <div id="csv_section">
+            <div class="file-upload-wrapper">
+              <input type="file" name="csv_file" id="csv_file" class="file-upload-input" accept=".csv">
+              <div class="file-upload-label">
+                <i class="fas fa-upload"></i>
+                <span id="file-text">Click to upload or drag a .csv file here</span>
+              </div>
+            </div>
+            <div id="file-name-display" class="file-name"></div>
+          </div>
+
+          <div id="customer_section" style="display:none;">
+            <div class="alert alert-info d-flex justify-content-between align-items-center mb-0">
+              <span id="customer_count" style="font-weight:500;">0 customers selected</span>
+              <button type="button" class="btn btn-primary btn-sm"
+                      onclick="saveCampaignState(); location.href='{{ url_for('customers_page') }}'">
+                <i class="fas fa-arrow-right me-1"></i>Browse
+              </button>
+            </div>
+            <input type="hidden" name="selected_customers" id="selected_customers">
+          </div>
+        </div>
+
+        <!-- ③ Message -->
+        <div class="form-card-section">
+          <div class="form-section-header">
+            <div class="form-section-num">3</div>
+            <div class="form-section-title">Message</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">WhatsApp Template</label>
+            <select name="template_name" id="template_name" class="form-select">
+              <option value="none">— No Template (Use Custom Message) —</option>
+              {% for t in templates %}
+                <option value="{{ t.name }}">{{ t.name }} ({{ t.category }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">
+              Header Image
+              <span style="color:var(--text-dim);font-weight:400;"> — for IMAGE header templates</span>
+            </label>
+            <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*">
+            <div class="form-text">Same image sent to all recipients in this run</div>
+          </div>
+
+          <div id="template_requirements" style="display:none; margin-bottom:0.875rem;"></div>
+          <div id="param_box"></div>
+
+          <div>
+            <label class="form-label">
+              Custom Message
+              <span style="color:var(--text-dim);font-weight:400;"> — only if no template selected</span>
+            </label>
+            <textarea class="form-control" name="message_template" id="msg_box"
+                      placeholder="Enter your message… Use {Name}, {Phone} to personalise"
+                      style="min-height:88px;"></textarea>
+          </div>
+        </div>
+
+        <!-- ④ Schedule -->
+        <div class="form-card-section">
+          <div class="form-section-header">
+            <div class="form-section-num">4</div>
+            <div class="form-section-title">Schedule</div>
+          </div>
+
+          <div class="schedule-options mb-3">
+            <label class="schedule-option selected" id="sched_now_label" onclick="selectSchedule('now')">
+              <input type="radio" name="send_mode" id="send_now" value="now" checked>
+              <i class="fas fa-paper-plane"></i> Send Now
+            </label>
+            <label class="schedule-option" id="sched_later_label" onclick="selectSchedule('later')">
+              <input type="radio" name="send_mode" id="send_later" value="later">
+              <i class="fas fa-clock"></i> Schedule Later
+            </label>
+          </div>
+
+          <div id="scheduleFields" style="display:none;">
+            <div class="row g-2 mb-2">
+              <div class="col-6">
+                <label class="form-label">Date</label>
+                <input type="date" name="schedule_date" id="schedule_date" class="form-control" min="{{ current_date }}">
+              </div>
+              <div class="col-6">
+                <label class="form-label">Time</label>
+                <input type="time" name="schedule_time" id="schedule_time" class="form-control">
+              </div>
+            </div>
+            <div class="form-text" style="color:#92400E;">
+              <i class="fas fa-info-circle me-1"></i>Runs even when you're logged out.
+            </div>
+          </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="form-card-section">
+          <button type="submit" class="btn-submit" onclick="showQueueMonitor()">
+            <span>Send Campaign</span>
+            <span class="btn-submit-arrow"><i class="fas fa-arrow-right"></i></span>
+          </button>
+        </div>
+
+      </div><!-- /form-card -->
+    </form>
+  </div>
+
+  <!-- ── RIGHT: Monitor + Jobs ── -->
+  <div class="side-col">
+
+    <!-- Queue monitor (hidden until send) -->
+    <div class="side-card" id="queueMonitorSection" style="display:none;">
+      <div class="side-card-header">
+        <div class="side-card-title">
+          <i class="fas fa-stream"></i> Queue
+          <span class="side-card-count" id="queueCount">0</span>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="loadQueueStatus()" style="font-size:0.72rem;padding:0.2rem 0.55rem;">
+          <i class="fas fa-sync"></i>
         </button>
       </div>
-      <input type="hidden" name="selected_customers" id="selected_customers">
-    </div>
-
-    <div class="section-divider"></div>
-
-    <!-- Template -->
-    <div class="mb-4">
-      <label class="form-label">WhatsApp Template</label>
-      <select name="template_name" id="template_name" class="form-select">
-        <option value="none">— No Template (Use Custom Message) —</option>
-        {% for t in templates %}
-          <option value="{{ t.name }}">{{ t.name }} ({{ t.category }})</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <!-- Header image upload -->
-    <div class="mb-4">
-      <label class="form-label">Header Image <span style="color:rgba(255,255,255,0.35);font-weight:400;">(for IMAGE header templates)</span></label>
-      <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*">
-      <div class="form-text">Same image sent to all recipients in this run</div>
-    </div>
-
-    <div id="template_requirements" style="display:none; margin-bottom:1rem;"></div>
-    <div id="param_box"></div>
-
-    <!-- Custom message -->
-    <div class="mb-4">
-      <label class="form-label">Custom Message <span style="color:rgba(255,255,255,0.35);font-weight:400;">(only used if no template selected)</span></label>
-      <textarea class="form-control" name="message_template" id="msg_box"
-                placeholder="Enter your message… Use {Name}, {Phone} to personalise"></textarea>
-    </div>
-
-    <div class="section-divider"></div>
-
-    <!-- Schedule -->
-    <div class="mb-4">
-      <div class="section-label">Sending Schedule</div>
-      <div class="radio-group">
-        <div class="radio-item">
-          <input type="radio" name="send_mode" id="send_now" value="now" checked onchange="toggleScheduleFields()">
-          <label for="send_now">Send Now</label>
-        </div>
-        <div class="radio-item">
-          <input type="radio" name="send_mode" id="send_later" value="later" onchange="toggleScheduleFields()">
-          <label for="send_later">Schedule Later</label>
-        </div>
+      <div class="side-card-body">
+        <div id="queueStatus"><div class="loading-jobs">Loading…</div></div>
       </div>
     </div>
 
-    <div class="mb-4" id="scheduleFields" style="display:none;">
-      <label class="form-label">Date & Time</label>
-      <div class="row g-3">
-        <div class="col-md-6">
-          <input type="date" name="schedule_date" id="schedule_date" class="form-control" min="{{ current_date }}">
+    <!-- Scheduled jobs -->
+    <div class="side-card" id="scheduledJobsSection">
+      <div class="side-card-header">
+        <div class="side-card-title">
+          <i class="fas fa-calendar-alt"></i> Scheduled Jobs
+          <span class="side-card-count" id="jobsCount">0</span>
         </div>
-        <div class="col-md-6">
-          <input type="time" name="schedule_time" id="schedule_time" class="form-control">
-        </div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="loadScheduledJobs()" style="font-size:0.72rem;padding:0.2rem 0.55rem;">
+          <i class="fas fa-sync"></i>
+        </button>
       </div>
-      <div class="form-text mt-2" style="color:#fcd34d;">
-        <i class="fas fa-info-circle me-1"></i>Scheduled messages run even when you're logged out.
+      <div class="side-card-body">
+        <div id="jobsList"><div class="loading-jobs">Loading…</div></div>
       </div>
     </div>
 
-    <button type="submit" class="btn-submit" onclick="showQueueMonitor()">
-      <i class="fas fa-paper-plane me-2"></i>Start Sending Messages
-    </button>
-  </form>
+  </div>
 </div>
 {% endblock %}
 
@@ -379,28 +650,23 @@
 let csvColumns = [];
 
 window.addEventListener('DOMContentLoaded', function() {
-  // Restore customer selection (set by customers page before navigating back)
   const sel = sessionStorage.getItem('selectedCustomers');
   if (sel) {
     const customers = JSON.parse(sel);
-    document.getElementById('source_customers').checked = true;
-    toggleSource();
+    selectSource('customers');
     updateCustomerSelection(customers);
     sessionStorage.removeItem('selectedCustomers');
   }
 
-  // Restore campaign selection saved before navigating to customers page
   const savedCampaign = sessionStorage.getItem('savedCampaignState');
   if (savedCampaign) {
     const state = JSON.parse(savedCampaign);
     if (state.mode === 'existing') {
-      document.getElementById('campaign_existing').checked = true;
-      toggleCampaignMode();
+      selectCampaignMode('existing');
       const select = document.getElementById('campaign_id_existing');
       if (select) select.value = state.campaign_id || '';
     } else {
-      document.getElementById('campaign_new').checked = true;
-      toggleCampaignMode();
+      selectCampaignMode('new');
       document.getElementById('campaign_name_new').value = state.campaign_name || '';
     }
     sessionStorage.removeItem('savedCampaignState');
@@ -413,37 +679,49 @@ window.addEventListener('DOMContentLoaded', function() {
   setInterval(loadQueueStatus, 3000);
 });
 
-function toggleCampaignMode() {
-  const isNew = document.getElementById('campaign_new').checked;
+function selectCampaignMode(mode) {
+  const isNew = mode === 'new';
+  document.getElementById('card_campaign_new').classList.toggle('selected', isNew);
+  document.getElementById('card_campaign_existing').classList.toggle('selected', !isNew);
+  document.querySelector('input[name="campaign_mode"][value="new"]').checked = isNew;
+  document.querySelector('input[name="campaign_mode"][value="existing"]').checked = !isNew;
   document.getElementById('campaign_new_section').style.display = isNew ? 'block' : 'none';
   document.getElementById('campaign_existing_section').style.display = isNew ? 'none' : 'block';
 }
 
-function saveCampaignState() {
-  const isNew = document.getElementById('campaign_new').checked;
-  const state = isNew
-    ? { mode: 'new', campaign_name: document.getElementById('campaign_name_new').value }
-    : { mode: 'existing', campaign_id: document.getElementById('campaign_id_existing').value };
-  sessionStorage.setItem('savedCampaignState', JSON.stringify(state));
+function selectSource(type) {
+  const isCsv = type === 'csv';
+  document.getElementById('card_source_csv').classList.toggle('selected', isCsv);
+  document.getElementById('card_source_customers').classList.toggle('selected', !isCsv);
+  document.getElementById('source_csv').checked = isCsv;
+  document.getElementById('source_customers').checked = !isCsv;
+  document.getElementById('csv_section').style.display = isCsv ? 'block' : 'none';
+  document.getElementById('customer_section').style.display = isCsv ? 'none' : 'block';
+  document.getElementById('csv_file').required = isCsv;
 }
 
-function toggleSource() {
-  const csv = document.querySelector('input[name="source_type"]:checked').value === 'csv';
-  document.getElementById('csv_section').style.display = csv ? 'block' : 'none';
-  document.getElementById('customer_section').style.display = csv ? 'none' : 'block';
-  document.getElementById('csv_file').required = csv;
+function selectSchedule(mode) {
+  const isNow = mode === 'now';
+  document.getElementById('sched_now_label').classList.toggle('selected', isNow);
+  document.getElementById('sched_later_label').classList.toggle('selected', !isNow);
+  document.getElementById('send_now').checked = isNow;
+  document.getElementById('send_later').checked = !isNow;
+  document.getElementById('scheduleFields').style.display = isNow ? 'none' : 'block';
+  if (!isNow) document.getElementById('schedule_date').min = new Date().toISOString().split('T')[0];
+}
+
+function saveCampaignState() {
+  const isNew = document.getElementById('card_campaign_new').classList.contains('selected');
+  const state = isNew
+    ? { mode: 'new', campaign_name: document.getElementById('campaign_name_new').value }
+    : { mode: 'existing', campaign_id: document.getElementById('campaign_id_existing')?.value };
+  sessionStorage.setItem('savedCampaignState', JSON.stringify(state));
 }
 
 function updateCustomerSelection(customers) {
   document.getElementById('customer_count').textContent = customers.length + ' customers selected';
   document.getElementById('selected_customers').value = JSON.stringify(customers);
   csvColumns = ['Name', 'Phone'];
-}
-
-function toggleScheduleFields() {
-  const show = document.getElementById('send_later').checked;
-  document.getElementById('scheduleFields').style.display = show ? 'block' : 'none';
-  if (show) document.getElementById('schedule_date').min = new Date().toISOString().split('T')[0];
 }
 
 function showQueueMonitor() {
@@ -457,7 +735,7 @@ document.getElementById('csv_file').addEventListener('change', function(e) {
   const file = e.target.files[0];
   if (!file) return;
   document.getElementById('file-text').textContent = file.name;
-  document.getElementById('file-name-display').textContent = '✅ ' + file.name;
+  document.getElementById('file-name-display').textContent = '✓ ' + file.name;
   const fd = new FormData();
   fd.append('csv_file', file);
   fetch('/get-csv-columns', { method: 'POST', body: fd })
@@ -480,7 +758,7 @@ document.getElementById('template_name').addEventListener('change', function() {
   if (selected === 'none') { paramBox.innerHTML = ''; reqBox.style.display = 'none'; return; }
 
   if (!csvColumns.length) {
-    paramBox.innerHTML = '<div class="warning-badge">⚠️ Upload a CSV file first to map parameters</div>';
+    paramBox.innerHTML = '<div class="warning-badge"><i class="fas fa-exclamation-triangle"></i>Upload a CSV file first to map parameters</div>';
     reqBox.style.display = 'none';
     return;
   }
@@ -491,12 +769,12 @@ document.getElementById('template_name').addEventListener('change', function() {
       let html = '', req = '';
       const templates = {{ templates | tojson }};
       const tObj = templates.find(t => t.name === selected);
-      let hasImg = tObj?.components?.some(c => c.type === 'HEADER' && c.format === 'IMAGE');
+      let hasImg  = tObj?.components?.some(c => c.type === 'HEADER' && c.format === 'IMAGE');
       let hasBtns = data.buttons?.length > 0;
 
       if (hasImg || hasBtns) {
-        req = '<div class="alert alert-info" style="font-size:0.83rem;"><strong>Template Requirements:</strong><ul class="mb-0 mt-1" style="padding-left:1.25rem;">';
-        if (hasImg)  req += '<li>IMAGE Header: upload an image above</li>';
+        req = '<div class="alert alert-info" style="font-size:0.82rem;"><strong>Template Requirements:</strong><ul class="mb-0 mt-1" style="padding-left:1.25rem;">';
+        if (hasImg) req += '<li>IMAGE Header: upload an image above</li>';
         if (hasBtns && data.buttons.find(b => b.type === 'COPY_CODE')) req += '<li>Copy Code Button: enter coupon below</li>';
         if (hasBtns && data.buttons.find(b => b.type === 'URL' && b.requires)) req += '<li>Dynamic URL Button: map a CSV column below</li>';
         req += '</ul></div>';
@@ -504,9 +782,9 @@ document.getElementById('template_name').addEventListener('change', function() {
       } else { reqBox.style.display = 'none'; }
 
       if (data.count > 0) {
-        html += '<div class="param-section"><div class="param-header"><i class="fas fa-link me-1"></i>Map Template Variables to CSV Columns</div>';
+        html += '<div class="param-section"><div class="param-header"><i class="fas fa-link"></i>Map Template Variables to CSV Columns</div>';
         for (let i = 1; i <= data.count; i++) {
-          html += '<div class="param-item"><label class="form-label" style="font-size:0.83rem;">Variable {{ '{{' }}' + i + '{{ '}}' }}</label>' +
+          html += '<div class="param-item"><label class="form-label" style="font-size:0.78rem;">Variable {{ '{{' }}' + i + '{{ '}}' }}</label>' +
                   '<select name="param' + i + '" class="form-select" required>' +
                   '<option value="">— Select CSV Column —</option>' +
                   csvColumns.map(c => '<option value="' + c + '">' + c + '</option>').join('') +
@@ -516,14 +794,14 @@ document.getElementById('template_name').addEventListener('change', function() {
       }
 
       if (hasBtns) {
-        html += '<div class="param-section" style="margin-top:0.875rem;"><div class="param-header"><i class="fas fa-mouse-pointer me-1"></i>Button Parameters</div>';
+        html += '<div class="param-section" style="margin-top:0.75rem;"><div class="param-header"><i class="fas fa-mouse-pointer"></i>Button Parameters</div>';
         data.buttons.forEach(btn => {
           if (btn.type === 'COPY_CODE') {
-            html += `<div class="param-item"><label class="form-label" style="font-size:0.83rem;">${btn.text || 'Copy Code'} — Coupon Code</label>
+            html += `<div class="param-item"><label class="form-label" style="font-size:0.78rem;">${btn.text || 'Copy Code'} — Coupon Code</label>
               <input type="text" name="button_coupon_code_${btn.index}" class="form-control" placeholder="e.g., SAVE20" required>
               <div class="form-text">Same code sent to all recipients</div></div>`;
           } else if (btn.type === 'URL' && btn.requires === 'url_parameter') {
-            html += `<div class="param-item"><label class="form-label" style="font-size:0.83rem;">${btn.text || 'URL Button'} — Dynamic Parameter</label>
+            html += `<div class="param-item"><label class="form-label" style="font-size:0.78rem;">${btn.text || 'URL Button'} — Dynamic Parameter</label>
               <select name="button_url_param_${btn.index}" class="form-select" required>
                 <option value="">— Select CSV Column —</option>
                 ${csvColumns.map(c => `<option value="${c}">${c}</option>`).join('')}
@@ -533,7 +811,7 @@ document.getElementById('template_name').addEventListener('change', function() {
         html += '</div>';
       }
 
-      if (!html) html = '<div class="info-badge"><i class="fas fa-check me-1"></i>This template has no parameters</div>';
+      if (!html) html = '<div class="info-badge"><i class="fas fa-check"></i>This template has no variable parameters</div>';
       paramBox.innerHTML = html;
     });
 });
@@ -547,35 +825,37 @@ function loadScheduledJobs() {
       document.getElementById('jobsCount').textContent = active.length;
 
       if (!jobs.length) {
-        document.getElementById('jobsList').innerHTML = '<div class="no-jobs"><i class="fas fa-inbox fa-2x mb-2 d-block" style="opacity:0.2;"></i>No scheduled jobs</div>';
+        document.getElementById('jobsList').innerHTML = '<div class="no-jobs"><i class="fas fa-inbox d-block mb-2" style="font-size:1.4rem;opacity:0.2;"></i>No scheduled jobs</div>';
         return;
       }
 
-      jobs.sort((a,b) => ({'sending':0,'waiting':1,'pending':2,'completed':3,'failed':4,'cancelled':5}[a.status]||9) - ({'sending':0,'waiting':1,'pending':2,'completed':3,'failed':4,'cancelled':5}[b.status]||9));
+      jobs.sort((a,b) =>
+        ({'sending':0,'waiting':1,'pending':2,'completed':3,'failed':4,'cancelled':5}[a.status]||9) -
+        ({'sending':0,'waiting':1,'pending':2,'completed':3,'failed':4,'cancelled':5}[b.status]||9)
+      );
 
-      const icons = { pending:'⏸️', waiting:'⏰', sending:'📤', completed:'✅', failed:'❌', cancelled:'🚫' };
+      const icons = { pending:'⏸', waiting:'⏰', sending:'↑', completed:'✓', failed:'✕', cancelled:'—' };
       document.getElementById('jobsList').innerHTML = jobs.map(job => {
         const canCancel = ['pending','waiting'].includes(job.status);
         return `<div class="job-item">
-          <div class="job-icon status-${job.status}">${icons[job.status]||'📋'}</div>
-          <div>
+          <div class="job-icon status-${job.status}" style="font-size:0.7rem;font-weight:700;color:#fff;">${icons[job.status]||'·'}</div>
+          <div class="job-info">
             <span class="status-badge badge-${job.status}">${job.status}</span>
             <strong>${job.template_name || 'Text Message'}</strong>
             <div class="job-meta">
               <span><i class="fas fa-clock"></i>${job.scheduled_time}</span>
-              <span><i class="fas fa-users"></i>${job.contact_count} contacts</span>
-              <span><i class="fas fa-calendar"></i>${job.created_at}</span>
+              <span><i class="fas fa-users"></i>${job.contact_count}</span>
             </div>
-            ${job.error ? `<div style="color:#f87171;font-size:0.78rem;margin-top:0.3rem;">Error: ${job.error}</div>` : ''}
+            ${job.error ? `<div style="color:#DC2626;font-size:0.7rem;margin-top:0.2rem;">${job.error}</div>` : ''}
           </div>
           <button class="btn-cancel" onclick="cancelJob('${job.job_id}')" ${canCancel ? '' : 'disabled'}>
-            ${canCancel ? '🗑 Cancel' : '⚫ Done'}
+            ${canCancel ? 'Cancel' : 'Done'}
           </button>
         </div>`;
       }).join('');
     })
     .catch(() => {
-      document.getElementById('jobsList').innerHTML = '<div class="no-jobs" style="color:rgba(239,68,68,0.7);">Failed to load jobs</div>';
+      document.getElementById('jobsList').innerHTML = '<div class="no-jobs" style="color:#DC2626;">Failed to load</div>';
     });
 }
 
@@ -583,7 +863,7 @@ function cancelJob(jobId) {
   if (!confirm('Cancel this scheduled job?')) return;
   fetch(`/cancel-job/${jobId}`, { method: 'POST' })
     .then(r => r.json())
-    .then(data => { alert(data.success ? '✅ ' + data.message : '❌ ' + data.message); loadScheduledJobs(); })
+    .then(data => { alert(data.success ? '✓ ' + data.message : '✕ ' + data.message); loadScheduledJobs(); })
     .catch(() => alert('Failed to cancel job'));
 }
 
@@ -592,10 +872,10 @@ async function loadDashboardStats() {
     const r = await fetch('/api/dashboard-stats');
     if (r.ok) {
       const s = await r.json();
-      document.getElementById('totalCampaigns').textContent = s.total_campaigns || 0;
-      document.getElementById('totalMessages').textContent  = s.total_messages  || 0;
-      document.getElementById('activeCampaigns').textContent= s.active_campaigns || 0;
-      document.getElementById('successRate').textContent = s.success_rate ? s.success_rate.toFixed(1) + '%' : '0%';
+      document.getElementById('totalCampaigns').textContent  = s.total_campaigns  || 0;
+      document.getElementById('totalMessages').textContent   = s.total_messages   || 0;
+      document.getElementById('activeCampaigns').textContent = s.active_campaigns || 0;
+      document.getElementById('successRate').textContent     = s.success_rate ? s.success_rate.toFixed(1) + '%' : '0%';
     }
   } catch {}
 }
@@ -608,29 +888,29 @@ function loadQueueStatus() {
       document.getElementById('queueCount').textContent = data.queue_size || 0;
 
       if (!data.queue_size && !data.total_processed) {
-        el.innerHTML = '<div class="no-jobs">✅ Queue is empty</div>'; return;
+        el.innerHTML = '<div class="no-jobs">Queue is empty</div>'; return;
       }
 
-      el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;padding:0.25rem;">
-        <div style="background:rgba(102,126,234,0.1);border:1px solid rgba(102,126,234,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
-          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Queue Size</div>
-          <div style="font-size:1.4rem;font-weight:700;color:#a5b4fc;">${data.queue_size}</div>
+      el.innerHTML = `<div class="queue-grid">
+        <div class="queue-tile" style="background:#EFF6FF;border-color:#BFDBFE;">
+          <div class="queue-tile-label">Queued</div>
+          <div class="queue-tile-val" style="color:#1D4ED8;">${data.queue_size}</div>
         </div>
-        <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
-          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Successful</div>
-          <div style="font-size:1.4rem;font-weight:700;color:#34d399;">${data.successful||0}</div>
+        <div class="queue-tile" style="background:#F0FDF4;border-color:#BBF7D0;">
+          <div class="queue-tile-label">Sent</div>
+          <div class="queue-tile-val" style="color:#15803D;">${data.successful||0}</div>
         </div>
-        <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
-          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Failed</div>
-          <div style="font-size:1.4rem;font-weight:700;color:#f87171;">${data.failed||0}</div>
+        <div class="queue-tile" style="background:#FEF2F2;border-color:#FECACA;">
+          <div class="queue-tile-label">Failed</div>
+          <div class="queue-tile-val" style="color:#DC2626;">${data.failed||0}</div>
         </div>
-        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);padding:0.875rem;border-radius:9px;text-align:center;">
-          <div style="font-size:0.73rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;">Rate</div>
-          <div style="font-size:1.4rem;font-weight:700;color:#fcd34d;">${data.rate_limit||15}/min</div>
+        <div class="queue-tile" style="background:#FFFBEB;border-color:#FDE68A;">
+          <div class="queue-tile-label">Rate</div>
+          <div class="queue-tile-val" style="color:#92400E;">${data.rate_limit||15}/m</div>
         </div>
       </div>
-      ${data.queue_size > 0 ? `<div style="margin-top:0.75rem;background:rgba(255,255,255,0.04);border-radius:8px;padding:0.75rem 1rem;font-size:0.83rem;color:rgba(255,255,255,0.5);">
-        ⏱ Est. time remaining: <strong style="color:#fcd34d;">${calcEst(data.queue_size, data.rate_limit||15)}</strong>
+      ${data.queue_size > 0 ? `<div class="queue-eta">
+        Est. <strong style="color:#92400E;">${calcEst(data.queue_size, data.rate_limit||15)}</strong> remaining
       </div>` : ''}`;
     })
     .catch(() => {});
@@ -639,30 +919,6 @@ function loadQueueStatus() {
 function calcEst(q, rate) {
   const m = Math.ceil(q / rate);
   return m < 60 ? m + ' min' : Math.floor(m/60) + 'h ' + (m%60) + 'm';
-}
-
-async function sendCartReminders() {
-  if (!confirm('Send WhatsApp reminders to customers with abandoned carts?')) return;
-  const btn = event.target.closest('button'); const orig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
-  try {
-    const r = await fetch('/api/send-cart-reminders', { method: 'POST', headers: {'Content-Type':'application/json'} });
-    const d = await r.json();
-    d.success ? alert(`✅ Sent: ${d.sent}  Failed: ${d.failed}\n${d.message}`) : alert('❌ ' + d.error);
-  } catch(e) { alert('❌ ' + e); }
-  finally { btn.disabled = false; btn.innerHTML = orig; }
-}
-
-async function sendOrderConfirmations() {
-  if (!confirm('Send WhatsApp confirmations for recent orders?')) return;
-  const btn = event.target.closest('button'); const orig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
-  try {
-    const r = await fetch('/api/send-order-confirmations', { method: 'POST', headers: {'Content-Type':'application/json'} });
-    const d = await r.json();
-    d.success ? alert(`✅ Sent: ${d.sent}  Failed: ${d.failed}\n${d.message}`) : alert('❌ ' + d.error);
-  } catch(e) { alert('❌ ' + e); }
-  finally { btn.disabled = false; btn.innerHTML = orig; }
 }
 </script>
 {% endblock %}
