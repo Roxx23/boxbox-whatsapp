@@ -400,9 +400,9 @@ function buildConfigForm(type, data) {
       <select id="cfg_template_language" class="config-select">${langOpts}</select>
     </div>
     <div class="config-field" id="paramMapSection">
-      <label class="config-label">Template params ({{1}}, {{2}} …)</label>
+      <label class="config-label">Template params (&#123;&#123;1&#125;&#125;, &#123;&#123;2&#125;&#125; …)</label>
       <div id="paramMapRows"></div>
-      <div class="config-hint">Map each <code>{{N}}</code> to a context variable from the trigger.</div>
+      <div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> to a context variable from the trigger.</div>
     </div>`;
   }
   return '';
@@ -445,10 +445,10 @@ function rebuildParamMapRows(existingMap, templateName, forcedCount) {
       `<option value="${k.value}" ${existingMap[String(i)]===k.value?'selected':''}>${k.label}</option>`
     ).join('');
     container.insertAdjacentHTML('beforeend',
-      `<div class="param-map-row">
-        <span class="param-map-label">{{${i}}}</span>
-        <select class="config-select" data-param="${i}" style="flex:1;">${sel}</select>
-      </div>`
+      '<div class="param-map-row">' +
+        '<span class="param-map-label">{'+ '{' + i + '}' + '}</span>' +
+        '<select class="config-select" data-param="' + i + '" style="flex:1;">' + sel + '</select>' +
+      '</div>'
     );
   }
 }
