@@ -1444,7 +1444,8 @@ def flows_page():
         flow['active_count'] = counts.get('active', 0)
         flow['completed_count'] = counts.get('completed', 0)
         flow['total_count'] = sum(counts.values())
-    return render_template('flows.html', flows=flows)
+    custom_segments = db.get_user_segments(current_user.id)
+    return render_template('flows.html', flows=flows, custom_segments=custom_segments)
 
 
 @app.route("/flows/<int:flow_id>")
@@ -1561,8 +1562,18 @@ def api_enroll_flow(flow_id):
     segment_type = data.get('segment_type', 'has_phone')
     first_step = get_flow_first_step_key(db, flow_id)
     if not first_step:
-        return jsonify({'success': False, 'error': 'Flow has no steps'}), 400
-    customers = db.get_segment_customers(current_user.id, segment_type)
+        return jsonify({'success': False, 'error': 'Flow has no steps — save the flow first'}), 400
+    # Custom segments use the format "custom_<segment_id>"
+    if segment_type.startswith('custom_'):
+        try:
+            seg_id = int(segment_type.split('_', 1)[1])
+            seg = db.get_segment_by_id(seg_id)
+            conditions = json.loads(seg['conditions'] or '{}') if seg else {}
+            customers = db.get_all_customers(current_user.id, conditions)
+        except Exception:
+            customers = []
+    else:
+        customers = db.get_segment_customers(current_user.id, segment_type)
     enrolled, skipped = 0, 0
     for c in customers:
         phone = c.get('phone')
@@ -1779,9 +1790,17 @@ def api_get_customers(segment):
     try:
         if segment == 'all':
             customers = db.get_all_customers(current_user.id)
+        elif segment.startswith('custom_'):
+            try:
+                seg_id = int(segment.split('_', 1)[1])
+                seg = db.get_segment_by_id(seg_id)
+                conditions = json.loads(seg['conditions'] or '{}') if seg else {}
+                customers = db.get_all_customers(current_user.id, conditions)
+            except Exception:
+                customers = []
         else:
             customers = db.get_segment_customers(current_user.id, segment)
-        
+
         return jsonify({
             'success': True,
             'customers': customers,

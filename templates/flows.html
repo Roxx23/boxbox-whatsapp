@@ -110,6 +110,15 @@
     transition: all 0.15s;
   }
   .btn-flow-pause:hover { background: rgba(245,158,11,0.14); }
+  .btn-flow-enroll {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.38rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 600;
+    background: rgba(37,99,235,0.08); border: 1.5px solid rgba(37,99,235,0.2);
+    color: #1D4ED8; cursor: pointer; transition: all 0.15s;
+  }
+  .btn-flow-enroll:hover { background: rgba(37,99,235,0.14); border-color: rgba(37,99,235,0.35); }
+
   .btn-flow-delete {
     display: inline-flex; align-items: center;
     padding: 0.38rem 0.6rem; border-radius: 8px;
@@ -215,6 +224,9 @@
             <i class="fas fa-pencil-alt"></i> Edit
           </a>
           {% if flow.status == 'active' %}
+          <button class="btn-flow-enroll" onclick="openEnrollModal({{ flow.id }}, '{{ flow.name | e }}')">
+            <i class="fas fa-user-plus"></i> Enroll
+          </button>
           <button class="btn-flow-pause" onclick="pauseFlow({{ flow.id }})">
             <i class="fas fa-pause"></i> Pause
           </button>
@@ -244,6 +256,71 @@
   </div>
 {% endif %}
 
+
+<!-- Enroll Customers Modal -->
+<div class="modal fade" id="enrollModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fas fa-user-plus me-2" style="color:#2563EB;"></i>
+          Enroll Customers
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1.25rem;">
+          Enrolling into <strong id="enrollFlowName" style="color:var(--text);"></strong>.
+          Customers already in this flow will be skipped.
+        </p>
+
+        <div class="mb-3">
+          <label class="form-label">Customer Segment</label>
+          <select id="enrollSegment" class="form-select" onchange="previewEnrollCount()">
+            <optgroup label="Predefined">
+              <option value="has_phone">All customers with a phone number</option>
+              <option value="no_message_sent">Never messaged</option>
+              <option value="engaged_last_7_days">Engaged in last 7 days</option>
+              <option value="not_engaged_last_7_days">Not engaged in last 7 days</option>
+              <option value="high_value">High value (₹1000+ spent)</option>
+              <option value="has_orders">Has placed orders</option>
+              <option value="replied">Has replied to a message</option>
+            </optgroup>
+            {% if custom_segments %}
+            <optgroup label="Custom Segments">
+              {% for seg in custom_segments %}
+              <option value="custom_{{ seg.id }}">{{ seg.segment_name }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+          </select>
+        </div>
+
+        <!-- Count preview -->
+        <div id="enrollPreview" class="d-flex align-items-center gap-3 p-3 rounded-3"
+             style="background:var(--surface2);border:1px solid var(--border);min-height:60px;">
+          <div id="enrollPreviewContent" style="color:var(--text-muted);font-size:0.85rem;">
+            <i class="fas fa-spinner fa-spin me-2"></i>Loading…
+          </div>
+        </div>
+
+        <!-- Result (shown after enroll) -->
+        <div id="enrollResult" style="display:none;" class="mt-3"></div>
+
+        <div id="enrollError" class="alert alert-danger py-2 px-3 mt-3" style="display:none;font-size:0.84rem;"></div>
+      </div>
+      <div class="modal-footer" id="enrollFooter">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm px-3" id="btnEnroll"
+                style="background:#2563EB;color:#fff;border:none;border-radius:8px;font-weight:600;"
+                onclick="doEnroll()">
+          <i class="fas fa-user-plus me-1"></i> Enroll Customers
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- New Flow Modal -->
 <div class="modal fade" id="newFlowModal" tabindex="-1">
@@ -285,6 +362,97 @@
 
 {% block scripts %}
 <script>
+// ── Enrollment ─────────────────────────────────────────────────────────────
+let _enrollFlowId = null;
+
+function openEnrollModal(flowId, flowName) {
+  _enrollFlowId = flowId;
+  document.getElementById('enrollFlowName').textContent = flowName;
+  document.getElementById('enrollResult').style.display = 'none';
+  document.getElementById('enrollError').style.display = 'none';
+  document.getElementById('enrollFooter').style.display = '';
+  document.getElementById('btnEnroll').disabled = false;
+  document.getElementById('btnEnroll').innerHTML = '<i class="fas fa-user-plus me-1"></i> Enroll Customers';
+  new bootstrap.Modal(document.getElementById('enrollModal')).show();
+  previewEnrollCount();
+}
+
+async function previewEnrollCount() {
+  const segment = document.getElementById('enrollSegment').value;
+  const preview = document.getElementById('enrollPreviewContent');
+  preview.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Counting customers…';
+  try {
+    const r = await fetch('/api/customers/' + segment);
+    const data = await r.json();
+    const count = data.count || 0;
+    if (count === 0) {
+      preview.innerHTML =
+        '<i class="fas fa-users me-2" style="color:var(--text-dim);"></i>' +
+        '<span style="color:var(--text-muted);">No customers found in this segment.</span>';
+    } else {
+      preview.innerHTML =
+        '<div style="display:flex;align-items:center;gap:0.75rem;">' +
+          '<div style="font-size:1.5rem;font-weight:800;color:#2563EB;font-family:var(--font-display);">' + count + '</div>' +
+          '<div style="font-size:0.83rem;color:var(--text-muted);line-height:1.4;">' +
+            'customers will be enrolled<br>' +
+            '<span style="color:var(--text-dim);font-size:0.75rem;">Those already in this flow will be skipped automatically.</span>' +
+          '</div>' +
+        '</div>';
+    }
+  } catch(e) {
+    preview.innerHTML = '<span style="color:var(--text-dim);font-size:0.83rem;">Could not load count.</span>';
+  }
+}
+
+async function doEnroll() {
+  if (!_enrollFlowId) return;
+  const segment = document.getElementById('enrollSegment').value;
+  const btn = document.getElementById('btnEnroll');
+  const errEl = document.getElementById('enrollError');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Enrolling…';
+  try {
+    const r = await fetch('/api/flows/' + _enrollFlowId + '/enroll', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({segment_type: segment})
+    });
+    const data = await r.json();
+    if (data.success) {
+      // Hide footer, show result
+      document.getElementById('enrollFooter').style.display = 'none';
+      const resultEl = document.getElementById('enrollResult');
+      resultEl.style.display = '';
+      resultEl.innerHTML =
+        '<div class="p-3 rounded-3" style="background:rgba(37,211,102,0.06);border:1px solid rgba(37,211,102,0.2);">' +
+          '<div style="font-weight:700;color:#059669;margin-bottom:0.4rem;">' +
+            '<i class="fas fa-check-circle me-2"></i>Enrollment complete' +
+          '</div>' +
+          '<div style="font-size:0.84rem;color:var(--text-muted);">' +
+            '<strong style="color:var(--text);">' + data.enrolled + '</strong> customers enrolled &nbsp;·&nbsp; ' +
+            '<strong style="color:var(--text);">' + data.skipped + '</strong> skipped (no phone or already in flow)' +
+          '</div>' +
+        '</div>' +
+        '<div class="mt-2 text-end">' +
+          '<button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>' +
+        '</div>';
+      // Refresh the stat blocks after 1s
+      setTimeout(() => location.reload(), 2000);
+    } else {
+      errEl.textContent = data.error || 'Enrollment failed.';
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-user-plus me-1"></i> Enroll Customers';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error — please try again.';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-user-plus me-1"></i> Enroll Customers';
+  }
+}
+
 function openNewFlowModal() {
   document.getElementById('newFlowName').value = '';
   document.getElementById('newFlowError').style.display = 'none';
