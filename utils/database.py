@@ -1555,20 +1555,31 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                '''INSERT OR IGNORE INTO flow_participants
-                   (flow_id, phone, current_step_key, next_action_at, context, enrolled_at)
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (flow_id, phone, str(first_step_key),
-                 now, json.dumps(context_dict), now)
-            )
-            if cursor.lastrowid:
-                return cursor.lastrowid
-            cursor.execute(
-                'SELECT id FROM flow_participants WHERE flow_id = ? AND phone = ?',
+                'SELECT id, status FROM flow_participants WHERE flow_id = ? AND phone = ?',
                 (flow_id, phone)
             )
-            row = cursor.fetchone()
-            return row['id'] if row else None
+            existing = cursor.fetchone()
+            if existing:
+                if existing['status'] in ('completed', 'exited', 'error'):
+                    # Re-enroll: reset to active with fresh context and step
+                    cursor.execute(
+                        '''UPDATE flow_participants
+                           SET status='active', current_step_key=?, next_action_at=?,
+                               context=?, enrolled_at=?, completed_at=NULL, exit_reason=NULL
+                           WHERE id=?''',
+                        (str(first_step_key), now, json.dumps(context_dict), now, existing['id'])
+                    )
+                    return existing['id']
+                else:
+                    # Already active in this flow — skip to avoid double-processing
+                    return None
+            cursor.execute(
+                '''INSERT INTO flow_participants
+                   (flow_id, phone, current_step_key, next_action_at, context, enrolled_at)
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (flow_id, phone, str(first_step_key), now, json.dumps(context_dict), now)
+            )
+            return cursor.lastrowid
 
     def get_due_flow_participants(self):
         with self.get_connection() as conn:
