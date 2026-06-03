@@ -1637,30 +1637,55 @@ def api_enroll_flow(flow_id):
     if flow['status'] != 'active':
         return jsonify({'success': False, 'error': 'Flow must be active to enroll customers'}), 400
     data = request.json or {}
-    segment_type = data.get('segment_type', 'has_phone')
+    segment_type = (data.get('segment_type') or '').strip()
+    raw_phones = data.get('phone_numbers') or []   # list of raw strings from the textarea
+
     first_step = get_flow_first_step_key(db, flow_id)
     if not first_step:
         return jsonify({'success': False, 'error': 'Flow has no steps — save the flow first'}), 400
-    # Custom segments use the format "custom_<segment_id>"
-    if segment_type.startswith('custom_'):
-        try:
-            seg_id = int(segment_type.split('_', 1)[1])
-            seg = db.get_segment_by_id(seg_id)
-            conditions = json.loads(seg['conditions'] or '{}') if seg else {}
-            customers = db.get_all_customers(current_user.id, conditions)
-        except Exception:
-            customers = []
-    else:
-        customers = db.get_segment_customers(current_user.id, segment_type)
-    enrolled, skipped = 0, 0
-    for c in customers:
+
+    if not segment_type and not raw_phones:
+        return jsonify({'success': False, 'error': 'Choose a segment or enter at least one phone number'}), 400
+
+    # Collect customers from segment
+    segment_customers = []
+    if segment_type:
+        if segment_type.startswith('custom_'):
+            try:
+                seg_id = int(segment_type.split('_', 1)[1])
+                seg = db.get_segment_by_id(seg_id)
+                conditions = json.loads(seg['conditions'] or '{}') if seg else {}
+                segment_customers = db.get_all_customers(current_user.id, conditions)
+            except Exception:
+                segment_customers = []
+        else:
+            segment_customers = db.get_segment_customers(current_user.id, segment_type)
+
+    # Build phone → context map from segment (preserves first_name/email)
+    phone_ctx = {}
+    for c in segment_customers:
         phone = c.get('phone')
-        if not phone:
-            skipped += 1
+        if phone:
+            phone_ctx[phone] = {
+                'first_name': c.get('first_name') or (c.get('email', '').split('@')[0]),
+            }
+
+    # Add manually entered phone numbers (normalize, look up customer if exists)
+    for raw in raw_phones:
+        raw = raw.strip()
+        if not raw:
             continue
-        ctx = {
-            'first_name': c.get('first_name') or (c.get('email', '').split('@')[0]),
-        }
+        normalized = _normalize_phone_webhook(raw)
+        if normalized and normalized not in phone_ctx:
+            customer = db.get_customer_by_phone(normalized)
+            if customer:
+                ctx = {'first_name': customer.get('first_name') or (customer.get('email', '').split('@')[0])}
+            else:
+                ctx = {'first_name': ''}
+            phone_ctx[normalized] = ctx
+
+    enrolled, skipped = 0, 0
+    for phone, ctx in phone_ctx.items():
         pid = flow_enroll_participant(db, flow_id, phone, ctx, first_step)
         if pid:
             enrolled += 1
