@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+{% block title %}{{ flow.name }} — Flow Editor{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.css">
+<style>
+/* ── Layout ── */
+.editor-layout {
+  display: flex; flex-direction: column; height: calc(100vh - 56px);
+  margin: -1.5rem; overflow: hidden;
+}
+.editor-topbar {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.25rem;
+  background: #0e0e0e; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.editor-body {
+  display: flex; flex: 1; overflow: hidden;
+}
+.node-palette {
+  width: 220px; flex-shrink: 0; background: #0e0e0e;
+  border-right: 1px solid var(--border); padding: 1rem 0.75rem;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;
+}
+.canvas-wrap {
+  flex: 1; position: relative; background: #0d0d0d;
+  background-image: radial-gradient(rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+#drawflow { width: 100%; height: 100%; }
+.config-panel {
+  width: 300px; flex-shrink: 0; background: #0e0e0e;
+  border-left: 1px solid var(--border); padding: 1.25rem;
+  overflow-y: auto; display: none;
+}
+.config-panel.open { display: block; }
+
+/* ── Top bar ── */
+.flow-name-input {
+  background: transparent; border: none; color: var(--text);
+  font-size: 1rem; font-weight: 600; outline: none; min-width: 160px;
+  border-bottom: 1px solid transparent;
+}
+.flow-name-input:focus { border-bottom-color: var(--gold); }
+.status-badge {
+  padding: 0.25rem 0.7rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;
+}
+.status-badge.active    { background: rgba(22,163,74,0.12); color: #15803D; }
+.status-badge.paused    { background: rgba(234,179,8,0.12);  color: #A16207; }
+.status-badge.draft     { background: rgba(100,116,139,0.12); color: #94a3b8; }
+
+.btn-topbar {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.4rem 1rem; border-radius: 8px; font-size: 0.82rem;
+  font-weight: 500; border: none; cursor: pointer; transition: all 0.15s;
+}
+.btn-save     { background: rgba(212,168,75,0.15); color: var(--gold); }
+.btn-save:hover { background: rgba(212,168,75,0.28); }
+.btn-activate { background: rgba(22,163,74,0.12); color: #15803D; }
+.btn-activate:hover { background: rgba(22,163,74,0.22); }
+.btn-pause    { background: rgba(234,179,8,0.12); color: #A16207; }
+.btn-pause:hover { background: rgba(234,179,8,0.22); }
+.btn-back     { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+.btn-back:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+
+/* ── Node palette items ── */
+.palette-section { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 0.25rem 0.25rem 0.1rem; margin-top: 0.25rem; }
+.palette-node {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.6rem 0.75rem; border-radius: 9px; cursor: grab; user-select: none;
+  border: 1px solid var(--border); background: rgba(255,255,255,0.03);
+  font-size: 0.82rem; color: var(--text); transition: all 0.15s;
+}
+.palette-node:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.14); }
+.palette-node:active { cursor: grabbing; }
+.node-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Drawflow node cards ── */
+.df-node-inner {
+  padding: 0.6rem 0.75rem; min-width: 180px; max-width: 240px; border-radius: 10px;
+  border: 1.5px solid rgba(255,255,255,0.08); font-size: 0.82rem; color: var(--text);
+  background: #161616; cursor: default;
+}
+.df-node-inner .node-header {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-weight: 600; margin-bottom: 0.3rem; font-size: 0.82rem;
+}
+.df-node-inner .node-body { color: var(--text-muted); font-size: 0.78rem; }
+/* Accent colours per type */
+.node-trigger   .df-node-inner { border-color: rgba(37,211,102,0.35); }
+.node-trigger   .node-dot-hdr  { color: #25D366; }
+.node-send_message .df-node-inner { border-color: rgba(99,102,241,0.4); }
+.node-send_message .node-dot-hdr  { color: #818CF8; }
+.node-wait      .df-node-inner { border-color: rgba(251,191,36,0.35); }
+.node-wait      .node-dot-hdr  { color: #FCD34D; }
+.node-condition .df-node-inner { border-color: rgba(167,139,250,0.4); }
+.node-condition .node-dot-hdr  { color: #A78BFA; }
+.node-exit      .df-node-inner { border-color: rgba(239,68,68,0.3); }
+.node-exit      .node-dot-hdr  { color: #F87171; }
+
+/* Override Drawflow connection line colours */
+.drawflow .connection .main-path { stroke: rgba(212,168,75,0.5); stroke-width: 2.5; }
+.drawflow .connection .main-path:hover { stroke: rgba(212,168,75,0.9); }
+.drawflow .selected .main-path { stroke: var(--gold); }
+/* Port dots */
+.drawflow-node .input, .drawflow-node .output {
+  background: rgba(212,168,75,0.6); border: 2px solid rgba(212,168,75,0.3);
+}
+.drawflow-node.selected { outline: 2px solid rgba(212,168,75,0.4); outline-offset: 3px; }
+
+/* Condition output labels */
+.drawflow-node.node-condition .output_1::after { content: 'Yes'; position: absolute;
+  right: 12px; top: -8px; font-size: 0.65rem; color: #4ade80; font-weight: 600; }
+.drawflow-node.node-condition .output_2::after { content: 'No'; position: absolute;
+  right: 16px; top: -8px; font-size: 0.65rem; color: #f87171; font-weight: 600; }
+
+/* ── Config panel ── */
+.config-panel-title {
+  font-weight: 600; font-size: 0.9rem; color: var(--text); margin-bottom: 1rem;
+  padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.config-field { margin-bottom: 1rem; }
+.config-label { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.35rem; display: block; }
+.config-input, .config-select {
+  width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  color: var(--text); border-radius: 7px; padding: 0.45rem 0.7rem; font-size: 0.84rem;
+}
+.config-input:focus, .config-select:focus {
+  outline: none; border-color: var(--gold); background: rgba(255,255,255,0.06);
+}
+.config-select option { background: #141414; }
+.config-hint { font-size: 0.73rem; color: var(--text-dim); margin-top: 0.25rem; }
+.param-map-row {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.8rem;
+}
+.param-map-label { color: var(--text-muted); white-space: nowrap; min-width: 44px; }
+.btn-apply-config {
+  width: 100%; padding: 0.5rem; border-radius: 8px;
+  background: rgba(212,168,75,0.15); color: var(--gold);
+  border: none; font-size: 0.84rem; font-weight: 500; cursor: pointer; margin-top: 0.5rem;
+}
+.btn-apply-config:hover { background: rgba(212,168,75,0.25); }
+.btn-del-node {
+  width: 100%; padding: 0.45rem; border-radius: 8px; margin-top: 0.4rem;
+  background: rgba(239,68,68,0.1); color: #f87171;
+  border: none; font-size: 0.82rem; cursor: pointer;
+}
+.btn-del-node:hover { background: rgba(239,68,68,0.18); }
+
+/* Toast */
+.toast-msg {
+  position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+  padding: 0.65rem 1.1rem; border-radius: 9px; font-size: 0.84rem;
+  animation: fadeInUp 0.2s ease;
+}
+.toast-success { background: rgba(22,163,74,0.15); color: #4ade80; border: 1px solid rgba(22,163,74,0.3); }
+.toast-error   { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+@keyframes fadeInUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="editor-layout">
+
+  <!-- Top bar -->
+  <div class="editor-topbar">
+    <a href="{{ url_for('flows_page') }}" class="btn-topbar btn-back">
+      <i class="fas fa-arrow-left"></i> Flows
+    </a>
+    <input class="flow-name-input" id="flowNameInput" value="{{ flow.name }}" placeholder="Flow name" title="Click to rename">
+    <span class="status-badge {{ flow.status }}" id="statusBadge">
+      {% if flow.status == 'active' %}Active{% elif flow.status == 'paused' %}Paused{% else %}Draft{% endif %}
+    </span>
+    <div class="ms-auto d-flex gap-2 flex-wrap">
+      <button class="btn-topbar btn-save" id="btnSave" onclick="saveCanvas()">
+        <i class="fas fa-save"></i> Save
+      </button>
+      {% if flow.status == 'active' %}
+      <button class="btn-topbar btn-pause" id="btnPause" onclick="toggleActive()">
+        <i class="fas fa-pause"></i> Pause
+      </button>
+      {% else %}
+      <button class="btn-topbar btn-activate" id="btnActivate" onclick="toggleActive()">
+        <i class="fas fa-play"></i> Activate
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="editor-body">
+
+    <!-- Node palette -->
+    <div class="node-palette">
+      <div class="palette-section">Entry</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'trigger')" title="Flow starts here">
+        <span class="node-dot" style="background:#25D366;"></span> Trigger
+      </div>
+      <div class="palette-section">Actions</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'send_message')">
+        <span class="node-dot" style="background:#818CF8;"></span> Send Message
+      </div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'wait')">
+        <span class="node-dot" style="background:#FCD34D;"></span> Wait / Delay
+      </div>
+      <div class="palette-section">Logic</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'condition')">
+        <span class="node-dot" style="background:#A78BFA;"></span> Condition
+      </div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'exit')">
+        <span class="node-dot" style="background:#F87171;"></span> Exit Flow
+      </div>
+      <div class="mt-auto pt-3" style="border-top:1px solid var(--border); margin-top:auto;">
+        <div style="font-size:0.7rem;color:var(--text-dim);">Drag nodes onto canvas. Click a node to configure it.</div>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="canvas-wrap" id="canvasWrap"
+         ondrop="drop(event)" ondragover="allowDrop(event)">
+      <div id="drawflow"></div>
+    </div>
+
+    <!-- Config panel -->
+    <div class="config-panel" id="configPanel">
+      <div class="config-panel-title" id="configPanelTitle">
+        <span id="configNodeIcon"></span>
+        <span id="configNodeType">Node Config</span>
+      </div>
+      <div id="configPanelBody"></div>
+      <button class="btn-apply-config" onclick="applyConfig()">
+        <i class="fas fa-check me-1"></i> Apply
+      </button>
+      <button class="btn-del-node" onclick="deleteSelectedNode()">
+        <i class="fas fa-trash me-1"></i> Delete Node
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.js"></script>
+<script>
+const FLOW_ID = {{ flow.id }};
+const FLOW_STATUS = '{{ flow.status }}';
+const WA_TEMPLATES = {{ wa_templates | tojson }};
+const CONTEXT_KEYS = [
+  {value:'', label:'— select —'},
+  {value:'first_name', label:'first_name'},
+  {value:'order_number', label:'order_number'},
+  {value:'items', label:'items'},
+  {value:'total', label:'total'},
+  {value:'tracking_url', label:'tracking_url'},
+];
+
+// ── Drawflow setup ────────────────────────────────────────────────────────────
+const dfContainer = document.getElementById('drawflow');
+const editor = new Drawflow(dfContainer);
+editor.reroute = true;
+editor.reroute_fix_curvature = true;
+editor.start();
+
+// ── Node HTML templates ───────────────────────────────────────────────────────
+function nodeHtml(type, data) {
+  const labels = {
+    trigger: {icon: '⚡', label: 'Trigger'},
+    send_message: {icon: '💬', label: 'Send Message'},
+    wait: {icon: '⏱', label: 'Wait / Delay'},
+    condition: {icon: '⁇', label: 'Condition'},
+    exit: {icon: '🏁', label: 'Exit Flow'},
+  };
+  const {icon, label} = labels[type] || {icon: '●', label: type};
+  let body = '';
+  if (type === 'trigger') {
+    const names = {order_confirmation:'Order Placed',fulfillment:'Order Dispatched',abandoned_cart:'Abandoned Cart',manual:'Manual'};
+    body = names[data.trigger_type || '{{ flow.trigger_type }}'] || 'Trigger';
+  } else if (type === 'send_message') {
+    body = data.template_name ? `<span style="color:var(--gold)">${data.template_name}</span>` : '<em style="opacity:.5">No template set</em>';
+  } else if (type === 'wait') {
+    body = data.hours ? `${data.hours}h delay` : '<em style="opacity:.5">Set delay</em>';
+  } else if (type === 'condition') {
+    const ct = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?'};
+    body = ct[data.condition_type] || '<em style="opacity:.5">Set condition</em>';
+  } else if (type === 'exit') {
+    body = 'End of flow';
+  }
+  return `<div class="df-node-inner">
+    <div class="node-header"><span class="node-dot-hdr">${icon}</span> ${label}</div>
+    <div class="node-body">${body}</div>
+  </div>`;
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+let dragType = null;
+function drag(ev, type) { dragType = type; ev.dataTransfer.effectAllowed = 'move'; }
+function allowDrop(ev) { ev.preventDefault(); }
+function drop(ev) {
+  ev.preventDefault();
+  if (!dragType) return;
+  const canvasRect = document.getElementById('canvasWrap').getBoundingClientRect();
+  const pos_x = ev.clientX - canvasRect.left;
+  const pos_y = ev.clientY - canvasRect.top;
+  const inputs = dragType === 'trigger' ? 0 : 1;
+  const outputs = dragType === 'exit' ? 0 : (dragType === 'condition' ? 2 : 1);
+  const defaultData = getDefaultData(dragType);
+  editor.addNode(dragType, inputs, outputs, pos_x, pos_y, `node-${dragType}`, defaultData, nodeHtml(dragType, defaultData));
+  dragType = null;
+}
+
+function getDefaultData(type) {
+  if (type === 'trigger') return {trigger_type: '{{ flow.trigger_type }}'};
+  if (type === 'wait') return {hours: 24};
+  if (type === 'condition') return {condition_type: 'replied_within_X_hours', hours: 24};
+  if (type === 'send_message') return {template_name: '', template_language: 'en_US', param_map: {}, button_params: {}};
+  return {};
+}
+
+// ── Node click → config panel ─────────────────────────────────────────────────
+let selectedNodeId = null;
+editor.on('nodeSelected', function(id) {
+  selectedNodeId = id;
+  openConfigPanel(id);
+});
+editor.on('nodeUnselected', function() {
+  // keep panel open — user may be filling in the form
+});
+
+function openConfigPanel(id) {
+  const node = editor.getNodeFromId(id);
+  if (!node) return;
+  const type = node.name;
+  const data = node.data || {};
+  const panel = document.getElementById('configPanel');
+  const icons = {trigger:'⚡',send_message:'💬',wait:'⏱',condition:'⁇',exit:'🏁'};
+  document.getElementById('configNodeIcon').textContent = icons[type] || '●';
+  document.getElementById('configNodeType').textContent =
+    {trigger:'Trigger',send_message:'Send Message',wait:'Wait / Delay',condition:'Condition',exit:'Exit Flow'}[type] || type;
+  document.getElementById('configPanelBody').innerHTML = buildConfigForm(type, data);
+  panel.classList.add('open');
+  // populate param map rows after insert
+  if (type === 'send_message') rebuildParamMapRows(data.param_map || {}, data.template_name || '');
+}
+
+function buildConfigForm(type, data) {
+  if (type === 'trigger') {
+    const names = {order_confirmation:'Order Placed',fulfillment:'Order Dispatched',abandoned_cart:'Abandoned Cart',manual:'Manual'};
+    return `<div class="config-field">
+      <label class="config-label">Trigger type</label>
+      <div style="color:var(--gold);font-weight:600;">${names[data.trigger_type] || data.trigger_type}</div>
+      <div class="config-hint">Set when creating the flow.</div>
+    </div>`;
+  }
+  if (type === 'exit') {
+    return `<div style="color:var(--text-muted);font-size:0.82rem;">No configuration needed — this node ends the flow for the customer.</div>`;
+  }
+  if (type === 'wait') {
+    return `<div class="config-field">
+      <label class="config-label">Delay (hours)</label>
+      <input id="cfg_hours" type="number" min="1" class="config-input" value="${data.hours || 24}">
+      <div class="config-hint">Wait this many hours before the next step.</div>
+    </div>`;
+  }
+  if (type === 'condition') {
+    const condOpts = [
+      {v:'replied_within_X_hours', l:'Customer replied within N hours'},
+      {v:'read_within_X_hours', l:'Customer read message within N hours'},
+      {v:'placed_order', l:'Customer placed an order'},
+    ].map(o => `<option value="${o.v}" ${data.condition_type===o.v?'selected':''}>${o.l}</option>`).join('');
+    const hoursRow = data.condition_type !== 'placed_order' ? `
+      <div class="config-field">
+        <label class="config-label">Time window (hours)</label>
+        <input id="cfg_hours" type="number" min="1" class="config-input" value="${data.hours || 24}">
+      </div>` : '';
+    return `<div class="config-field">
+      <label class="config-label">Condition</label>
+      <select id="cfg_condition_type" class="config-select" onchange="onConditionTypeChange(this)">
+        ${condOpts}
+      </select>
+      <div class="config-hint">Yes branch = condition met. No branch = not met / timed out.</div>
+    </div>${hoursRow}`;
+  }
+  if (type === 'send_message') {
+    const tplOpts = WA_TEMPLATES.map(t =>
+      `<option value="${t.name}" ${data.template_name===t.name?'selected':''}>${t.name}</option>`
+    ).join('');
+    const langOpts = ['en_US','en_GB','hi','ta','te','kn','ml','mr','gu','bn'].map(l =>
+      `<option value="${l}" ${(data.template_language||'en_US')===l?'selected':''}>${l}</option>`
+    ).join('');
+    return `<div class="config-field">
+      <label class="config-label">Template</label>
+      <select id="cfg_template_name" class="config-select" onchange="onTemplateChange(this.value)">
+        <option value="">— select template —</option>
+        ${tplOpts}
+      </select>
+    </div>
+    <div class="config-field">
+      <label class="config-label">Language</label>
+      <select id="cfg_template_language" class="config-select">${langOpts}</select>
+    </div>
+    <div class="config-field" id="paramMapSection">
+      <label class="config-label">Template params ({{1}}, {{2}} …)</label>
+      <div id="paramMapRows"></div>
+      <div class="config-hint">Map each <code>{{N}}</code> to a context variable from the trigger.</div>
+    </div>`;
+  }
+  return '';
+}
+
+function onConditionTypeChange(sel) {
+  const hoursRow = document.querySelector('.config-field #cfg_hours')?.closest('.config-field');
+  if (sel.value === 'placed_order') {
+    if (hoursRow) hoursRow.style.display = 'none';
+  } else {
+    if (hoursRow) hoursRow.style.display = '';
+  }
+}
+
+async function onTemplateChange(name) {
+  if (!name) { document.getElementById('paramMapRows').innerHTML = ''; return; }
+  try {
+    const resp = await fetch(`/template-info?name=${encodeURIComponent(name)}`);
+    const info = await resp.json();
+    const count = info.param_count || 0;
+    const node = editor.getNodeFromId(selectedNodeId);
+    const existingMap = (node && node.data && node.data.param_map) || {};
+    rebuildParamMapRows(existingMap, name, count);
+  } catch(e) {
+    rebuildParamMapRows({}, name, 0);
+  }
+}
+
+function rebuildParamMapRows(existingMap, templateName, forcedCount) {
+  let count = forcedCount;
+  if (count === undefined) {
+    const node = editor.getNodeFromId(selectedNodeId);
+    count = Object.keys((node && node.data && node.data.param_map) || {}).length;
+  }
+  const container = document.getElementById('paramMapRows');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 1; i <= count; i++) {
+    const sel = CONTEXT_KEYS.map(k =>
+      `<option value="${k.value}" ${existingMap[String(i)]===k.value?'selected':''}>${k.label}</option>`
+    ).join('');
+    container.insertAdjacentHTML('beforeend',
+      `<div class="param-map-row">
+        <span class="param-map-label">{{${i}}}</span>
+        <select class="config-select" data-param="${i}" style="flex:1;">${sel}</select>
+      </div>`
+    );
+  }
+}
+
+function applyConfig() {
+  if (!selectedNodeId) return;
+  const node = editor.getNodeFromId(selectedNodeId);
+  if (!node) return;
+  const type = node.name;
+  let newData = {...node.data};
+
+  if (type === 'wait') {
+    newData.hours = parseInt(document.getElementById('cfg_hours')?.value || 24);
+  } else if (type === 'condition') {
+    newData.condition_type = document.getElementById('cfg_condition_type')?.value || 'replied_within_X_hours';
+    const h = document.getElementById('cfg_hours');
+    if (h) newData.hours = parseInt(h.value || 24);
+  } else if (type === 'send_message') {
+    newData.template_name = document.getElementById('cfg_template_name')?.value || '';
+    newData.template_language = document.getElementById('cfg_template_language')?.value || 'en_US';
+    newData.param_map = {};
+    document.querySelectorAll('#paramMapRows [data-param]').forEach(sel => {
+      if (sel.value) newData.param_map[sel.dataset.param] = sel.value;
+    });
+  }
+
+  editor.updateNodeDataFromId(selectedNodeId, newData);
+  // Refresh node HTML
+  const el = document.querySelector(`.drawflow-node[id="node-${selectedNodeId}"] .df-node-inner`);
+  if (el) el.outerHTML = nodeHtml(type, newData).replace('<div class="df-node-inner">', '<div class="df-node-inner">');
+  const nodeEl = document.querySelector(`.drawflow-node[id="node-${selectedNodeId}"] .drawflow_content_node`);
+  if (nodeEl) nodeEl.innerHTML = nodeHtml(type, newData);
+  showToast('Applied ✓', 'success');
+}
+
+function deleteSelectedNode() {
+  if (!selectedNodeId) return;
+  if (!confirm('Delete this node?')) return;
+  editor.removeNodeId(`node-${selectedNodeId}`);
+  document.getElementById('configPanel').classList.remove('open');
+  selectedNodeId = null;
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+async function saveCanvas() {
+  const name = document.getElementById('flowNameInput').value.trim();
+  const canvasData = JSON.stringify(editor.export());
+  const btn = document.getElementById('btnSave');
+  btn.textContent = 'Saving…';
+  try {
+    const resp = await fetch(`/api/flows/${FLOW_ID}/save`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, canvas_data: canvasData})
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showToast('Flow saved', 'success');
+    } else {
+      showToast(data.error || 'Save failed', 'error');
+    }
+  } catch(e) {
+    showToast('Network error', 'error');
+  } finally {
+    btn.innerHTML = '<i class="fas fa-save"></i> Save';
+  }
+}
+
+// ── Activate / Pause ──────────────────────────────────────────────────────────
+async function toggleActive() {
+  const isActive = document.getElementById('statusBadge').textContent.trim() === 'Active';
+  const endpoint = isActive ? 'pause' : 'activate';
+  // Save first
+  await saveCanvas();
+  const resp = await fetch(`/api/flows/${FLOW_ID}/${endpoint}`, {method: 'POST'});
+  const data = await resp.json();
+  if (data.success) {
+    location.reload();
+  } else {
+    showToast(data.error || 'Action failed', 'error');
+  }
+}
+
+// ── Load existing canvas ──────────────────────────────────────────────────────
+{% if flow.canvas_data %}
+try {
+  const saved = {{ flow.canvas_data | tojson }};
+  editor.import(JSON.parse(saved));
+} catch(e) {
+  console.warn('Could not load saved canvas:', e);
+}
+{% endif %}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast-msg toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// Keyboard shortcut: Ctrl+S / Cmd+S
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCanvas(); }
+});
+</script>
+{% endblock %}

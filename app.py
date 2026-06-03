@@ -20,6 +20,10 @@ from utils.rate_limiter import RateLimiter, MessageQueue
 from utils.background_scheduler import schedule_message_job, get_scheduled_jobs, cancel_job
 from utils.auth import UserManager
 from utils.database import Database
+from utils.flow_engine import (
+    start_flow_engine, enroll_participant as flow_enroll_participant,
+    trigger_immediate_recheck, get_flow_first_step_key, build_trigger_context
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -355,6 +359,9 @@ def _start_abandoned_cart_checker():
 
 # Start abandoned-cart background checker
 _start_abandoned_cart_checker()
+
+# Start flow engine
+start_flow_engine(db, message_queue)
 
 
 # ============================================================
@@ -1266,38 +1273,306 @@ def activity_log_page():
 @app.route("/automation", methods=["GET"])
 @login_required
 def automation_page():
-    """Automation settings — configure order/fulfillment/cart WhatsApp messages."""
-    settings = db.get_automation_settings(current_user.id)
+    """Legacy automation page — redirect to Flows."""
+    return redirect(url_for('flows_page'))
 
-    # Fetch recent automation activity
-    recent_logs = []
+
+# ============================================================
+# FLOWS
+# ============================================================
+
+def _parse_drawflow_canvas(canvas_data_str):
+    """Parse Drawflow.export() JSON into a list of flow_step dicts."""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM activity_log
-                WHERE user_id = ? AND action LIKE 'Automation:%'
-                ORDER BY timestamp DESC
-                LIMIT 30
-            """, (current_user.id,))
-            recent_logs = [dict(r) for r in cursor.fetchall()]
+        canvas = json.loads(canvas_data_str)
+        nodes = canvas['drawflow']['Home']['data']
     except Exception as e:
-        logger.warning(f"Could not fetch automation logs: {e}")
+        raise ValueError(f"Invalid canvas JSON: {e}")
 
-    # Fetch WhatsApp templates for the dropdown hint
+    def first_connection(output_obj):
+        if not output_obj:
+            return None
+        connections = output_obj.get('connections', [])
+        return str(connections[0]['node']) if connections else None
+
+    steps = []
+    for node_id, node in nodes.items():
+        step_type = node.get('name', '')
+        config = node.get('data', {})
+        outputs = node.get('outputs', {})
+
+        if step_type == 'condition':
+            next_yes = first_connection(outputs.get('output_1'))
+            next_no = first_connection(outputs.get('output_2'))
+        else:
+            next_yes = first_connection(outputs.get('output_1'))
+            next_no = None
+
+        steps.append({
+            'step_key': str(node_id),
+            'step_type': step_type,
+            'config': config,
+            'next_yes': next_yes,
+            'next_no': next_no,
+        })
+
+    return steps
+
+
+def _validate_flow_steps(steps):
+    """Validate parsed flow steps. Returns (ok, error_message)."""
+    triggers = [s for s in steps if s['step_type'] == 'trigger']
+    if len(triggers) != 1:
+        return False, "Flow must have exactly one Trigger node"
+    sends = [s for s in steps if s['step_type'] == 'send_message']
+    if not sends:
+        return False, "Flow must have at least one Send Message node"
+    for s in steps:
+        if s['step_type'] == 'condition' and (not s['next_yes'] or not s['next_no']):
+            return False, "All Condition nodes must have both Yes and No branches connected"
+    # Cycle detection via DFS
+    step_map = {s['step_key']: s for s in steps}
+    trigger = triggers[0]
+    visited, stack = set(), [trigger['step_key']]
+    while stack:
+        key = stack.pop()
+        if key in visited:
+            return False, "Flow contains a cycle"
+        visited.add(key)
+        node = step_map.get(key)
+        if node:
+            if node.get('next_yes'):
+                stack.append(node['next_yes'])
+            if node.get('next_no'):
+                stack.append(node['next_no'])
+    return True, None
+
+
+def _maybe_migrate_automation_to_flows(user_id):
+    """One-time migration: create default flows from automation_settings if no flows exist yet."""
+    if db.get_user_flows(user_id):
+        return
+    settings = db.get_automation_settings(user_id)
+    trigger_map = {
+        'order_confirmation': 'Order Confirmation',
+        'fulfillment': 'Order Dispatched',
+        'abandoned_cart': 'Abandoned Cart Recovery',
+    }
+    node_id = 1
+    for event_type, flow_name in trigger_map.items():
+        s = settings.get(event_type, {})
+        template_name = (s.get('template_name') or '').strip()
+        if not template_name:
+            continue
+        delay_hours = int(s.get('delay_hours') or 0)
+
+        # Build minimal Drawflow canvas JSON
+        nodes = {}
+        # Trigger node
+        trigger_key = str(node_id)
+        nodes[trigger_key] = {
+            'id': node_id, 'name': 'trigger',
+            'data': {'trigger_type': event_type},
+            'inputs': {},
+            'outputs': {'output_1': {'connections': []}},
+            'pos_x': 100, 'pos_y': 200,
+        }
+        node_id += 1
+        prev_key = trigger_key
+
+        # Optional wait node
+        if delay_hours > 0:
+            wait_key = str(node_id)
+            nodes[wait_key] = {
+                'id': node_id, 'name': 'wait',
+                'data': {'hours': delay_hours},
+                'inputs': {'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
+                'outputs': {'output_1': {'connections': []}},
+                'pos_x': 350, 'pos_y': 200,
+            }
+            nodes[prev_key]['outputs']['output_1']['connections'].append({'node': wait_key, 'output': 'input_1'})
+            node_id += 1
+            prev_key = wait_key
+
+        # Send message node
+        msg_key = str(node_id)
+        nodes[msg_key] = {
+            'id': node_id, 'name': 'send_message',
+            'data': {
+                'template_name': template_name,
+                'template_language': s.get('template_language') or 'en_US',
+                'param_map': {},
+            },
+            'inputs': {'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
+            'outputs': {'output_1': {'connections': []}},
+            'pos_x': 600, 'pos_y': 200,
+        }
+        nodes[prev_key]['outputs']['output_1']['connections'].append({'node': msg_key, 'output': 'input_1'})
+        node_id += 1
+        prev_key = msg_key
+
+        # Exit node
+        exit_key = str(node_id)
+        nodes[exit_key] = {
+            'id': node_id, 'name': 'exit',
+            'data': {},
+            'inputs': {'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
+            'outputs': {},
+            'pos_x': 850, 'pos_y': 200,
+        }
+        nodes[prev_key]['outputs']['output_1']['connections'].append({'node': exit_key, 'output': 'input_1'})
+        node_id += 1
+
+        canvas_data = json.dumps({'drawflow': {'Home': {'data': nodes}}})
+        flow_id = db.create_flow(user_id, flow_name, event_type)
+        db.update_flow(flow_id, canvas_data=canvas_data)
+        parsed_steps = _parse_drawflow_canvas(canvas_data)
+        db.replace_flow_steps(flow_id, parsed_steps)
+        if s.get('enabled'):
+            db.update_flow(flow_id, status='active')
+
+    logger.info(f"Migrated automation_settings → flows for user {user_id}")
+
+
+@app.route("/flows")
+@login_required
+def flows_page():
+    _maybe_migrate_automation_to_flows(current_user.id)
+    flows = db.get_user_flows(current_user.id)
+    for flow in flows:
+        counts = db.get_flow_participant_counts(flow['id'])
+        flow['active_count'] = counts.get('active', 0)
+        flow['completed_count'] = counts.get('completed', 0)
+        flow['total_count'] = sum(counts.values())
+    return render_template('flows.html', flows=flows)
+
+
+@app.route("/flows/<int:flow_id>")
+@login_required
+def flow_editor_page(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        flash("Flow not found", "error")
+        return redirect(url_for('flows_page'))
+    steps = db.get_flow_steps(flow_id)
     try:
-        from utils.whatsapp import get_templates as _get_tpl
-        wa_templates = [t['name'] for t in _get_tpl(WABA_ID)
-                        if t.get('status') == 'APPROVED']
+        wa_templates = [t for t in get_templates(WABA_ID) if t.get('status') == 'APPROVED']
     except Exception:
         wa_templates = []
+    return render_template('flow_editor.html', flow=flow, steps=steps, wa_templates=wa_templates)
 
-    return render_template(
-        'automation.html',
-        settings=settings,
-        recent_logs=recent_logs,
-        wa_templates=wa_templates
-    )
+
+@app.route("/api/flows", methods=["POST"])
+@login_required
+def api_create_flow():
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    trigger_type = (data.get('trigger_type') or '').strip()
+    if not name or not trigger_type:
+        return jsonify({'success': False, 'error': 'name and trigger_type required'}), 400
+    flow_id = db.create_flow(current_user.id, name, trigger_type)
+    return jsonify({'success': True, 'flow_id': flow_id})
+
+
+@app.route("/api/flows/<int:flow_id>/save", methods=["POST"])
+@login_required
+def api_save_flow(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    data = request.json or {}
+    canvas_data = data.get('canvas_data', '')
+    name = (data.get('name') or '').strip()
+    try:
+        steps = _parse_drawflow_canvas(canvas_data)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    ok, err = _validate_flow_steps(steps)
+    if not ok:
+        return jsonify({'success': False, 'error': err}), 400
+    db.update_flow(flow_id, name=name or None, canvas_data=canvas_data)
+    db.replace_flow_steps(flow_id, steps)
+    return jsonify({'success': True})
+
+
+@app.route("/api/flows/<int:flow_id>/activate", methods=["POST"])
+@login_required
+def api_activate_flow(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    steps = db.get_flow_steps(flow_id)
+    if not steps:
+        return jsonify({'success': False, 'error': 'Save the flow before activating'}), 400
+    ok, err = _validate_flow_steps([{'step_key': s['step_key'], 'step_type': s['step_type'],
+                                      'next_yes': s['next_yes'], 'next_no': s['next_no'],
+                                      'config': json.loads(s['config'] or '{}')} for s in steps])
+    if not ok:
+        return jsonify({'success': False, 'error': err}), 400
+    db.update_flow(flow_id, status='active')
+    return jsonify({'success': True})
+
+
+@app.route("/api/flows/<int:flow_id>/pause", methods=["POST"])
+@login_required
+def api_pause_flow(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    db.update_flow(flow_id, status='paused')
+    return jsonify({'success': True})
+
+
+@app.route("/api/flows/<int:flow_id>", methods=["DELETE"])
+@login_required
+def api_delete_flow(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    db.delete_flow(flow_id)
+    return jsonify({'success': True})
+
+
+@app.route("/api/flows/<int:flow_id>/participants")
+@login_required
+def api_flow_participants(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    participants = db.get_flow_participants(flow_id)
+    counts = db.get_flow_participant_counts(flow_id)
+    return jsonify({'success': True, 'participants': participants, 'counts': counts})
+
+
+@app.route("/api/flows/<int:flow_id>/enroll", methods=["POST"])
+@login_required
+def api_enroll_flow(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or flow['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    if flow['status'] != 'active':
+        return jsonify({'success': False, 'error': 'Flow must be active to enroll customers'}), 400
+    data = request.json or {}
+    segment_type = data.get('segment_type', 'has_phone')
+    first_step = get_flow_first_step_key(db, flow_id)
+    if not first_step:
+        return jsonify({'success': False, 'error': 'Flow has no steps'}), 400
+    customers = db.get_segment_customers(current_user.id, segment_type)
+    enrolled, skipped = 0, 0
+    for c in customers:
+        phone = c.get('phone')
+        if not phone:
+            skipped += 1
+            continue
+        ctx = {
+            'first_name': c.get('first_name') or (c.get('email', '').split('@')[0]),
+        }
+        pid = flow_enroll_participant(db, flow_id, phone, ctx, first_step)
+        if pid:
+            enrolled += 1
+        else:
+            skipped += 1
+    return jsonify({'success': True, 'enrolled': enrolled, 'skipped': skipped})
 
 
 @app.route("/api/automation-settings", methods=["POST"])
@@ -1695,12 +1970,14 @@ def process_message_status(status_data):
             db.update_message_engagement(message_id, "delivered", timestamp)
             if recipient_id:
                 db.update_customer_message_stats(recipient_id, "sent")
+            trigger_immediate_recheck(db, message_id, 'delivered_at', timestamp or datetime.now().isoformat())
             logger.info(f"✅ Delivered status processed")
         elif status == "read":
             logger.info(f"👁️ Processing read status for message: {message_id}")
             db.update_message_engagement(message_id, "read", timestamp)
             if recipient_id:
                 db.update_customer_message_stats(recipient_id, "read")
+            trigger_immediate_recheck(db, message_id, 'read_at', timestamp or datetime.now().isoformat())
             logger.info(f"✅ Read status processed")
         elif status == "failed":
             error = status_data.get("errors", [{}])[0]
@@ -1749,6 +2026,7 @@ def process_incoming_message(message_data):
             original_message_id = context["id"]
             logger.info(f"💬 Reply with context to message: {original_message_id}")
             db.update_message_engagement(original_message_id, "replied", timestamp, reply_text)
+            trigger_immediate_recheck(db, original_message_id, 'replied_at', timestamp or datetime.now().isoformat())
             logger.info(f"✅ Reply tracking updated for: {original_message_id}")
         else:
             # No context - it's a regular message, try to match by phone number
@@ -1912,11 +2190,22 @@ def shopify_cart_create():
             logger.info(f"✅ Abandoned cart stored: {cart_id} (user_id={user_id})")
             if not phone:
                 logger.warning(f"⚠️  Cart {cart_id} has no phone number - won't be able to send reminder")
+            else:
+                # Enroll in any active flows for abandoned_cart trigger
+                phone_e164 = _normalize_phone_webhook(phone)
+                if phone_e164:
+                    active_flows = db.get_active_flows_by_trigger(user_id, 'abandoned_cart')
+                    if active_flows:
+                        ctx = build_trigger_context('abandoned_cart', data)
+                        for flow in active_flows:
+                            first_step = get_flow_first_step_key(db, flow['id'])
+                            if first_step:
+                                flow_enroll_participant(db, flow['id'], phone_e164, ctx, first_step)
         else:
             logger.error("❌ No users found - cannot store cart")
-        
+
         return jsonify({"status": "ok"}), 200
-        
+
     except Exception as e:
         logger.error(f"❌ Error processing cart webhook: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -2061,6 +2350,17 @@ def shopify_order_create():
                                 if success else 'Automation: Order Confirmation Failed'),
                         details=f"Order {order_number_display} → {phone_e164}"
                     )
+
+            # Enroll in any active flows for order_confirmation trigger
+            phone_e164 = _normalize_phone_webhook(phone) if phone else None
+            if phone_e164:
+                active_flows = db.get_active_flows_by_trigger(user_id, 'order_confirmation')
+                if active_flows:
+                    ctx = build_trigger_context('order_confirmation', data)
+                    for flow in active_flows:
+                        first_step = get_flow_first_step_key(db, flow['id'])
+                        if first_step:
+                            flow_enroll_participant(db, flow['id'], phone_e164, ctx, first_step)
         else:
             logger.warning(f"⚠️ Order {order_db_id} has no phone — skipping confirmation")
 
@@ -2199,6 +2499,17 @@ def shopify_fulfillment():
                                 if success else 'Automation: Dispatch Notification Failed'),
                         details=f"Order {order_number_display} → {phone_e164}, tracking={tracking_number}"
                     )
+
+            # Enroll in any active flows for fulfillment trigger
+            phone_e164 = _normalize_phone_webhook(phone) if phone else None
+            if phone_e164:
+                active_flows = db.get_active_flows_by_trigger(user_id, 'fulfillment')
+                if active_flows:
+                    ctx = build_trigger_context('fulfillment', data)
+                    for flow in active_flows:
+                        first_step = get_flow_first_step_key(db, flow['id'])
+                        if first_step:
+                            flow_enroll_participant(db, flow['id'], phone_e164, ctx, first_step)
         else:
             logger.warning("⚠️ Fulfillment webhook has no phone — skipping notification")
 

@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}Flows - WhatsApp Dashboard{% endblock %}
+{% block page_title %}Flows{% endblock %}
+
+{% block head %}
+<style>
+  .flow-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
+  }
+  .flow-card:hover {
+    border-color: rgba(212,168,75,0.3);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+  }
+  .flow-name { font-weight: 600; font-size: 1rem; color: var(--text); }
+  .flow-meta { color: var(--text-muted); font-size: 0.83rem; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.28rem 0.85rem; border-radius: 20px;
+    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.01em;
+  }
+  .status-active    { background: rgba(22,163,74,0.12);  color: #15803D; }
+  .status-paused    { background: rgba(234,179,8,0.12);  color: #A16207; }
+  .status-draft     { background: rgba(100,116,139,0.12); color: var(--text-muted); }
+
+  .trigger-badge {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.7rem; border-radius: 8px;
+    font-size: 0.75rem; font-weight: 500;
+    background: rgba(212,168,75,0.1); color: var(--gold);
+    border: 1px solid rgba(212,168,75,0.2);
+  }
+
+  .stat-mini { text-align: center; }
+  .stat-mini .num { font-size: 1.3rem; font-weight: 700; color: var(--text); }
+  .stat-mini .lbl { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  .btn-action {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.4rem 0.9rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 500; border: none; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-edit    { background: rgba(212,168,75,0.12); color: var(--gold); }
+  .btn-edit:hover { background: rgba(212,168,75,0.22); }
+  .btn-activate { background: rgba(22,163,74,0.12); color: #15803D; }
+  .btn-activate:hover { background: rgba(22,163,74,0.22); }
+  .btn-pause   { background: rgba(234,179,8,0.12); color: #A16207; }
+  .btn-pause:hover { background: rgba(234,179,8,0.22); }
+  .btn-delete  { background: rgba(239,68,68,0.1); color: #DC2626; }
+  .btn-delete:hover { background: rgba(239,68,68,0.18); }
+
+  .empty-state {
+    text-align: center; padding: 4rem 2rem; color: var(--text-muted);
+  }
+  .empty-state i { font-size: 3rem; margin-bottom: 1rem; color: var(--text-dim); }
+  .empty-state h5 { color: var(--text); margin-bottom: 0.5rem; }
+
+  /* Modal */
+  .modal-dark .modal-content {
+    background: #141414; border: 1px solid var(--border); border-radius: 14px;
+  }
+  .modal-dark .modal-header {
+    border-bottom: 1px solid var(--border); padding: 1.25rem 1.5rem;
+  }
+  .modal-dark .modal-footer { border-top: 1px solid var(--border); }
+  .modal-dark .modal-title { color: var(--text); font-weight: 600; }
+  .modal-dark .btn-close { filter: invert(1) brightness(0.7); }
+
+  .form-label-dark { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
+  .input-dark {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 0.55rem 0.85rem; width: 100%;
+    font-size: 0.9rem;
+  }
+  .input-dark:focus { outline: none; border-color: var(--gold); background: rgba(255,255,255,0.06); }
+  .input-dark option { background: #141414; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+  <div>
+    <div class="page-title"><i class="fas fa-project-diagram me-2" style="color:var(--gold);"></i>Flows</div>
+    <div class="page-subtitle">Multi-step automated WhatsApp journeys triggered by customer events</div>
+  </div>
+  <button class="btn-gold" onclick="openNewFlowModal()">
+    <i class="fas fa-plus me-2"></i>New Flow
+  </button>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible fade show" role="alert">
+      {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% if flows %}
+  {% for flow in flows %}
+  <div class="flow-card" id="flow-card-{{ flow.id }}">
+    <div class="row align-items-center g-3">
+
+      <div class="col-lg-5">
+        <div class="flow-name mb-1">{{ flow.name }}</div>
+        <div class="flow-meta d-flex align-items-center gap-2 flex-wrap mt-1">
+          <span class="trigger-badge">
+            {% if flow.trigger_type == 'order_confirmation' %}
+              <i class="fas fa-shopping-cart"></i> Order Placed
+            {% elif flow.trigger_type == 'fulfillment' %}
+              <i class="fas fa-truck"></i> Order Dispatched
+            {% elif flow.trigger_type == 'abandoned_cart' %}
+              <i class="fas fa-shopping-basket"></i> Abandoned Cart
+            {% else %}
+              <i class="fas fa-hand-pointer"></i> Manual
+            {% endif %}
+          </span>
+          <span class="status-pill status-{{ flow.status }}">
+            {% if flow.status == 'active' %}<i class="fas fa-circle" style="font-size:0.5rem;"></i> Active
+            {% elif flow.status == 'paused' %}<i class="fas fa-pause" style="font-size:0.7rem;"></i> Paused
+            {% else %}<i class="fas fa-pencil-alt" style="font-size:0.7rem;"></i> Draft
+            {% endif %}
+          </span>
+        </div>
+        <div class="flow-meta mt-1">
+          <i class="fas fa-calendar me-1"></i>{{ flow.created_at[:10] }}
+        </div>
+      </div>
+
+      <div class="col-lg-3">
+        <div class="row g-2 text-center">
+          <div class="col-4">
+            <div class="stat-mini">
+              <div class="num">{{ flow.active_count }}</div>
+              <div class="lbl">Active</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="stat-mini">
+              <div class="num">{{ flow.completed_count }}</div>
+              <div class="lbl">Done</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="stat-mini">
+              <div class="num">{{ flow.total_count }}</div>
+              <div class="lbl">Total</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4 d-flex gap-2 flex-wrap justify-content-lg-end">
+        <a href="{{ url_for('flow_editor_page', flow_id=flow.id) }}" class="btn-action btn-edit">
+          <i class="fas fa-edit"></i> Edit
+        </a>
+        {% if flow.status == 'active' %}
+        <button class="btn-action btn-pause" onclick="pauseFlow({{ flow.id }})">
+          <i class="fas fa-pause"></i> Pause
+        </button>
+        {% else %}
+        <button class="btn-action btn-activate" onclick="activateFlow({{ flow.id }})">
+          <i class="fas fa-play"></i> Activate
+        </button>
+        {% endif %}
+        <button class="btn-action btn-delete" onclick="deleteFlow({{ flow.id }}, '{{ flow.name | e }}')">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty-state">
+    <i class="fas fa-project-diagram"></i>
+    <h5>No flows yet</h5>
+    <p>Create your first flow to send automated multi-step WhatsApp journeys to customers.</p>
+    <button class="btn-gold mt-2" onclick="openNewFlowModal()">
+      <i class="fas fa-plus me-2"></i>Create your first flow
+    </button>
+  </div>
+{% endif %}
+
+
+<!-- New Flow Modal -->
+<div class="modal fade modal-dark" id="newFlowModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2" style="color:var(--gold);"></i>New Flow</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <div class="mb-3">
+          <label class="form-label-dark">Flow Name</label>
+          <input type="text" id="newFlowName" class="input-dark" placeholder="e.g. Post-Purchase Follow-up">
+        </div>
+        <div class="mb-3">
+          <label class="form-label-dark">Trigger</label>
+          <select id="newFlowTrigger" class="input-dark">
+            <option value="order_confirmation">Order Placed (Shopify)</option>
+            <option value="fulfillment">Order Dispatched (Shopify)</option>
+            <option value="abandoned_cart">Abandoned Cart</option>
+            <option value="manual">Manual Enrollment</option>
+          </select>
+        </div>
+        <div id="newFlowError" class="text-danger small mt-2" style="display:none;"></div>
+      </div>
+      <div class="modal-footer gap-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn-gold" onclick="createFlow()">
+          <i class="fas fa-arrow-right me-1"></i>Create & Edit
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function openNewFlowModal() {
+  document.getElementById('newFlowName').value = '';
+  document.getElementById('newFlowError').style.display = 'none';
+  new bootstrap.Modal(document.getElementById('newFlowModal')).show();
+}
+
+async function createFlow() {
+  const name = document.getElementById('newFlowName').value.trim();
+  const trigger_type = document.getElementById('newFlowTrigger').value;
+  const errEl = document.getElementById('newFlowError');
+  if (!name) { errEl.textContent = 'Please enter a flow name'; errEl.style.display = ''; return; }
+  errEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/flows', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, trigger_type})
+    });
+    const data = await resp.json();
+    if (data.success) {
+      window.location.href = `/flows/${data.flow_id}`;
+    } else {
+      errEl.textContent = data.error || 'Failed to create flow';
+      errEl.style.display = '';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error';
+    errEl.style.display = '';
+  }
+}
+
+async function activateFlow(flowId) {
+  const resp = await fetch(`/api/flows/${flowId}/activate`, {method: 'POST'});
+  const data = await resp.json();
+  if (data.success) location.reload();
+  else showToast(data.error || 'Failed to activate', 'error');
+}
+
+async function pauseFlow(flowId) {
+  const resp = await fetch(`/api/flows/${flowId}/pause`, {method: 'POST'});
+  const data = await resp.json();
+  if (data.success) location.reload();
+  else showToast(data.error || 'Failed to pause', 'error');
+}
+
+async function deleteFlow(flowId, flowName) {
+  if (!confirm(`Delete flow "${flowName}"? This will also remove all participant data.`)) return;
+  const resp = await fetch(`/api/flows/${flowId}`, {method: 'DELETE'});
+  const data = await resp.json();
+  if (data.success) {
+    document.getElementById(`flow-card-${flowId}`)?.remove();
+    if (!document.querySelector('.flow-card')) location.reload();
+  } else showToast(data.error || 'Failed to delete', 'error');
+}
+
+function showToast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `alert alert-${type === 'error' ? 'danger' : 'success'} position-fixed`;
+  el.style.cssText = 'bottom:1.5rem;right:1.5rem;z-index:9999;min-width:260px;';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+</script>
+{% endblock %}

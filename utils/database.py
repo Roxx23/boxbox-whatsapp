@@ -240,6 +240,79 @@ class Database:
                 )
             ''')
 
+            # Flows tables
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS flows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    trigger_type TEXT NOT NULL,
+                    status TEXT DEFAULT 'draft',
+                    canvas_data TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS flow_steps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flow_id INTEGER NOT NULL,
+                    step_key TEXT NOT NULL,
+                    step_type TEXT NOT NULL,
+                    config TEXT NOT NULL DEFAULT '{}',
+                    next_yes TEXT,
+                    next_no TEXT,
+                    UNIQUE(flow_id, step_key),
+                    FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS flow_participants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flow_id INTEGER NOT NULL,
+                    phone TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    current_step_key TEXT,
+                    next_action_at TEXT,
+                    context TEXT DEFAULT '{}',
+                    enrolled_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TEXT,
+                    exit_reason TEXT,
+                    UNIQUE(flow_id, phone),
+                    FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS flow_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flow_id INTEGER NOT NULL,
+                    flow_participant_id INTEGER NOT NULL,
+                    step_key TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    whatsapp_message_id TEXT,
+                    status TEXT DEFAULT 'sent',
+                    sent_at TEXT,
+                    delivered_at TEXT,
+                    read_at TEXT,
+                    replied_at TEXT,
+                    reply_text TEXT,
+                    FOREIGN KEY (flow_id) REFERENCES flows(id),
+                    FOREIGN KEY (flow_participant_id) REFERENCES flow_participants(id)
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_flow_messages_wamid
+                ON flow_messages(whatsapp_message_id)
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_flow_participants_active
+                ON flow_participants(status, next_action_at)
+            ''')
+
             # Add shopify_created_at column if it doesn't exist (migration for existing DBs)
             try:
                 cursor.execute('ALTER TABLE customers ADD COLUMN shopify_created_at TEXT')
@@ -1382,5 +1455,250 @@ class Database:
                     GROUP BY DATE(created_at)
                     ORDER BY date DESC
                 ''', (-days,))
-            
+
             return [dict(row) for row in cursor.fetchall()]
+
+    # ── Flow Methods ──────────────────────────────────────────────────────────
+
+    def create_flow(self, user_id, name, trigger_type):
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO flows (user_id, name, trigger_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+                (user_id, name, trigger_type, now, now)
+            )
+            return cursor.lastrowid
+
+    def get_flow(self, flow_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM flows WHERE id = ?', (flow_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_user_flows(self, user_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM flows WHERE user_id = ? ORDER BY created_at DESC',
+                (user_id,)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def update_flow(self, flow_id, name=None, status=None, canvas_data=None):
+        updates, params = [], []
+        if name is not None:
+            updates.append('name = ?'); params.append(name)
+        if status is not None:
+            updates.append('status = ?'); params.append(status)
+        if canvas_data is not None:
+            updates.append('canvas_data = ?'); params.append(canvas_data)
+        if not updates:
+            return
+        updates.append('updated_at = ?'); params.append(datetime.now().isoformat())
+        params.append(flow_id)
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                f'UPDATE flows SET {", ".join(updates)} WHERE id = ?', params
+            )
+
+    def delete_flow(self, flow_id):
+        with self.get_connection() as conn:
+            conn.cursor().execute('DELETE FROM flows WHERE id = ?', (flow_id,))
+
+    def get_active_flows_by_trigger(self, user_id, trigger_type):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM flows WHERE user_id = ? AND trigger_type = ? AND status = 'active'",
+                (user_id, trigger_type)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    # Flow Steps
+
+    def replace_flow_steps(self, flow_id, steps):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM flow_steps WHERE flow_id = ?', (flow_id,))
+            for s in steps:
+                cursor.execute(
+                    '''INSERT INTO flow_steps (flow_id, step_key, step_type, config, next_yes, next_no)
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (flow_id, s['step_key'], s['step_type'],
+                     json.dumps(s.get('config', {})),
+                     s.get('next_yes'), s.get('next_no'))
+                )
+
+    def get_flow_steps(self, flow_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM flow_steps WHERE flow_id = ?', (flow_id,))
+            return [dict(r) for r in cursor.fetchall()]
+
+    def get_flow_step(self, flow_id, step_key):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM flow_steps WHERE flow_id = ? AND step_key = ?',
+                (flow_id, str(step_key))
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    # Flow Participants
+
+    def enroll_flow_participant(self, flow_id, phone, context_dict, first_step_key):
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT OR IGNORE INTO flow_participants
+                   (flow_id, phone, current_step_key, next_action_at, context, enrolled_at)
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (flow_id, phone, str(first_step_key),
+                 now, json.dumps(context_dict), now)
+            )
+            if cursor.lastrowid:
+                return cursor.lastrowid
+            cursor.execute(
+                'SELECT id FROM flow_participants WHERE flow_id = ? AND phone = ?',
+                (flow_id, phone)
+            )
+            row = cursor.fetchone()
+            return row['id'] if row else None
+
+    def get_due_flow_participants(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT * FROM flow_participants
+                   WHERE status = 'active' AND next_action_at <= strftime('%Y-%m-%dT%H:%M:%S', 'now')
+                   ORDER BY next_action_at ASC LIMIT 100"""
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def update_participant_step(self, participant_id, step_key, next_action_at):
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                'UPDATE flow_participants SET current_step_key = ?, next_action_at = ? WHERE id = ?',
+                (str(step_key), next_action_at, participant_id)
+            )
+
+    def update_participant_next_action(self, participant_id, next_action_at):
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                'UPDATE flow_participants SET next_action_at = ? WHERE id = ?',
+                (next_action_at, participant_id)
+            )
+
+    def complete_participant(self, participant_id):
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                "UPDATE flow_participants SET status = 'completed', completed_at = ? WHERE id = ?",
+                (now, participant_id)
+            )
+
+    def exit_participant(self, participant_id, reason=None):
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                "UPDATE flow_participants SET status = 'exited', exit_reason = ?, completed_at = ? WHERE id = ?",
+                (reason, datetime.now().isoformat(), participant_id)
+            )
+
+    def set_participant_error(self, participant_id):
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                "UPDATE flow_participants SET status = 'error' WHERE id = ?",
+                (participant_id,)
+            )
+
+    def get_flow_participants(self, flow_id, status=None):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if status:
+                cursor.execute(
+                    'SELECT * FROM flow_participants WHERE flow_id = ? AND status = ? ORDER BY enrolled_at DESC',
+                    (flow_id, status)
+                )
+            else:
+                cursor.execute(
+                    'SELECT * FROM flow_participants WHERE flow_id = ? ORDER BY enrolled_at DESC',
+                    (flow_id,)
+                )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def get_flow_participant_by_id(self, participant_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM flow_participants WHERE id = ?', (participant_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    # Flow Messages
+
+    def add_flow_message(self, flow_id, participant_id, step_key, phone, wamid=None):
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO flow_messages
+                   (flow_id, flow_participant_id, step_key, phone, whatsapp_message_id, sent_at)
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (flow_id, participant_id, str(step_key), phone, wamid, now)
+            )
+            return cursor.lastrowid
+
+    def get_last_flow_message(self, participant_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM flow_messages WHERE flow_participant_id = ? ORDER BY sent_at DESC LIMIT 1',
+                (participant_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_flow_message_by_wamid(self, whatsapp_message_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM flow_messages WHERE whatsapp_message_id = ?',
+                (whatsapp_message_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_flow_message_status(self, whatsapp_message_id, field, value):
+        allowed = {'delivered_at', 'read_at', 'replied_at', 'reply_text', 'status'}
+        if field not in allowed:
+            return
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                f'UPDATE flow_messages SET {field} = ? WHERE whatsapp_message_id = ?',
+                (value, whatsapp_message_id)
+            )
+
+    def get_flow_participant_counts(self, flow_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT status, COUNT(*) as cnt FROM flow_participants
+                   WHERE flow_id = ? GROUP BY status''',
+                (flow_id,)
+            )
+            return {r['status']: r['cnt'] for r in cursor.fetchall()}
+
+    def customer_placed_order_since(self, phone, since_iso):
+        phone_clean = phone.lstrip('+')
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT id FROM shopify_orders
+                   WHERE (customer_phone = ? OR customer_phone = ?)
+                   AND created_at > ? LIMIT 1''',
+                (phone, phone_clean, since_iso)
+            )
+            return cursor.fetchone() is not None
