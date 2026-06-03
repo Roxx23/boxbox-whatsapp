@@ -1,495 +1,694 @@
 {% extends "base.html" %}
 {% block title %}{{ flow.name }} — Flow Editor{% endblock %}
+{% block page_title %}Flow Editor{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.css">
 <style>
-/* ── Layout ── */
-.editor-layout {
-  display: flex; flex-direction: column; height: calc(100vh - 56px);
-  margin: -1.5rem; overflow: hidden;
+/* ── Full-page layout ─────────────────────────────────── */
+.editor-root {
+  position: fixed;
+  left: 228px; top: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  z-index: 50;
 }
+@media (max-width: 768px) {
+  .editor-root { left: 0; top: 56px; }
+}
+
+/* ── Top bar ──────────────────────────────────────────── */
 .editor-topbar {
-  display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.25rem;
-  background: #0e0e0e; border-bottom: 1px solid var(--border); flex-shrink: 0;
-  flex-wrap: wrap;
+  height: 56px; flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0 1.25rem;
+  box-shadow: var(--shadow-xs);
 }
-.editor-body {
-  display: flex; flex: 1; overflow: hidden;
+.editor-topbar .divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+.flow-name-edit {
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 0.95rem;
+  color: var(--text); letter-spacing: -0.02em;
+  background: transparent; border: none; outline: none;
+  min-width: 140px; max-width: 260px;
+  padding: 0.3rem 0.5rem; border-radius: 6px;
+  transition: background 0.15s;
 }
-.node-palette {
-  width: 220px; flex-shrink: 0; background: #0e0e0e;
-  border-right: 1px solid var(--border); padding: 1rem 0.75rem;
-  overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;
+.flow-name-edit:hover { background: var(--surface2); }
+.flow-name-edit:focus { background: var(--surface2); outline: 2px solid rgba(37,211,102,0.4); }
+.status-chip {
+  padding: 0.22rem 0.65rem; border-radius: 20px;
+  font-size: 0.71rem; font-weight: 600; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 0.3rem;
 }
-.canvas-wrap {
-  flex: 1; position: relative; background: #0d0d0d;
-  background-image: radial-gradient(rgba(255,255,255,0.035) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-#drawflow { width: 100%; height: 100%; }
-.config-panel {
-  width: 300px; flex-shrink: 0; background: #0e0e0e;
-  border-left: 1px solid var(--border); padding: 1.25rem;
-  overflow-y: auto; display: none;
-}
-.config-panel.open { display: block; }
+.chip-active { background: rgba(37,211,102,0.1); color: #059669; border: 1px solid rgba(37,211,102,0.2); }
+.chip-paused { background: rgba(245,158,11,0.1); color: #B45309; border: 1px solid rgba(245,158,11,0.2); }
+.chip-draft  { background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); }
+.chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 
-/* ── Top bar ── */
-.flow-name-input {
-  background: transparent; border: none; color: var(--text);
-  font-size: 1rem; font-weight: 600; outline: none; min-width: 160px;
-  border-bottom: 1px solid transparent;
-}
-.flow-name-input:focus { border-bottom-color: var(--gold); }
-.status-badge {
-  padding: 0.25rem 0.7rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;
-}
-.status-badge.active    { background: rgba(22,163,74,0.12); color: #15803D; }
-.status-badge.paused    { background: rgba(234,179,8,0.12);  color: #A16207; }
-.status-badge.draft     { background: rgba(100,116,139,0.12); color: #94a3b8; }
-
+.topbar-spacer { flex: 1; }
 .btn-topbar {
   display: inline-flex; align-items: center; gap: 0.35rem;
-  padding: 0.4rem 1rem; border-radius: 8px; font-size: 0.82rem;
-  font-weight: 500; border: none; cursor: pointer; transition: all 0.15s;
+  padding: 0.38rem 0.875rem; border-radius: 8px;
+  font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer;
+  transition: all 0.15s; font-family: var(--font-body);
 }
-.btn-save     { background: rgba(212,168,75,0.15); color: var(--gold); }
-.btn-save:hover { background: rgba(212,168,75,0.28); }
-.btn-activate { background: rgba(22,163,74,0.12); color: #15803D; }
-.btn-activate:hover { background: rgba(22,163,74,0.22); }
-.btn-pause    { background: rgba(234,179,8,0.12); color: #A16207; }
-.btn-pause:hover { background: rgba(234,179,8,0.22); }
-.btn-back     { background: rgba(255,255,255,0.06); color: var(--text-muted); }
-.btn-back:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.btn-tb-back {
+  background: transparent; color: var(--text-muted);
+  border: 1.5px solid var(--border); text-decoration: none;
+}
+.btn-tb-back:hover { background: var(--surface2); color: var(--text); }
+.btn-tb-save {
+  background: transparent; color: var(--gold-dark);
+  border: 1.5px solid rgba(37,211,102,0.3);
+}
+.btn-tb-save:hover { background: rgba(37,211,102,0.07); border-color: var(--gold); }
+.btn-tb-activate {
+  background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
+  color: #fff; border: none;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 6px rgba(37,211,102,0.28);
+}
+.btn-tb-activate:hover { filter: brightness(1.06); box-shadow: 0 4px 14px rgba(37,211,102,0.35); }
+.btn-tb-pause {
+  background: rgba(245,158,11,0.1); color: #B45309;
+  border: 1.5px solid rgba(245,158,11,0.25);
+}
+.btn-tb-pause:hover { background: rgba(245,158,11,0.18); }
 
-/* ── Node palette items ── */
-.palette-section { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;
-  letter-spacing: 0.06em; padding: 0.25rem 0.25rem 0.1rem; margin-top: 0.25rem; }
+/* ── Editor body ──────────────────────────────────────── */
+.editor-body {
+  display: flex; flex: 1; overflow: hidden; position: relative;
+}
+
+/* ── Node palette ─────────────────────────────────────── */
+.node-palette {
+  width: 210px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto; scrollbar-width: thin;
+  padding: 1rem 0.75rem;
+}
+.palette-section-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-dim);
+  padding: 0 0.25rem; margin-bottom: 0.4rem; margin-top: 0.75rem;
+}
+.palette-section-label:first-child { margin-top: 0; }
 .palette-node {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.6rem 0.75rem; border-radius: 9px; cursor: grab; user-select: none;
-  border: 1px solid var(--border); background: rgba(255,255,255,0.03);
-  font-size: 0.82rem; color: var(--text); transition: all 0.15s;
+  display: flex; align-items: center; gap: 0.65rem;
+  padding: 0.65rem 0.75rem; border-radius: 10px;
+  cursor: grab; user-select: none;
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  transition: all 0.15s; margin-bottom: 0.35rem;
 }
-.palette-node:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.14); }
-.palette-node:active { cursor: grabbing; }
-.node-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-
-/* ── Drawflow node cards ── */
-.df-node-inner {
-  padding: 0.6rem 0.75rem; min-width: 180px; max-width: 240px; border-radius: 10px;
-  border: 1.5px solid rgba(255,255,255,0.08); font-size: 0.82rem; color: var(--text);
-  background: #161616; cursor: default;
+.palette-node:hover {
+  border-color: rgba(37,211,102,0.3);
+  background: rgba(37,211,102,0.04);
+  box-shadow: var(--shadow-xs);
+  transform: translateX(2px);
 }
-.df-node-inner .node-header {
-  display: flex; align-items: center; gap: 0.5rem;
-  font-weight: 600; margin-bottom: 0.3rem; font-size: 0.82rem;
+.palette-node:active { cursor: grabbing; transform: scale(0.97); }
+.palette-icon {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; flex-shrink: 0;
 }
-.df-node-inner .node-body { color: var(--text-muted); font-size: 0.78rem; }
-/* Accent colours per type */
-.node-trigger   .df-node-inner { border-color: rgba(37,211,102,0.35); }
-.node-trigger   .node-dot-hdr  { color: #25D366; }
-.node-send_message .df-node-inner { border-color: rgba(99,102,241,0.4); }
-.node-send_message .node-dot-hdr  { color: #818CF8; }
-.node-wait      .df-node-inner { border-color: rgba(251,191,36,0.35); }
-.node-wait      .node-dot-hdr  { color: #FCD34D; }
-.node-condition .df-node-inner { border-color: rgba(167,139,250,0.4); }
-.node-condition .node-dot-hdr  { color: #A78BFA; }
-.node-exit      .df-node-inner { border-color: rgba(239,68,68,0.3); }
-.node-exit      .node-dot-hdr  { color: #F87171; }
-
-/* Override Drawflow connection line colours */
-.drawflow .connection .main-path { stroke: rgba(212,168,75,0.5); stroke-width: 2.5; }
-.drawflow .connection .main-path:hover { stroke: rgba(212,168,75,0.9); }
-.drawflow .selected .main-path { stroke: var(--gold); }
-/* Port dots */
-.drawflow-node .input, .drawflow-node .output {
-  background: rgba(212,168,75,0.6); border: 2px solid rgba(212,168,75,0.3);
+.palette-info { flex: 1; min-width: 0; }
+.palette-name { font-size: 0.8rem; font-weight: 600; color: var(--text); }
+.palette-desc { font-size: 0.7rem; color: var(--text-dim); }
+.palette-grip { color: var(--text-dim); font-size: 0.7rem; }
+.palette-hint {
+  margin-top: auto; padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.7rem; color: var(--text-dim); line-height: 1.5;
+  text-align: center;
 }
-.drawflow-node.selected { outline: 2px solid rgba(212,168,75,0.4); outline-offset: 3px; }
 
-/* Condition output labels */
-.drawflow-node.node-condition .output_1::after { content: 'Yes'; position: absolute;
-  right: 12px; top: -8px; font-size: 0.65rem; color: #4ade80; font-weight: 600; }
-.drawflow-node.node-condition .output_2::after { content: 'No'; position: absolute;
-  right: 16px; top: -8px; font-size: 0.65rem; color: #f87171; font-weight: 600; }
+/* ── Canvas ───────────────────────────────────────────── */
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden;
+  background: #F4F5F7;
+  background-image:
+    radial-gradient(circle, rgba(13,17,23,0.09) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+#drawflow { width: 100%; height: 100%; }
 
-/* ── Config panel ── */
+/* ── Drawflow overrides (light theme) ─────────────────── */
+.drawflow { background: transparent !important; }
+.drawflow .drawflow-node {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+.drawflow .drawflow-node.selected {
+  box-shadow: none !important;
+}
+.drawflow .drawflow-node .drawflow_content_node {
+  padding: 0 !important;
+}
+/* Node cards (the actual visual card) */
+.df-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 11px;
+  min-width: 200px; max-width: 250px;
+  box-shadow: 0 1px 4px rgba(13,17,23,0.07), 0 0 0 0 rgba(37,211,102,0);
+  overflow: hidden;
+  transition: box-shadow 0.18s, border-color 0.18s;
+}
+.drawflow-node.selected .df-card {
+  border-color: rgba(37,211,102,0.5) !important;
+  box-shadow: 0 0 0 3px rgba(37,211,102,0.14), 0 2px 8px rgba(13,17,23,0.1) !important;
+}
+.df-card-accent {
+  height: 3px;
+  width: 100%;
+}
+.df-card-body {
+  padding: 0.65rem 0.85rem;
+}
+.df-card-header {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;
+}
+.df-card-icon {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; flex-shrink: 0;
+}
+.df-card-title {
+  font-size: 0.78rem; font-weight: 700;
+  color: var(--text); letter-spacing: -0.01em;
+  font-family: var(--font-display);
+}
+.df-card-desc {
+  font-size: 0.73rem; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Node type colours */
+.accent-trigger    { background: #25D366; }
+.accent-send       { background: #2563EB; }
+.accent-wait       { background: #F59E0B; }
+.accent-condition  { background: #7C3AED; }
+.accent-exit       { background: #EF4444; }
+.icon-trigger   { background: rgba(37,211,102,0.1); color: #059669; }
+.icon-send      { background: rgba(37,99,235,0.1);  color: #2563EB; }
+.icon-wait      { background: rgba(245,158,11,0.1); color: #B45309; }
+.icon-condition { background: rgba(124,58,237,0.1); color: #7C3AED; }
+.icon-exit      { background: rgba(239,68,68,0.1);  color: #DC2626; }
+
+/* Ports */
+.drawflow .drawflow-node .input,
+.drawflow .drawflow-node .output {
+  background: var(--surface) !important;
+  border: 2px solid #CBD5E1 !important;
+  width: 12px !important; height: 12px !important;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drawflow .drawflow-node .input:hover,
+.drawflow .drawflow-node .output:hover {
+  background: rgba(37,211,102,0.12) !important;
+  border-color: var(--gold) !important;
+}
+/* Connection lines */
+.drawflow .connection .main-path {
+  stroke: #25D366 !important;
+  stroke-width: 2px !important;
+  opacity: 0.7;
+}
+.drawflow .connection .main-path:hover,
+.drawflow .connection.selected .main-path {
+  stroke: #128C7E !important;
+  stroke-width: 2.5px !important;
+  opacity: 1;
+}
+/* Output label for condition node */
+.drawflow-node.node-condition .output_1::after {
+  content: 'Yes'; position: absolute;
+  right: 14px; top: -9px;
+  font-size: 0.6rem; color: #059669; font-weight: 700;
+  font-family: var(--font-body);
+}
+.drawflow-node.node-condition .output_2::after {
+  content: 'No'; position: absolute;
+  right: 16px; top: -9px;
+  font-size: 0.6rem; color: #DC2626; font-weight: 700;
+  font-family: var(--font-body);
+}
+
+/* ── Config panel ─────────────────────────────────────── */
+.config-panel {
+  width: 0; flex-shrink: 0; overflow: hidden;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  transition: width 0.22s cubic-bezier(0.4,0,0.2,1);
+  display: flex; flex-direction: column;
+}
+.config-panel.open { width: 296px; overflow-y: auto; }
+.config-panel-inner { padding: 1.25rem; min-width: 296px; }
 .config-panel-title {
-  font-weight: 600; font-size: 0.9rem; color: var(--text); margin-bottom: 1rem;
-  padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1.25rem; padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.config-panel-name {
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 0.9rem;
+  color: var(--text); letter-spacing: -0.015em;
   display: flex; align-items: center; gap: 0.5rem;
 }
+.config-panel-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 0.85rem; padding: 0.2rem;
+  transition: color 0.15s;
+}
+.config-panel-close:hover { color: var(--text); }
 .config-field { margin-bottom: 1rem; }
-.config-label { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.35rem; display: block; }
-.config-input, .config-select {
-  width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-  color: var(--text); border-radius: 7px; padding: 0.45rem 0.7rem; font-size: 0.84rem;
+.config-field .form-label { font-size: 0.77rem; margin-bottom: 0.3rem; }
+.config-hint { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.3rem; line-height: 1.45; }
+.config-hint code {
+  background: rgba(37,211,102,0.08); padding: 1px 4px;
+  border-radius: 4px; font-size: 0.88em; color: var(--gold-dark);
 }
-.config-input:focus, .config-select:focus {
-  outline: none; border-color: var(--gold); background: rgba(255,255,255,0.06);
-}
-.config-select option { background: #141414; }
-.config-hint { font-size: 0.73rem; color: var(--text-dim); margin-top: 0.25rem; }
 .param-map-row {
-  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.8rem;
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-bottom: 0.5rem; font-size: 0.8rem;
 }
-.param-map-label { color: var(--text-muted); white-space: nowrap; min-width: 44px; }
-.btn-apply-config {
-  width: 100%; padding: 0.5rem; border-radius: 8px;
-  background: rgba(212,168,75,0.15); color: var(--gold);
-  border: none; font-size: 0.84rem; font-weight: 500; cursor: pointer; margin-top: 0.5rem;
+.param-map-label {
+  font-family: monospace; font-size: 0.75rem;
+  color: var(--gold-dark); background: rgba(37,211,102,0.08);
+  padding: 2px 6px; border-radius: 4px; white-space: nowrap;
 }
-.btn-apply-config:hover { background: rgba(212,168,75,0.25); }
+.btn-apply {
+  width: 100%; padding: 0.5rem;
+  background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
+  border: none; border-radius: 8px; color: #fff;
+  font-size: 0.83rem; font-weight: 600; cursor: pointer;
+  margin-top: 0.25rem;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 6px rgba(37,211,102,0.25);
+  transition: filter 0.15s;
+  font-family: var(--font-body);
+}
+.btn-apply:hover { filter: brightness(1.06); }
 .btn-del-node {
-  width: 100%; padding: 0.45rem; border-radius: 8px; margin-top: 0.4rem;
-  background: rgba(239,68,68,0.1); color: #f87171;
-  border: none; font-size: 0.82rem; cursor: pointer;
+  width: 100%; padding: 0.45rem; margin-top: 0.5rem;
+  background: transparent; border: 1.5px solid rgba(239,68,68,0.25);
+  border-radius: 8px; color: #DC2626;
+  font-size: 0.8rem; cursor: pointer; transition: all 0.15s;
+  font-family: var(--font-body);
 }
-.btn-del-node:hover { background: rgba(239,68,68,0.18); }
+.btn-del-node:hover { background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.4); }
 
-/* Toast */
-.toast-msg {
+/* ── Toast ────────────────────────────────────────────── */
+.toast-pop {
   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
-  padding: 0.65rem 1.1rem; border-radius: 9px; font-size: 0.84rem;
-  animation: fadeInUp 0.2s ease;
+  padding: 0.6rem 1rem; border-radius: 10px;
+  font-size: 0.82rem; font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.2s ease;
+  font-family: var(--font-body);
 }
-.toast-success { background: rgba(22,163,74,0.15); color: #4ade80; border: 1px solid rgba(22,163,74,0.3); }
-.toast-error   { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
-@keyframes fadeInUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+.toast-ok  { background: #fff; border: 1px solid rgba(37,211,102,0.3); color: #059669; }
+.toast-err { background: #fff; border: 1px solid rgba(239,68,68,0.3); color: #DC2626; }
+@keyframes slideUp {
+  from { opacity:0; transform:translateY(8px); }
+  to   { opacity:1; transform:none; }
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="editor-layout">
+<div class="editor-root">
 
   <!-- Top bar -->
   <div class="editor-topbar">
-    <a href="{{ url_for('flows_page') }}" class="btn-topbar btn-back">
-      <i class="fas fa-arrow-left"></i> Flows
+    <a href="{{ url_for('flows_page') }}" class="btn-topbar btn-tb-back">
+      <i class="fas fa-arrow-left"></i>
     </a>
-    <input class="flow-name-input" id="flowNameInput" value="{{ flow.name }}" placeholder="Flow name" title="Click to rename">
-    <span class="status-badge {{ flow.status }}" id="statusBadge">
-      {% if flow.status == 'active' %}Active{% elif flow.status == 'paused' %}Paused{% else %}Draft{% endif %}
+    <div class="divider"></div>
+    <input
+      class="flow-name-edit"
+      id="flowNameInput"
+      value="{{ flow.name }}"
+      placeholder="Flow name"
+      title="Click to rename"
+      spellcheck="false"
+    >
+    <span class="status-chip chip-{{ flow.status }}" id="statusChip">
+      <span class="chip-dot"></span>
+      <span id="statusLabel">{{ flow.status.capitalize() }}</span>
     </span>
-    <div class="ms-auto d-flex gap-2 flex-wrap">
-      <button class="btn-topbar btn-save" id="btnSave" onclick="saveCanvas()">
-        <i class="fas fa-save"></i> Save
-      </button>
+    <div class="topbar-spacer"></div>
+    <button class="btn-topbar btn-tb-save" id="btnSave" onclick="saveCanvas()">
+      <i class="fas fa-save"></i> Save
+    </button>
+    <button
+      class="btn-topbar {% if flow.status == 'active' %}btn-tb-pause{% else %}btn-tb-activate{% endif %}"
+      id="btnToggle"
+      onclick="toggleActive()"
+    >
       {% if flow.status == 'active' %}
-      <button class="btn-topbar btn-pause" id="btnPause" onclick="toggleActive()">
         <i class="fas fa-pause"></i> Pause
-      </button>
       {% else %}
-      <button class="btn-topbar btn-activate" id="btnActivate" onclick="toggleActive()">
         <i class="fas fa-play"></i> Activate
-      </button>
       {% endif %}
-    </div>
+    </button>
   </div>
 
-  <!-- Body -->
+  <!-- Editor body -->
   <div class="editor-body">
 
     <!-- Node palette -->
     <div class="node-palette">
-      <div class="palette-section">Entry</div>
-      <div class="palette-node" draggable="true" ondragstart="drag(event,'trigger')" title="Flow starts here">
-        <span class="node-dot" style="background:#25D366;"></span> Trigger
+      <div class="palette-section-label">Trigger</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'trigger')">
+        <div class="palette-icon icon-trigger"><i class="fas fa-bolt"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Trigger</div>
+          <div class="palette-desc">Start of flow</div>
+        </div>
       </div>
-      <div class="palette-section">Actions</div>
+
+      <div class="palette-section-label">Actions</div>
       <div class="palette-node" draggable="true" ondragstart="drag(event,'send_message')">
-        <span class="node-dot" style="background:#818CF8;"></span> Send Message
+        <div class="palette-icon icon-send"><i class="fas fa-comment-alt"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Send Message</div>
+          <div class="palette-desc">WhatsApp template</div>
+        </div>
       </div>
       <div class="palette-node" draggable="true" ondragstart="drag(event,'wait')">
-        <span class="node-dot" style="background:#FCD34D;"></span> Wait / Delay
+        <div class="palette-icon icon-wait"><i class="fas fa-clock"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Wait / Delay</div>
+          <div class="palette-desc">Pause before next step</div>
+        </div>
       </div>
-      <div class="palette-section">Logic</div>
+
+      <div class="palette-section-label">Logic</div>
       <div class="palette-node" draggable="true" ondragstart="drag(event,'condition')">
-        <span class="node-dot" style="background:#A78BFA;"></span> Condition
+        <div class="palette-icon icon-condition"><i class="fas fa-code-branch"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Condition</div>
+          <div class="palette-desc">Branch Yes / No</div>
+        </div>
       </div>
       <div class="palette-node" draggable="true" ondragstart="drag(event,'exit')">
-        <span class="node-dot" style="background:#F87171;"></span> Exit Flow
+        <div class="palette-icon icon-exit"><i class="fas fa-flag-checkered"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Exit Flow</div>
+          <div class="palette-desc">End of journey</div>
+        </div>
       </div>
-      <div class="mt-auto pt-3" style="border-top:1px solid var(--border); margin-top:auto;">
-        <div style="font-size:0.7rem;color:var(--text-dim);">Drag nodes onto canvas. Click a node to configure it.</div>
+
+      <div class="palette-hint">
+        Drag nodes onto the canvas, then connect them by pulling from the output ports.
       </div>
     </div>
 
     <!-- Canvas -->
-    <div class="canvas-wrap" id="canvasWrap"
-         ondrop="drop(event)" ondragover="allowDrop(event)">
+    <div
+      class="canvas-wrap"
+      id="canvasWrap"
+      ondrop="drop(event)"
+      ondragover="allowDrop(event)"
+    >
       <div id="drawflow"></div>
     </div>
 
     <!-- Config panel -->
     <div class="config-panel" id="configPanel">
-      <div class="config-panel-title" id="configPanelTitle">
-        <span id="configNodeIcon"></span>
-        <span id="configNodeType">Node Config</span>
+      <div class="config-panel-inner">
+        <div class="config-panel-title">
+          <div class="config-panel-name" id="configPanelName">
+            <span id="configPanelIcon"></span>
+            <span id="configPanelType">Configure</span>
+          </div>
+          <button class="config-panel-close" onclick="closeConfigPanel()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div id="configBody"></div>
+        <button class="btn-apply mt-1" onclick="applyConfig()">
+          <i class="fas fa-check me-1"></i> Apply Changes
+        </button>
+        <button class="btn-del-node" onclick="deleteSelectedNode()">
+          <i class="fas fa-trash-alt me-1"></i> Delete Node
+        </button>
       </div>
-      <div id="configPanelBody"></div>
-      <button class="btn-apply-config" onclick="applyConfig()">
-        <i class="fas fa-check me-1"></i> Apply
-      </button>
-      <button class="btn-del-node" onclick="deleteSelectedNode()">
-        <i class="fas fa-trash me-1"></i> Delete Node
-      </button>
     </div>
 
-  </div>
-</div>
+  </div><!-- end editor-body -->
+</div><!-- end editor-root -->
+{% endblock %}
 
+{% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.js"></script>
 <script>
-const FLOW_ID = {{ flow.id }};
+const FLOW_ID     = {{ flow.id }};
 const FLOW_STATUS = '{{ flow.status }}';
+const TRIG_TYPE   = '{{ flow.trigger_type }}';
 const WA_TEMPLATES = {{ wa_templates | tojson }};
-const CONTEXT_KEYS = [
-  {value:'', label:'— select —'},
-  {value:'first_name', label:'first_name'},
-  {value:'order_number', label:'order_number'},
-  {value:'items', label:'items'},
-  {value:'total', label:'total'},
-  {value:'tracking_url', label:'tracking_url'},
+const CTX_KEYS = [
+  {v:'',           l:'— select —'},
+  {v:'first_name', l:'first_name'},
+  {v:'order_number',l:'order_number'},
+  {v:'items',      l:'items'},
+  {v:'total',      l:'total'},
+  {v:'tracking_url',l:'tracking_url'},
 ];
 
-// ── Drawflow setup ────────────────────────────────────────────────────────────
-const dfContainer = document.getElementById('drawflow');
-const editor = new Drawflow(dfContainer);
+// ── Drawflow init ─────────────────────────────────────────────────────────────
+const editor = new Drawflow(document.getElementById('drawflow'));
 editor.reroute = true;
 editor.reroute_fix_curvature = true;
 editor.start();
 
-// ── Node HTML templates ───────────────────────────────────────────────────────
-function nodeHtml(type, data) {
-  const labels = {
-    trigger: {icon: '⚡', label: 'Trigger'},
-    send_message: {icon: '💬', label: 'Send Message'},
-    wait: {icon: '⏱', label: 'Wait / Delay'},
-    condition: {icon: '⁇', label: 'Condition'},
-    exit: {icon: '🏁', label: 'Exit Flow'},
-  };
-  const {icon, label} = labels[type] || {icon: '●', label: type};
-  let body = '';
+// ── Node HTML factories ───────────────────────────────────────────────────────
+const NODE_META = {
+  trigger:      {title:'Trigger',       accent:'accent-trigger',   icon:'fas fa-bolt',           iconCls:'icon-trigger'},
+  send_message: {title:'Send Message',  accent:'accent-send',      icon:'fas fa-comment-alt',    iconCls:'icon-send'},
+  wait:         {title:'Wait / Delay',  accent:'accent-wait',      icon:'fas fa-clock',          iconCls:'icon-wait'},
+  condition:    {title:'Condition',     accent:'accent-condition',  icon:'fas fa-code-branch',    iconCls:'icon-condition'},
+  exit:         {title:'Exit Flow',     accent:'accent-exit',      icon:'fas fa-flag-checkered', iconCls:'icon-exit'},
+};
+
+function nodeDesc(type, data) {
   if (type === 'trigger') {
-    const names = {order_confirmation:'Order Placed',fulfillment:'Order Dispatched',abandoned_cart:'Abandoned Cart',manual:'Manual'};
-    body = names[data.trigger_type || '{{ flow.trigger_type }}'] || 'Trigger';
-  } else if (type === 'send_message') {
-    body = data.template_name ? `<span style="color:var(--gold)">${data.template_name}</span>` : '<em style="opacity:.5">No template set</em>';
-  } else if (type === 'wait') {
-    body = data.hours ? `${data.hours}h delay` : '<em style="opacity:.5">Set delay</em>';
-  } else if (type === 'condition') {
-    const ct = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?'};
-    body = ct[data.condition_type] || '<em style="opacity:.5">Set condition</em>';
-  } else if (type === 'exit') {
-    body = 'End of flow';
+    const m = {order_confirmation:'Order Placed',fulfillment:'Dispatched',abandoned_cart:'Abandoned Cart',manual:'Manual'};
+    return m[data.trigger_type || TRIG_TYPE] || 'Trigger';
   }
-  return `<div class="df-node-inner">
-    <div class="node-header"><span class="node-dot-hdr">${icon}</span> ${label}</div>
-    <div class="node-body">${body}</div>
-  </div>`;
+  if (type === 'send_message') return data.template_name ? data.template_name : '<em style="color:var(--text-dim)">No template set</em>';
+  if (type === 'wait') return data.hours ? data.hours + 'h delay' : '<em style="color:var(--text-dim)">Set hours</em>';
+  if (type === 'condition') {
+    const m = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?'};
+    return data.condition_type ? (m[data.condition_type] || data.condition_type) : '<em style="color:var(--text-dim)">Set condition</em>';
+  }
+  if (type === 'exit') return 'End of journey';
+  return type;
+}
+
+function buildNodeHtml(type, data) {
+  const m = NODE_META[type] || {title:type,accent:'accent-trigger',icon:'fas fa-circle',iconCls:'icon-trigger'};
+  return '<div class="df-card">' +
+    '<div class="df-card-accent ' + m.accent + '"></div>' +
+    '<div class="df-card-body">' +
+      '<div class="df-card-header">' +
+        '<div class="df-card-icon ' + m.iconCls + '"><i class="' + m.icon + '"></i></div>' +
+        '<div class="df-card-title">' + m.title + '</div>' +
+      '</div>' +
+      '<div class="df-card-desc">' + nodeDesc(type, data) + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function refreshNodeHtml(nodeId, type, data) {
+  const el = document.querySelector('.drawflow-node[id="node-'+nodeId+'"] .drawflow_content_node');
+  if (el) el.innerHTML = buildNodeHtml(type, data);
 }
 
 // ── Drag & drop ───────────────────────────────────────────────────────────────
-let dragType = null;
-function drag(ev, type) { dragType = type; ev.dataTransfer.effectAllowed = 'move'; }
+let _dragType = null;
+function drag(ev, type) { _dragType = type; ev.dataTransfer.effectAllowed = 'move'; }
 function allowDrop(ev) { ev.preventDefault(); }
 function drop(ev) {
   ev.preventDefault();
-  if (!dragType) return;
-  const canvasRect = document.getElementById('canvasWrap').getBoundingClientRect();
-  const pos_x = ev.clientX - canvasRect.left;
-  const pos_y = ev.clientY - canvasRect.top;
-  const inputs = dragType === 'trigger' ? 0 : 1;
-  const outputs = dragType === 'exit' ? 0 : (dragType === 'condition' ? 2 : 1);
-  const defaultData = getDefaultData(dragType);
-  editor.addNode(dragType, inputs, outputs, pos_x, pos_y, `node-${dragType}`, defaultData, nodeHtml(dragType, defaultData));
-  dragType = null;
+  if (!_dragType) return;
+  const rect = document.getElementById('canvasWrap').getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+  const inputs  = _dragType === 'trigger' ? 0 : 1;
+  const outputs = _dragType === 'exit' ? 0 : (_dragType === 'condition' ? 2 : 1);
+  const defData = defaultData(_dragType);
+  editor.addNode(_dragType, inputs, outputs, x, y, 'node-' + _dragType, defData, buildNodeHtml(_dragType, defData));
+  _dragType = null;
 }
 
-function getDefaultData(type) {
-  if (type === 'trigger') return {trigger_type: '{{ flow.trigger_type }}'};
-  if (type === 'wait') return {hours: 24};
-  if (type === 'condition') return {condition_type: 'replied_within_X_hours', hours: 24};
-  if (type === 'send_message') return {template_name: '', template_language: 'en_US', param_map: {}, button_params: {}};
+function defaultData(type) {
+  if (type === 'trigger')      return {trigger_type: TRIG_TYPE};
+  if (type === 'wait')         return {hours: 24};
+  if (type === 'condition')    return {condition_type: 'replied_within_X_hours', hours: 24};
+  if (type === 'send_message') return {template_name:'', template_language:'en_US', param_map:{}, button_params:{}};
   return {};
 }
 
-// ── Node click → config panel ─────────────────────────────────────────────────
-let selectedNodeId = null;
-editor.on('nodeSelected', function(id) {
-  selectedNodeId = id;
-  openConfigPanel(id);
-});
-editor.on('nodeUnselected', function() {
-  // keep panel open — user may be filling in the form
-});
+// ── Config panel ──────────────────────────────────────────────────────────────
+let _selId = null;
+editor.on('nodeSelected', id => { _selId = id; openConfig(id); });
 
-function openConfigPanel(id) {
+function openConfig(id) {
   const node = editor.getNodeFromId(id);
   if (!node) return;
   const type = node.name;
   const data = node.data || {};
-  const panel = document.getElementById('configPanel');
-  const icons = {trigger:'⚡',send_message:'💬',wait:'⏱',condition:'⁇',exit:'🏁'};
-  document.getElementById('configNodeIcon').textContent = icons[type] || '●';
-  document.getElementById('configNodeType').textContent =
-    {trigger:'Trigger',send_message:'Send Message',wait:'Wait / Delay',condition:'Condition',exit:'Exit Flow'}[type] || type;
-  document.getElementById('configPanelBody').innerHTML = buildConfigForm(type, data);
-  panel.classList.add('open');
-  // populate param map rows after insert
-  if (type === 'send_message') rebuildParamMapRows(data.param_map || {}, data.template_name || '');
+  const m = NODE_META[type] || {};
+  document.getElementById('configPanelIcon').innerHTML = '<i class="' + (m.icon||'fas fa-circle') + ' me-1" style="color:var(--text-dim);font-size:0.8rem;"></i>';
+  document.getElementById('configPanelType').textContent = m.title || type;
+  document.getElementById('configBody').innerHTML = buildConfigForm(type, data);
+  document.getElementById('configPanel').classList.add('open');
+  if (type === 'send_message') _rebuildParamRows(data.param_map || {}, data.template_name || '');
+}
+
+function closeConfigPanel() {
+  document.getElementById('configPanel').classList.remove('open');
+  _selId = null;
 }
 
 function buildConfigForm(type, data) {
   if (type === 'trigger') {
-    const names = {order_confirmation:'Order Placed',fulfillment:'Order Dispatched',abandoned_cart:'Abandoned Cart',manual:'Manual'};
-    return `<div class="config-field">
-      <label class="config-label">Trigger type</label>
-      <div style="color:var(--gold);font-weight:600;">${names[data.trigger_type] || data.trigger_type}</div>
-      <div class="config-hint">Set when creating the flow.</div>
-    </div>`;
+    const labels = {order_confirmation:'Order Placed (Shopify)',fulfillment:'Order Dispatched (Shopify)',abandoned_cart:'Abandoned Cart',manual:'Manual Enrollment'};
+    return '<div class="config-field"><label class="form-label">Trigger</label>' +
+      '<div style="padding:0.5rem 0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:0.84rem;color:var(--gold-dark);font-weight:500;">' +
+      '<i class="fas fa-bolt me-2"></i>' + (labels[data.trigger_type] || data.trigger_type) + '</div>' +
+      '<div class="config-hint">Trigger type is set when creating the flow.</div></div>';
   }
   if (type === 'exit') {
-    return `<div style="color:var(--text-muted);font-size:0.82rem;">No configuration needed — this node ends the flow for the customer.</div>`;
+    return '<div style="padding:1rem;text-align:center;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">' +
+      '<i class="fas fa-flag-checkered" style="color:var(--text-dim);font-size:1.5rem;display:block;margin-bottom:0.5rem;"></i>' +
+      '<div style="font-size:0.83rem;color:var(--text-muted);">This node ends the flow for the customer. No configuration needed.</div>' +
+      '</div>';
   }
   if (type === 'wait') {
-    return `<div class="config-field">
-      <label class="config-label">Delay (hours)</label>
-      <input id="cfg_hours" type="number" min="1" class="config-input" value="${data.hours || 24}">
-      <div class="config-hint">Wait this many hours before the next step.</div>
-    </div>`;
+    return '<div class="config-field"><label class="form-label">Delay (hours)</label>' +
+      '<input id="cfg_hours" type="number" min="1" max="720" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
+      '<div class="config-hint">Wait this many hours before moving to the next step.</div></div>';
   }
   if (type === 'condition') {
-    const condOpts = [
-      {v:'replied_within_X_hours', l:'Customer replied within N hours'},
-      {v:'read_within_X_hours', l:'Customer read message within N hours'},
-      {v:'placed_order', l:'Customer placed an order'},
-    ].map(o => `<option value="${o.v}" ${data.condition_type===o.v?'selected':''}>${o.l}</option>`).join('');
-    const hoursRow = data.condition_type !== 'placed_order' ? `
-      <div class="config-field">
-        <label class="config-label">Time window (hours)</label>
-        <input id="cfg_hours" type="number" min="1" class="config-input" value="${data.hours || 24}">
-      </div>` : '';
-    return `<div class="config-field">
-      <label class="config-label">Condition</label>
-      <select id="cfg_condition_type" class="config-select" onchange="onConditionTypeChange(this)">
-        ${condOpts}
-      </select>
-      <div class="config-hint">Yes branch = condition met. No branch = not met / timed out.</div>
-    </div>${hoursRow}`;
+    const opts = [
+      {v:'replied_within_X_hours',l:'Customer replied within N hours'},
+      {v:'read_within_X_hours',   l:'Customer read message within N hours'},
+      {v:'placed_order',          l:'Customer placed an order'},
+    ].map(o => '<option value="' + o.v + '"' + (data.condition_type===o.v?' selected':'') + '>' + o.l + '</option>').join('');
+    const hoursBlock = data.condition_type !== 'placed_order'
+      ? '<div class="config-field"><label class="form-label">Time window (hours)</label>' +
+        '<input id="cfg_hours" type="number" min="1" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
+        '</div>' : '';
+    return '<div class="config-field"><label class="form-label">Condition</label>' +
+      '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this)">' + opts + '</select>' +
+      '<div class="config-hint">Output <strong style="color:#059669;">Yes</strong> if condition is met, <strong style="color:#DC2626;">No</strong> otherwise.</div>' +
+      '</div>' + hoursBlock;
   }
   if (type === 'send_message') {
     const tplOpts = WA_TEMPLATES.map(t =>
-      `<option value="${t.name}" ${data.template_name===t.name?'selected':''}>${t.name}</option>`
+      '<option value="' + t.name + '"' + (data.template_name===t.name?' selected':'') + '>' + t.name + '</option>'
     ).join('');
     const langOpts = ['en_US','en_GB','hi','ta','te','kn','ml','mr','gu','bn'].map(l =>
-      `<option value="${l}" ${(data.template_language||'en_US')===l?'selected':''}>${l}</option>`
+      '<option value="' + l + '"' + ((data.template_language||'en_US')===l?' selected':'') + '>' + l + '</option>'
     ).join('');
-    return `<div class="config-field">
-      <label class="config-label">Template</label>
-      <select id="cfg_template_name" class="config-select" onchange="onTemplateChange(this.value)">
-        <option value="">— select template —</option>
-        ${tplOpts}
-      </select>
-    </div>
-    <div class="config-field">
-      <label class="config-label">Language</label>
-      <select id="cfg_template_language" class="config-select">${langOpts}</select>
-    </div>
-    <div class="config-field" id="paramMapSection">
-      <label class="config-label">Template params (&#123;&#123;1&#125;&#125;, &#123;&#123;2&#125;&#125; …)</label>
-      <div id="paramMapRows"></div>
-      <div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> to a context variable from the trigger.</div>
-    </div>`;
+    return '<div class="config-field"><label class="form-label">Template</label>' +
+      '<select id="cfg_template_name" class="form-select form-select-sm" onchange="onTemplateChange(this.value)">' +
+      '<option value="">— choose template —</option>' + tplOpts + '</select></div>' +
+      '<div class="config-field"><label class="form-label">Language</label>' +
+      '<select id="cfg_lang" class="form-select form-select-sm">' + langOpts + '</select></div>' +
+      '<div class="config-field" id="paramSection"><label class="form-label">Template params</label>' +
+      '<div id="paramRows"></div>' +
+      '<div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> placeholder to a customer data field.</div></div>';
   }
   return '';
 }
 
-function onConditionTypeChange(sel) {
-  const hoursRow = document.querySelector('.config-field #cfg_hours')?.closest('.config-field');
-  if (sel.value === 'placed_order') {
-    if (hoursRow) hoursRow.style.display = 'none';
-  } else {
-    if (hoursRow) hoursRow.style.display = '';
+function onConditionChange(sel) {
+  const hoursField = document.querySelector('#cfg_hours');
+  if (hoursField) {
+    const wrap = hoursField.closest('.config-field');
+    if (wrap) wrap.style.display = sel.value === 'placed_order' ? 'none' : '';
   }
 }
 
 async function onTemplateChange(name) {
-  if (!name) { document.getElementById('paramMapRows').innerHTML = ''; return; }
+  const rows = document.getElementById('paramRows');
+  if (!rows) return;
+  if (!name) { rows.innerHTML = ''; return; }
   try {
-    const resp = await fetch(`/template-info?name=${encodeURIComponent(name)}`);
-    const info = await resp.json();
-    const count = info.param_count || 0;
-    const node = editor.getNodeFromId(selectedNodeId);
-    const existingMap = (node && node.data && node.data.param_map) || {};
-    rebuildParamMapRows(existingMap, name, count);
+    const r = await fetch('/template-info?name=' + encodeURIComponent(name));
+    const info = await r.json();
+    const node = editor.getNodeFromId(_selId);
+    _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.param_count||0);
   } catch(e) {
-    rebuildParamMapRows({}, name, 0);
+    _rebuildParamRows({}, name, 0);
   }
 }
 
-function rebuildParamMapRows(existingMap, templateName, forcedCount) {
-  let count = forcedCount;
-  if (count === undefined) {
-    const node = editor.getNodeFromId(selectedNodeId);
-    count = Object.keys((node && node.data && node.data.param_map) || {}).length;
-  }
-  const container = document.getElementById('paramMapRows');
-  if (!container) return;
-  container.innerHTML = '';
+function _rebuildParamRows(existingMap, templateName, forcedCount) {
+  const rows = document.getElementById('paramRows');
+  if (!rows) return;
+  let count = forcedCount !== undefined ? forcedCount : Object.keys(existingMap).length;
+  rows.innerHTML = '';
   for (let i = 1; i <= count; i++) {
-    const sel = CONTEXT_KEYS.map(k =>
-      `<option value="${k.value}" ${existingMap[String(i)]===k.value?'selected':''}>${k.label}</option>`
+    const selOpts = CTX_KEYS.map(k =>
+      '<option value="' + k.v + '"' + (existingMap[String(i)]===k.v?' selected':'') + '>' + k.l + '</option>'
     ).join('');
-    container.insertAdjacentHTML('beforeend',
+    rows.insertAdjacentHTML('beforeend',
       '<div class="param-map-row">' +
-        '<span class="param-map-label">{'+ '{' + i + '}' + '}</span>' +
-        '<select class="config-select" data-param="' + i + '" style="flex:1;">' + sel + '</select>' +
+      '<span class="param-map-label">{'+ '{' + i + '}' + '}</span>' +
+      '<select class="form-select form-select-sm" data-param="' + i + '">' + selOpts + '</select>' +
       '</div>'
     );
+  }
+  if (count === 0 && templateName) {
+    rows.innerHTML = '<div style="font-size:0.75rem;color:var(--text-dim);">No body parameters detected.</div>';
   }
 }
 
 function applyConfig() {
-  if (!selectedNodeId) return;
-  const node = editor.getNodeFromId(selectedNodeId);
+  if (!_selId) return;
+  const node = editor.getNodeFromId(_selId);
   if (!node) return;
   const type = node.name;
-  let newData = {...node.data};
+  const d = {...node.data};
 
   if (type === 'wait') {
-    newData.hours = parseInt(document.getElementById('cfg_hours')?.value || 24);
+    d.hours = parseInt(document.getElementById('cfg_hours')?.value||24);
   } else if (type === 'condition') {
-    newData.condition_type = document.getElementById('cfg_condition_type')?.value || 'replied_within_X_hours';
+    d.condition_type = document.getElementById('cfg_condition_type')?.value||'replied_within_X_hours';
     const h = document.getElementById('cfg_hours');
-    if (h) newData.hours = parseInt(h.value || 24);
+    if (h) d.hours = parseInt(h.value||24);
   } else if (type === 'send_message') {
-    newData.template_name = document.getElementById('cfg_template_name')?.value || '';
-    newData.template_language = document.getElementById('cfg_template_language')?.value || 'en_US';
-    newData.param_map = {};
-    document.querySelectorAll('#paramMapRows [data-param]').forEach(sel => {
-      if (sel.value) newData.param_map[sel.dataset.param] = sel.value;
+    d.template_name     = document.getElementById('cfg_template_name')?.value||'';
+    d.template_language = document.getElementById('cfg_lang')?.value||'en_US';
+    d.param_map = {};
+    document.querySelectorAll('#paramRows [data-param]').forEach(s => {
+      if (s.value) d.param_map[s.dataset.param] = s.value;
     });
   }
 
-  editor.updateNodeDataFromId(selectedNodeId, newData);
-  // Refresh node HTML
-  const el = document.querySelector(`.drawflow-node[id="node-${selectedNodeId}"] .df-node-inner`);
-  if (el) el.outerHTML = nodeHtml(type, newData).replace('<div class="df-node-inner">', '<div class="df-node-inner">');
-  const nodeEl = document.querySelector(`.drawflow-node[id="node-${selectedNodeId}"] .drawflow_content_node`);
-  if (nodeEl) nodeEl.innerHTML = nodeHtml(type, newData);
-  showToast('Applied ✓', 'success');
+  editor.updateNodeDataFromId(_selId, d);
+  refreshNodeHtml(_selId, type, d);
+  showToast('Applied', 'ok');
 }
 
 function deleteSelectedNode() {
-  if (!selectedNodeId) return;
+  if (!_selId) return;
   if (!confirm('Delete this node?')) return;
-  editor.removeNodeId(`node-${selectedNodeId}`);
-  document.getElementById('configPanel').classList.remove('open');
-  selectedNodeId = null;
+  editor.removeNodeId('node-' + _selId);
+  closeConfigPanel();
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -497,63 +696,63 @@ async function saveCanvas() {
   const name = document.getElementById('flowNameInput').value.trim();
   const canvasData = JSON.stringify(editor.export());
   const btn = document.getElementById('btnSave');
-  btn.textContent = 'Saving…';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+  btn.disabled = true;
   try {
-    const resp = await fetch(`/api/flows/${FLOW_ID}/save`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+    const r = await fetch('/api/flows/' + FLOW_ID + '/save', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify({name, canvas_data: canvasData})
     });
-    const data = await resp.json();
+    const data = await r.json();
     if (data.success) {
-      showToast('Flow saved', 'success');
+      if (name) document.getElementById('flowNameInput').value = name;
+      showToast('Saved', 'ok');
     } else {
-      showToast(data.error || 'Save failed', 'error');
+      showToast(data.error || 'Save failed', 'err');
     }
   } catch(e) {
-    showToast('Network error', 'error');
+    showToast('Network error', 'err');
   } finally {
     btn.innerHTML = '<i class="fas fa-save"></i> Save';
+    btn.disabled = false;
   }
 }
 
 // ── Activate / Pause ──────────────────────────────────────────────────────────
 async function toggleActive() {
-  const isActive = document.getElementById('statusBadge').textContent.trim() === 'Active';
-  const endpoint = isActive ? 'pause' : 'activate';
-  // Save first
+  const chip = document.getElementById('statusChip');
+  const isActive = chip.classList.contains('chip-active');
   await saveCanvas();
-  const resp = await fetch(`/api/flows/${FLOW_ID}/${endpoint}`, {method: 'POST'});
-  const data = await resp.json();
-  if (data.success) {
-    location.reload();
-  } else {
-    showToast(data.error || 'Action failed', 'error');
-  }
+  const endpoint = isActive ? 'pause' : 'activate';
+  const r = await fetch('/api/flows/' + FLOW_ID + '/' + endpoint, {method:'POST'});
+  const data = await r.json();
+  if (data.success) { location.reload(); }
+  else showToast(data.error || 'Action failed', 'err');
 }
 
-// ── Load existing canvas ──────────────────────────────────────────────────────
+// ── Load saved canvas ─────────────────────────────────────────────────────────
 {% if flow.canvas_data %}
 try {
   const saved = {{ flow.canvas_data | tojson }};
   editor.import(JSON.parse(saved));
 } catch(e) {
-  console.warn('Could not load saved canvas:', e);
+  console.warn('Could not restore canvas:', e);
 }
 {% endif %}
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
-function showToast(msg, type = 'success') {
+function showToast(msg, type) {
   const el = document.createElement('div');
-  el.className = `toast-msg toast-${type}`;
-  el.textContent = msg;
+  el.className = 'toast-pop ' + (type === 'ok' ? 'toast-ok' : 'toast-err');
+  el.innerHTML = '<i class="fas ' + (type === 'ok' ? 'fa-check' : 'fa-exclamation-circle') + ' me-1"></i>' + msg;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 3000);
 }
 
-// Keyboard shortcut: Ctrl+S / Cmd+S
+// Ctrl/Cmd+S
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCanvas(); }
+  if ((e.ctrlKey||e.metaKey) && e.key === 's') { e.preventDefault(); saveCanvas(); }
 });
 </script>
 {% endblock %}
