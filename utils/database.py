@@ -264,6 +264,7 @@ class Database:
                 'ALTER TABLE abandoned_carts ADD COLUMN cart_url TEXT',
                 "ALTER TABLE automation_settings ADD COLUMN extra_data TEXT DEFAULT '{}'",
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_url TEXT',
+                'ALTER TABLE abandoned_carts ADD COLUMN customer_name TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -874,13 +875,14 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO abandoned_carts
-                (user_id, shopify_cart_id, customer_id, customer_email, customer_phone,
+                (user_id, shopify_cart_id, customer_id, customer_name, customer_email, customer_phone,
                  cart_token, cart_items, total_price, currency, abandoned_at, cart_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_id,
                 cart_data.get('id'),
                 cart_data.get('customer_id'),
+                cart_data.get('first_name'),
                 cart_data.get('email'),
                 cart_data.get('phone'),
                 cart_data.get('token'),

@@ -309,9 +309,23 @@ def _start_abandoned_cart_checker():
                         cart_items = json.loads(cart['cart_items']) if cart['cart_items'] else []
                         items_str = _format_items(cart_items)
                         total = cart.get('total_price') or '0'
-                        # Derive a first name from email as fallback
-                        email = cart.get('customer_email') or ''
-                        first_name = email.split('@')[0] if email else 'there'
+                        # Use stored name; fall back to customers table; last resort 'there'
+                        first_name = (cart.get('customer_name') or '').strip()
+                        if not first_name:
+                            try:
+                                with db.get_connection() as conn:
+                                    cursor = conn.cursor()
+                                    cursor.execute(
+                                        'SELECT first_name FROM customers WHERE phone = ? LIMIT 1',
+                                        (phone,)
+                                    )
+                                    row = cursor.fetchone()
+                                    if row and row['first_name']:
+                                        first_name = row['first_name']
+                            except Exception:
+                                pass
+                        if not first_name:
+                            first_name = 'there'
 
                         # Template params: {{1}}=name, {{2}}=items, {{3}}=total
                         # Discount code and website button are hardcoded in the template itself
@@ -1865,9 +1879,20 @@ def shopify_cart_create():
         # which caused all carts to be stored as shopify_cart_id='None' and
         # each new cart replaced the previous one (INSERT OR REPLACE bug).
         cart_token = data.get('token') or data.get('cart_token') or str(data.get('id'))
+
+        # Extract first name from multiple locations in the checkout payload
+        customer = data.get('customer') or {}
+        billing  = data.get('billing_address') or {}
+        shipping = data.get('shipping_address') or {}
+        first_name = (customer.get('first_name')
+                      or billing.get('first_name')
+                      or shipping.get('first_name')
+                      or '')
+
         cart_data = {
             'id': cart_token,
-            'customer_id': data.get('customer', {}).get('id') if data.get('customer') else None,
+            'customer_id': customer.get('id'),
+            'first_name': first_name,
             'email': data.get('email'),
             'phone': phone,
             'token': cart_token,
