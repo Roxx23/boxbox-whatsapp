@@ -224,9 +224,11 @@
             <i class="fas fa-pencil-alt"></i> Edit
           </a>
           {% if flow.status == 'active' %}
+          {% if flow.trigger_type == 'manual' %}
           <button class="btn-flow-enroll" onclick="openEnrollModal({{ flow.id }}, '{{ flow.name | e }}')">
             <i class="fas fa-user-plus"></i> Enroll
           </button>
+          {% endif %}
           <button class="btn-flow-pause" onclick="pauseFlow({{ flow.id }})">
             <i class="fas fa-pause"></i> Pause
           </button>
