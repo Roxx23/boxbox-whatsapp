@@ -553,7 +553,13 @@ function openConfig(id) {
   document.getElementById('configPanelType').textContent = m.title || type;
   document.getElementById('configBody').innerHTML = buildConfigForm(type, data);
   document.getElementById('configPanel').classList.add('open');
-  if (type === 'send_message') _rebuildParamRows(data.param_map || {}, data.template_name || '');
+  if (type === 'send_message') {
+    if (data.template_name) {
+      onTemplateChange(data.template_name);  // fetch live param count from API
+    } else {
+      document.getElementById('paramRows').innerHTML = '';
+    }
+  }
 }
 
 function closeConfigPanel() {
