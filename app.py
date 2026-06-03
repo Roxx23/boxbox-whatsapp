@@ -1450,16 +1450,21 @@ def flows_page():
 @app.route("/flows/<int:flow_id>")
 @login_required
 def flow_editor_page(flow_id):
-    flow = db.get_flow(flow_id)
-    if not flow or flow['user_id'] != current_user.id:
-        flash("Flow not found", "error")
-        return redirect(url_for('flows_page'))
-    steps = db.get_flow_steps(flow_id)
     try:
-        wa_templates = [t for t in get_templates(WABA_ID) if t.get('status') == 'APPROVED']
-    except Exception:
-        wa_templates = []
-    return render_template('flow_editor.html', flow=flow, steps=steps, wa_templates=wa_templates)
+        flow = db.get_flow(flow_id)
+        if not flow or str(flow['user_id']) != str(current_user.id):
+            flash("Flow not found", "error")
+            return redirect(url_for('flows_page'))
+        steps = db.get_flow_steps(flow_id)
+        try:
+            wa_templates = [t for t in get_templates(WABA_ID) if t.get('status') == 'APPROVED']
+        except Exception:
+            wa_templates = []
+        return render_template('flow_editor.html', flow=flow, steps=steps, wa_templates=wa_templates)
+    except Exception as e:
+        logger.error(f"Flow editor error for flow {flow_id}: {e}", exc_info=True)
+        flash(f"Error loading flow editor: {e}", "error")
+        return redirect(url_for('flows_page'))
 
 
 @app.route("/api/flows", methods=["POST"])
