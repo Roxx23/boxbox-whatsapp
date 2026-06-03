@@ -26,7 +26,24 @@ def start_flow_engine(db, message_queue):
 def enroll_participant(db, flow_id, phone, context_dict, first_step_key):
     participant_id = db.enroll_flow_participant(flow_id, phone, context_dict, first_step_key)
     logger.info(f"Flow {flow_id}: enrolled {phone} (participant {participant_id})")
+    if participant_id:
+        # Fire immediately — don't wait for the 60s engine tick
+        threading.Thread(
+            target=_process_participant_by_id,
+            args=(participant_id,),
+            daemon=True,
+            name=f'flow_immediate_{participant_id}'
+        ).start()
     return participant_id
+
+
+def _process_participant_by_id(participant_id):
+    try:
+        participant = _db.get_flow_participant_by_id(participant_id)
+        if participant and participant['status'] == 'active':
+            _process_participant(participant)
+    except Exception as e:
+        logger.error(f"Flow engine: immediate processing error for participant {participant_id}: {e}", exc_info=True)
 
 
 def trigger_immediate_recheck(db, whatsapp_message_id, field, value):
@@ -104,7 +121,7 @@ def _engine_loop():
             _process_due_participants()
         except Exception as e:
             logger.error(f"Flow engine loop error: {e}", exc_info=True)
-        time.sleep(60)
+        time.sleep(15)
 
 
 def _process_due_participants():
