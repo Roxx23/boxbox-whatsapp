@@ -936,6 +936,7 @@ def index():
         # Resolve campaign — new or add to existing
         campaign_mode = request.form.get("campaign_mode", "new")
         campaign_type = 'Template' if selected_template else 'Text'
+        logger.info(f"Campaign form received: mode={campaign_mode!r}, name_new={request.form.get('campaign_name_new')!r}")
 
         if campaign_mode == "existing":
             try:
@@ -1047,7 +1048,7 @@ def index():
                     message_id=message_id
                 )
 
-            flash(f"✅ {len(df)} template messages queued for sending! Monitor progress at /queue-status", "success")
+            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
             return redirect("/")
 
         else:
@@ -1084,7 +1085,7 @@ def index():
                     message_id=message_id
                 )
 
-            flash(f"✅ {len(df)} text messages queued for sending! Monitor progress at /queue-status", "success")
+            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
             return redirect("/")
 
     recent_campaigns = db.get_user_campaigns(current_user.id, limit=15)
