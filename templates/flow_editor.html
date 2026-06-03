@@ -583,7 +583,7 @@ function buildConfigForm(type, data) {
   }
   if (type === 'wait') {
     return '<div class="config-field"><label class="form-label">Delay (hours)</label>' +
-      '<input id="cfg_hours" type="number" min="1" max="720" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
+      '<input id="cfg_hours" type="number" min="1" max="720" class="form-control form-control-sm" value="' + (data.hours||24) + '" onchange="applyConfig()">' +
       '<div class="config-hint">Wait this many hours before moving to the next step.</div></div>';
   }
   if (type === 'condition') {
@@ -597,7 +597,7 @@ function buildConfigForm(type, data) {
         '<input id="cfg_hours" type="number" min="1" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
         '</div>' : '';
     return '<div class="config-field"><label class="form-label">Condition</label>' +
-      '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this)">' + opts + '</select>' +
+      '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this);applyConfig()">' + opts + '</select>' +
       '<div class="config-hint">Output <strong style="color:#059669;">Yes</strong> if condition is met, <strong style="color:#DC2626;">No</strong> otherwise.</div>' +
       '</div>' + hoursBlock;
   }
@@ -612,7 +612,7 @@ function buildConfigForm(type, data) {
       '<select id="cfg_template_name" class="form-select form-select-sm" onchange="onTemplateChange(this.value)">' +
       '<option value="">— choose template —</option>' + tplOpts + '</select></div>' +
       '<div class="config-field"><label class="form-label">Language</label>' +
-      '<select id="cfg_lang" class="form-select form-select-sm">' + langOpts + '</select></div>' +
+      '<select id="cfg_lang" class="form-select form-select-sm" onchange="applyConfig()">' + langOpts + '</select></div>' +
       '<div class="config-field" id="paramSection"><label class="form-label">Template params</label>' +
       '<div id="paramRows"></div>' +
       '<div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> placeholder to a customer data field.</div></div>';
@@ -631,7 +631,7 @@ function onConditionChange(sel) {
 async function onTemplateChange(name) {
   const rows = document.getElementById('paramRows');
   if (!rows) return;
-  if (!name) { rows.innerHTML = ''; return; }
+  if (!name) { rows.innerHTML = ''; applyConfig(); return; }
   try {
     const r = await fetch('/template-info?name=' + encodeURIComponent(name));
     const info = await r.json();
@@ -640,6 +640,7 @@ async function onTemplateChange(name) {
   } catch(e) {
     _rebuildParamRows({}, name, 0);
   }
+  applyConfig();  // immediately persist template_name + language into node data
 }
 
 function _rebuildParamRows(existingMap, templateName, forcedCount) {
@@ -699,6 +700,7 @@ function deleteSelectedNode() {
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 async function saveCanvas() {
+  if (_selId) applyConfig();  // flush any pending config panel changes into node data
   const name = document.getElementById('flowNameInput').value.trim();
   const canvasData = JSON.stringify(editor.export());
   const btn = document.getElementById('btnSave');
