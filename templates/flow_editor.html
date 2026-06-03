@@ -599,7 +599,7 @@ function buildConfigForm(type, data) {
     const tplOpts = WA_TEMPLATES.map(t =>
       '<option value="' + t.name + '"' + (data.template_name===t.name?' selected':'') + '>' + t.name + '</option>'
     ).join('');
-    const langOpts = ['en_US','en_GB','hi','ta','te','kn','ml','mr','gu','bn'].map(l =>
+    const langOpts = ['en','en_US','en_GB','hi','ta','te','kn','ml','mr','gu','bn'].map(l =>
       '<option value="' + l + '"' + ((data.template_language||'en_US')===l?' selected':'') + '>' + l + '</option>'
     ).join('');
     return '<div class="config-field"><label class="form-label">Template</label>' +
@@ -630,7 +630,7 @@ async function onTemplateChange(name) {
     const r = await fetch('/template-info?name=' + encodeURIComponent(name));
     const info = await r.json();
     const node = editor.getNodeFromId(_selId);
-    _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.param_count||0);
+    _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.count||0);
   } catch(e) {
     _rebuildParamRows({}, name, 0);
   }
