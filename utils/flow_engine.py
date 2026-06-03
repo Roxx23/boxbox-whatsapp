@@ -2,7 +2,11 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+def _now():
+    """Always return UTC time as naive ISO string to match SQLite's strftime('now')."""
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,7 @@ def trigger_immediate_recheck(db, whatsapp_message_id, field, value):
         return
     step = db.get_flow_step(participant['flow_id'], participant['current_step_key'])
     if step and step['step_type'] == 'condition':
-        db.update_participant_next_action(participant['id'], datetime.now().isoformat())
+        db.update_participant_next_action(participant['id'], _now())
         logger.debug(f"Flow engine: fast-path recheck queued for participant {participant['id']}")
 
 
@@ -215,7 +219,7 @@ def _execute_condition(participant, step, config):
                 result = (replied - sent).total_seconds() <= hours * 3600
             elif last_msg.get('sent_at'):
                 sent = _parse_dt(last_msg['sent_at'])
-                if datetime.now() > sent + timedelta(hours=hours):
+                if datetime.now(timezone.utc).replace(tzinfo=None) > sent + timedelta(hours=hours):
                     result = False
         else:
             result = False
@@ -228,7 +232,7 @@ def _execute_condition(participant, step, config):
                 result = (read - sent).total_seconds() <= hours * 3600
             elif last_msg.get('sent_at'):
                 sent = _parse_dt(last_msg['sent_at'])
-                if datetime.now() > sent + timedelta(hours=hours):
+                if datetime.now(timezone.utc).replace(tzinfo=None) > sent + timedelta(hours=hours):
                     result = False
         else:
             result = False
@@ -243,7 +247,7 @@ def _execute_condition(participant, step, config):
     else:
         _db.update_participant_next_action(
             participant['id'],
-            (datetime.now() + timedelta(minutes=15)).isoformat()
+            (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)).isoformat()
         )
 
 
@@ -264,17 +268,17 @@ def _advance_to_step(participant, next_step_key):
 
     if next_step['step_type'] == 'wait':
         hours = int(config.get('hours', 1))
-        next_action_at = (datetime.now() + timedelta(hours=hours)).isoformat()
+        next_action_at = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=hours)).isoformat()
     else:
-        next_action_at = datetime.now().isoformat()
+        next_action_at = _now()
 
     _db.update_participant_step(participant['id'], next_step_key, next_action_at)
 
 
 def _parse_dt(s):
     if not s:
-        return datetime.now()
+        return datetime.now(timezone.utc).replace(tzinfo=None)
     try:
         return datetime.fromisoformat(s)
     except Exception:
-        return datetime.now()
+        return datetime.now(timezone.utc).replace(tzinfo=None)

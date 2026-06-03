@@ -1550,7 +1550,8 @@ class Database:
     # Flow Participants
 
     def enroll_flow_participant(self, flow_id, phone, context_dict, first_step_key):
-        now = datetime.now().isoformat()
+        from datetime import timezone
+        now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
