@@ -1348,9 +1348,95 @@ def _validate_flow_steps(steps):
     return True, None
 
 
+def _df_node(node_id, node_type, data, inputs, outputs, pos_x, pos_y):
+    """Build a complete Drawflow node dict including all fields Drawflow needs on import."""
+    _meta = {
+        'trigger':      ('Trigger',      'node-trigger',      'accent-trigger',   'fas fa-bolt',           'icon-trigger'),
+        'send_message': ('Send Message', 'node-send_message', 'accent-send',      'fas fa-comment-alt',    'icon-send'),
+        'wait':         ('Wait / Delay', 'node-wait',         'accent-wait',      'fas fa-clock',          'icon-wait'),
+        'condition':    ('Condition',    'node-condition',     'accent-condition', 'fas fa-code-branch',    'icon-condition'),
+        'exit':         ('Exit Flow',    'node-exit',         'accent-exit',      'fas fa-flag-checkered', 'icon-exit'),
+    }
+    title, css_class, accent, icon, icon_cls = _meta.get(node_type, ('Node','','','fas fa-circle',''))
+
+    # Desc line matching JS nodeDesc()
+    if node_type == 'trigger':
+        labels = {'order_confirmation':'Order Placed','fulfillment':'Dispatched','abandoned_cart':'Abandoned Cart','manual':'Manual'}
+        desc = labels.get(data.get('trigger_type',''), 'Trigger')
+    elif node_type == 'send_message':
+        desc = data.get('template_name') or 'No template set'
+    elif node_type == 'wait':
+        desc = f"{data.get('hours',24)}h delay"
+    elif node_type == 'condition':
+        desc = {'replied_within_X_hours':'Replied within…','read_within_X_hours':'Read within…','placed_order':'Placed order?'}.get(data.get('condition_type',''),'Condition')
+    elif node_type == 'exit':
+        desc = 'End of journey'
+    else:
+        desc = node_type
+
+    html = (
+        '<div class="df-card">'
+        f'<div class="df-card-accent {accent}"></div>'
+        '<div class="df-card-body">'
+        '<div class="df-card-header">'
+        f'<div class="df-card-icon {icon_cls}"><i class="{icon}"></i></div>'
+        f'<div class="df-card-title">{title}</div>'
+        '</div>'
+        f'<div class="df-card-desc">{desc}</div>'
+        '</div>'
+        '</div>'
+    )
+    return {
+        'id': node_id,
+        'name': node_type,
+        'data': data,
+        'class': css_class,
+        'html': html,
+        'typenode': False,
+        'inputs': inputs,
+        'outputs': outputs,
+        'pos_x': pos_x,
+        'pos_y': pos_y,
+    }
+
+
+def _repair_migrated_canvases(user_id, flows):
+    """Fix existing migrated flows whose canvas nodes are missing typenode/html/class fields."""
+    for flow in flows:
+        canvas_raw = flow.get('canvas_data')
+        if not canvas_raw:
+            continue
+        try:
+            canvas = json.loads(canvas_raw)
+            nodes = canvas['drawflow']['Home']['data']
+        except Exception:
+            continue
+        needs_repair = any('typenode' not in node for node in nodes.values())
+        if not needs_repair:
+            continue
+        # Rebuild each node with complete fields
+        new_nodes = {}
+        for key, node in nodes.items():
+            node_type = node.get('name', '')
+            new_nodes[key] = _df_node(
+                node['id'], node_type, node.get('data', {}),
+                inputs=node.get('inputs', {}),
+                outputs=node.get('outputs', {}),
+                pos_x=node.get('pos_x', 100),
+                pos_y=node.get('pos_y', 200),
+            )
+        new_canvas = json.dumps({'drawflow': {'Home': {'data': new_nodes}}})
+        db.update_flow(flow['id'], canvas_data=new_canvas)
+        logger.info(f"Repaired canvas for flow {flow['id']} ({flow['name']})")
+
+
 def _maybe_migrate_automation_to_flows(user_id):
-    """One-time migration: create default flows from automation_settings if no flows exist yet."""
-    if db.get_user_flows(user_id):
+    """One-time migration: create default flows from automation_settings if no flows exist yet.
+    Also repairs existing migrated flows whose canvas nodes are missing required Drawflow fields."""
+    existing = db.get_user_flows(user_id)
+    if existing:
+        # Repair pass: fix any migrated flows whose canvas nodes lack 'typenode' (old format)
+        _repair_migrated_canvases(user_id, existing)
         return
     settings = db.get_automation_settings(user_id)
     trigger_map = {
@@ -1366,60 +1452,52 @@ def _maybe_migrate_automation_to_flows(user_id):
             continue
         delay_hours = int(s.get('delay_hours') or 0)
 
-        # Build minimal Drawflow canvas JSON
         nodes = {}
+
         # Trigger node
         trigger_key = str(node_id)
-        nodes[trigger_key] = {
-            'id': node_id, 'name': 'trigger',
-            'data': {'trigger_type': event_type},
-            'inputs': {},
-            'outputs': {'output_1': {'connections': []}},
-            'pos_x': 100, 'pos_y': 200,
-        }
+        nodes[trigger_key] = _df_node(
+            node_id, 'trigger', {'trigger_type': event_type},
+            inputs={}, outputs={'output_1': {'connections': []}},
+            pos_x=100, pos_y=200,
+        )
         node_id += 1
         prev_key = trigger_key
 
         # Optional wait node
         if delay_hours > 0:
             wait_key = str(node_id)
-            nodes[wait_key] = {
-                'id': node_id, 'name': 'wait',
-                'data': {'hours': delay_hours},
-                'inputs': {'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
-                'outputs': {'output_1': {'connections': []}},
-                'pos_x': 350, 'pos_y': 200,
-            }
+            nodes[wait_key] = _df_node(
+                node_id, 'wait', {'hours': delay_hours},
+                inputs={'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
+                outputs={'output_1': {'connections': []}},
+                pos_x=350, pos_y=200,
+            )
             nodes[prev_key]['outputs']['output_1']['connections'].append({'node': wait_key, 'output': 'input_1'})
             node_id += 1
             prev_key = wait_key
 
         # Send message node
         msg_key = str(node_id)
-        nodes[msg_key] = {
-            'id': node_id, 'name': 'send_message',
-            'data': {
-                'template_name': template_name,
-                'template_language': s.get('template_language') or 'en_US',
-                'param_map': {},
-            },
-            'inputs': {'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
-            'outputs': {'output_1': {'connections': []}},
-            'pos_x': 600, 'pos_y': 200,
-        }
+        nodes[msg_key] = _df_node(
+            node_id, 'send_message',
+            {'template_name': template_name, 'template_language': s.get('template_language') or 'en_US', 'param_map': {}},
+            inputs={'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
+            outputs={'output_1': {'connections': []}},
+            pos_x=600, pos_y=200,
+        )
         nodes[prev_key]['outputs']['output_1']['connections'].append({'node': msg_key, 'output': 'input_1'})
         node_id += 1
         prev_key = msg_key
 
         # Exit node
         exit_key = str(node_id)
-        nodes[exit_key] = {
-            'id': node_id, 'name': 'exit',
-            'data': {},
-            'inputs': {'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
-            'outputs': {},
-            'pos_x': 850, 'pos_y': 200,
-        }
+        nodes[exit_key] = _df_node(
+            node_id, 'exit', {},
+            inputs={'input_1': {'connections': [{'node': prev_key, 'input': 'output_1'}]}},
+            outputs={},
+            pos_x=850, pos_y=200,
+        )
         nodes[prev_key]['outputs']['output_1']['connections'].append({'node': exit_key, 'output': 'input_1'})
         node_id += 1
 
