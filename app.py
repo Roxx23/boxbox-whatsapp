@@ -1212,43 +1212,56 @@ def resend_unsent_campaign(campaign_id):
     if not unsent:
         return jsonify({'success': False, 'error': 'No unsent messages found'})
 
+    import json as _json
+
     count = db.reset_messages_for_resend(campaign_id)
+    queued = 0
+    errors = []
 
     for msg in unsent:
-        phone = msg['phone_number']
-        name  = msg['recipient_name'] or ''
-        msg_id = msg['id']
+        try:
+            phone  = msg['phone_number']
+            msg_id = msg['id']
 
-        if msg['template_name']:
-            import json as _json
-            params   = _json.loads(msg['template_params'])   if msg.get('template_params')  else []
-            btn_p    = _json.loads(msg['button_params'])     if msg.get('button_params')    else None
-            lang     = msg.get('template_language') or 'en'
-            message_queue.add_message(
-                send_template,
-                phone,
-                msg['template_name'],
-                params,
-                lang,
-                button_params=btn_p,
-                user_id=current_user.id,
-                username=current_user.username,
-                campaign_id=campaign_id,
-                message_id=msg_id
-            )
-        else:
-            message_queue.add_message(
-                send_text,
-                phone,
-                msg['message_content'] or '',
-                user_id=current_user.id,
-                username=current_user.username,
-                campaign_id=campaign_id,
-                message_id=msg_id
-            )
+            if msg['template_name']:
+                try:
+                    params = _json.loads(msg['template_params']) if msg.get('template_params') else []
+                except Exception:
+                    params = []
+                try:
+                    btn_p = _json.loads(msg['button_params']) if msg.get('button_params') else None
+                except Exception:
+                    btn_p = None
+                lang = msg.get('template_language') or 'en_US'
+                message_queue.add_message(
+                    send_template,
+                    phone,
+                    msg['template_name'],
+                    params,
+                    lang,
+                    button_params=btn_p,
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    campaign_id=campaign_id,
+                    message_id=msg_id
+                )
+            else:
+                message_queue.add_message(
+                    send_text,
+                    phone,
+                    msg['message_content'] or '',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    campaign_id=campaign_id,
+                    message_id=msg_id
+                )
+            queued += 1
+        except Exception as e:
+            logger.error(f"Resend: failed to queue message {msg.get('id')}: {e}")
+            errors.append(str(e))
 
-    logger.info(f"Resend: queued {count} messages for campaign {campaign_id}")
-    return jsonify({'success': True, 'queued': count})
+    logger.info(f"Resend: queued {queued}/{count} messages for campaign {campaign_id}")
+    return jsonify({'success': True, 'queued': queued, 'errors': errors})
 
 
 @app.route("/activity-log")
