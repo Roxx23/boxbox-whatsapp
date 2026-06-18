@@ -148,11 +148,11 @@ class MessageQueue:
 
                     # Handle other errors
                     elif status >= 400:
+                        logger.error(f"❌ API error {status} sending to {message['args'][0] if message['args'] else '?'}: {response}")
                         if message['retries'] < message['max_retries']:
                             message['retries'] += 1
-                            logger.warning(f"⚠️ Error {status}. Retry {message['retries']}/{message['max_retries']}")
-                            time.sleep(2)
-                            self.queue.put(message)  # Re-queue
+                            logger.warning(f"⚠️ Retry {message['retries']}/{message['max_retries']}")
+                            self.queue.put(message)  # Re-queue immediately (no sleep)
                         else:
                             logger.error(f"❌ Failed after {message['max_retries']} retries: {response}")
                             self._record_result(message, status, response, failed=True)
