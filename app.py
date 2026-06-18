@@ -1625,6 +1625,8 @@ def queue_status():
             'successful': stats.get('successful', 0),
             'failed': stats.get('failed', 0),
             'pending': stats.get('pending', 0),
+            'workers_alive': stats.get('workers_alive', 0),
+            'workers_total': stats.get('workers_total', 0),
             'current_batch': []
         })
     except Exception as e:
