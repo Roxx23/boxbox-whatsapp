@@ -1607,6 +1607,23 @@ def api_dashboard_stats():
     return jsonify(stats)
 
 
+@app.route("/api/worker-debug")
+@login_required
+def worker_debug():
+    """Show live stack traces of all threads — use when queue is stuck."""
+    import sys, traceback
+    frames = sys._current_frames()
+    traces = {}
+    for thread in threading.enumerate():
+        frame = frames.get(thread.ident)
+        if frame:
+            traces[thread.name] = ''.join(traceback.format_stack(frame))
+    return jsonify({
+        'workers': [{'name': w.name, 'alive': w.is_alive()} for w in message_queue.workers],
+        'thread_traces': traces
+    })
+
+
 @app.route("/queue-status")
 @login_required
 def queue_status():
