@@ -52,6 +52,13 @@
     <a href="{{ url_for('campaigns_page') }}" class="btn btn-outline-secondary btn-sm">
       <i class="fas fa-arrow-left me-1"></i>Back to Campaigns
     </a>
+    {% if campaign.status == 'running' %}
+    <button class="btn btn-sm"
+            style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fcd34d;border-radius:8px;"
+            onclick="markFailed()">
+      <i class="fas fa-stop-circle me-1"></i>Mark as Failed
+    </button>
+    {% endif %}
     {% if campaign.status != 'running' %}
     <button class="btn btn-sm"
             style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#DC2626;border-radius:8px;"
@@ -295,6 +302,16 @@
 {% block scripts %}
 <script>
   let currentPhone = '', currentMessageId = 0;
+
+  function markFailed() {
+    if (!confirm('Mark this campaign as failed? This stops it showing as running.')) return;
+    fetch('/api/campaigns/{{ campaign.id }}/mark-failed', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) window.location.reload();
+        else alert('❌ ' + (data.error || 'Failed'));
+      });
+  }
 
   function confirmDelete() {
     new bootstrap.Modal(document.getElementById('deleteModal')).show();

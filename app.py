@@ -1181,6 +1181,18 @@ def campaign_details(campaign_id):
                          messages=messages)
 
 
+@app.route("/api/campaigns/<int:campaign_id>/mark-failed", methods=["POST"])
+@login_required
+def mark_campaign_failed(campaign_id):
+    """Force a stuck running campaign to failed status."""
+    campaign = db.get_campaign(campaign_id)
+    if not campaign or campaign['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Campaign not found'}), 404
+    from datetime import datetime as _dt
+    db.update_campaign_status(campaign_id, 'failed', completed_at=_dt.now().isoformat())
+    return jsonify({'success': True})
+
+
 @app.route("/api/campaigns/<int:campaign_id>/delete", methods=["POST"])
 @login_required
 def delete_campaign(campaign_id):
