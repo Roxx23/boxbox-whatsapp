@@ -1030,7 +1030,8 @@ def index():
                     status='queued',
                     template_params=params,
                     template_language=template_language,
-                    button_params=button_params if button_params else None
+                    button_params=button_params if button_params else None,
+                    header_media_id=header_media_id
                 )
 
                 # Add to queue instead of sending immediately
@@ -1233,12 +1234,14 @@ def resend_unsent_campaign(campaign_id):
                 except Exception:
                     btn_p = None
                 lang = msg.get('template_language') or 'en_US'
+                stored_media_id = msg.get('header_media_id') or None
                 message_queue.add_message(
                     send_template,
                     phone,
                     msg['template_name'],
                     params,
                     lang,
+                    header_media_id=stored_media_id,
                     button_params=btn_p,
                     user_id=current_user.id,
                     username=current_user.username,

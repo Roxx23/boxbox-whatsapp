@@ -251,6 +251,7 @@ class Database:
                 'ALTER TABLE messages ADD COLUMN template_params TEXT',
                 'ALTER TABLE messages ADD COLUMN template_language TEXT',
                 'ALTER TABLE messages ADD COLUMN button_params TEXT',
+                'ALTER TABLE messages ADD COLUMN header_media_id TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -377,20 +378,23 @@ class Database:
     # Message Methods
     def add_message(self, campaign_id, user_id, phone_number, recipient_name=None,
                    message_content=None, template_name=None, status='pending',
-                   template_params=None, template_language=None, button_params=None):
+                   template_params=None, template_language=None, button_params=None,
+                   header_media_id=None):
         """Add a message to campaign"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO messages (campaign_id, user_id, phone_number, recipient_name,
                                     message_content, template_name, status,
-                                    template_params, template_language, button_params)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    template_params, template_language, button_params,
+                                    header_media_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (campaign_id, user_id, phone_number, recipient_name,
                   message_content, template_name, status,
                   json.dumps(template_params) if template_params is not None else None,
                   template_language,
-                  json.dumps(button_params) if button_params is not None else None))
+                  json.dumps(button_params) if button_params is not None else None,
+                  header_media_id))
             return cursor.lastrowid
 
     def fail_message_by_whatsapp_id(self, whatsapp_message_id, error_code, error_message):
@@ -428,7 +432,8 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id, phone_number, recipient_name, template_name,
-                       message_content, template_params, template_language, button_params
+                       message_content, template_params, template_language, button_params,
+                       header_media_id
                 FROM messages
                 WHERE campaign_id = ? AND status IN ('failed', 'queued')
             ''', (campaign_id,))
