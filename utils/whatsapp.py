@@ -253,25 +253,34 @@ def send_text(number: str, message: str, retry=True):
 
 def upload_media(image_file):
     """Upload media to WhatsApp and get media ID"""
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
-    
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media"
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
     }
-    
+
     image_file.seek(0)
-    
+    image_bytes = image_file.read()
+
+    # Determine a safe content type — WhatsApp only accepts image/jpeg and image/png
+    content_type = image_file.content_type or 'image/jpeg'
+    if content_type not in ('image/jpeg', 'image/png'):
+        content_type = 'image/jpeg'
+
+    filename = image_file.filename or 'header.jpg'
+    logger.info(f"Uploading media: filename={filename}, content_type={content_type}, size={len(image_bytes)} bytes")
+
     files = {
-        'file': (image_file.filename, image_file.stream, image_file.content_type)
+        'file': (filename, image_bytes, content_type)
     }
-    
+
     data = {
         'messaging_product': 'whatsapp'
     }
-    
+
     try:
         resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-        
+
         if resp.status_code in [200, 201]:
             media_id = resp.json().get('id')
             logger.info(f"Media uploaded OK, ID: {media_id}")
@@ -287,7 +296,7 @@ def upload_media(image_file):
 def upload_media_from_bytes(image_bytes, content_type='image/jpeg', filename='product.jpg'):
     """Upload raw image bytes to WhatsApp media API. Returns media_id or None.
     Used for automation (e.g. product image from Shopify CDN → WhatsApp header)."""
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     files = {'file': (filename, image_bytes, content_type)}
     data = {'messaging_product': 'whatsapp'}
