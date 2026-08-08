@@ -429,8 +429,17 @@ def schedule_message_job(df, template_name=None, template_language="en",
 
 
 def get_scheduled_jobs():
-    """Return list of all scheduled jobs"""
-    return scheduled_jobs
+    """Return list of all scheduled jobs, pruning old terminal ones to prevent unbounded growth."""
+    global scheduled_jobs
+    with jobs_lock:
+        terminal = {'completed', 'failed', 'cancelled'}
+        done = [j for j in scheduled_jobs if j['status'] in terminal]
+        active = [j for j in scheduled_jobs if j['status'] not in terminal]
+        # Keep only the 20 most recent terminal jobs
+        if len(done) > 20:
+            done = done[-20:]
+        scheduled_jobs = active + done
+    return list(scheduled_jobs)
 
 
 def cancel_job(job_id):

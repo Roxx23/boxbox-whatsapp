@@ -186,6 +186,9 @@ class MessageQueue:
                 'retries': message['retries'],
                 'timestamp': datetime.now()
             })
+            # Prevent unbounded memory growth — keep only the last 500 results in memory
+            if len(self.results) > 500:
+                self.results = self.results[-500:]
             
             # Log to database
             try:
