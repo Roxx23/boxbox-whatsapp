@@ -1371,24 +1371,79 @@ def save_automation_settings():
 
 @app.route("/track/<order_ref>")
 def track_order(order_ref):
-    """Public redirect: /track/<order_number> → courier tracking URL.
+    """Public interstitial: /track/<order_number> → shows branded page → courier tracking URL.
 
     The URL button in the fulfillment WhatsApp template points here.
     Template button URL: https://dashboard.boxbox.in/track/{{1}}
     At send time, {{1}} is the raw order number (e.g. '4123').
+    Shows a brief interstitial instead of a silent 302 to avoid phishing flags.
     """
     try:
         tracking_url = db.get_order_tracking_url(order_ref)
-        if tracking_url:
-            logger.info(f"🔗 Tracking redirect: /track/{order_ref} → {tracking_url}")
-            return redirect(tracking_url, code=302)
-        else:
-            # Fallback — send to store homepage
-            logger.info(f"⚠️ Tracking URL not found for order_ref={order_ref}, redirecting to store")
-            return redirect('https://boxbox.in', code=302)
+        destination = tracking_url if tracking_url else 'https://boxbox.in'
+        logger.info(f"🔗 Tracking interstitial: /track/{order_ref} → {destination}")
     except Exception as e:
         logger.error(f"❌ /track/{order_ref} error: {e}")
-        return redirect('https://boxbox.in', code=302)
+        destination = 'https://boxbox.in'
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>boxbox — Order Tracking</title>
+  <meta http-equiv="refresh" content="3;url={destination}">
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }}
+    .card {{
+      text-align: center;
+      padding: 48px 40px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(212,168,75,0.3);
+      border-radius: 16px;
+      max-width: 380px;
+      width: 90%;
+    }}
+    .logo {{ font-size: 28px; font-weight: 700; color: #d4a84b; letter-spacing: 2px; margin-bottom: 8px; }}
+    .subtitle {{ font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 32px; }}
+    .icon {{ font-size: 48px; margin-bottom: 20px; }}
+    h2 {{ font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
+    p {{ font-size: 14px; color: rgba(255,255,255,0.5); margin-bottom: 28px; }}
+    .btn {{
+      display: inline-block;
+      background: #d4a84b;
+      color: #0a0a0a;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 12px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+    }}
+    .note {{ font-size: 12px; color: rgba(255,255,255,0.25); margin-top: 20px; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">boxbox</div>
+    <div class="subtitle">Order Tracking</div>
+    <div class="icon">📦</div>
+    <h2>Your order is on its way!</h2>
+    <p>Redirecting you to your tracking page in a moment...</p>
+    <a class="btn" href="{destination}">Track Now →</a>
+    <div class="note">You'll be redirected automatically in 3 seconds</div>
+  </div>
+</body>
+</html>"""
+    return html, 200
 
 
 # ============================================================
