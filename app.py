@@ -1413,6 +1413,7 @@ def track_order(order_ref):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>Track Your Order — boxbox</title>
   <meta http-equiv="refresh" content="4;url={destination}">
   <style>
@@ -1534,7 +1535,7 @@ def track_order(order_ref):
       <div class="order-tag">Order {display_order}</div>
       <h1>Your order is on its way!</h1>
       <p class="sub">We're taking you to <span style="font-weight:600;">{courier_name}</span> to track your shipment live.</p>
-      <a class="btn" href="{destination}">Track My Order →</a>
+      <a class="btn" href="{destination}" referrerpolicy="no-referrer">Track My Order →</a>
       <div class="courier-tag">Shipped via <span>{courier_name}</span></div>
       <div class="progress"><div class="progress-bar"></div></div>
     </div>
