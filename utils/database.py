@@ -1050,18 +1050,21 @@ class Database:
             ''', (tracking_url, datetime.now().isoformat(), str(shopify_order_id)))
 
     def get_order_tracking_url(self, order_ref):
-        """Get tracking URL by order number (for /track/<order_ref> redirect).
+        """Get tracking URL and order info by order number (for /track/<order_ref> redirect).
         order_ref is the raw order number digits (e.g. '4123' for order #F14123).
+        Returns dict with tracking_url and order_number, or None.
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT tracking_url FROM shopify_orders
+                SELECT tracking_url, order_number FROM shopify_orders
                 WHERE order_number = ? OR order_number = ? OR shopify_order_id = ?
                 ORDER BY updated_at DESC LIMIT 1
             ''', (order_ref, '#' + order_ref, order_ref))
             row = cursor.fetchone()
-            return row['tracking_url'] if row else None
+            if row:
+                return {'tracking_url': row['tracking_url'], 'order_number': row['order_number']}
+            return None
 
     # Automation Settings Methods
     def get_automation_settings(self, user_id):

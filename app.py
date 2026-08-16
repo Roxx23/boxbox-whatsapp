@@ -1371,75 +1371,176 @@ def save_automation_settings():
 
 @app.route("/track/<order_ref>")
 def track_order(order_ref):
-    """Public interstitial: /track/<order_number> → shows branded page → courier tracking URL.
-
-    The URL button in the fulfillment WhatsApp template points here.
-    Template button URL: https://dashboard.boxbox.in/track/{{1}}
-    At send time, {{1}} is the raw order number (e.g. '4123').
-    Shows a brief interstitial instead of a silent 302 to avoid phishing flags.
-    """
+    """Public interstitial: /track/<order_number> → shows branded page → courier tracking URL."""
     try:
-        tracking_url = db.get_order_tracking_url(order_ref)
-        destination = tracking_url if tracking_url else 'https://boxbox.in'
+        result = db.get_order_tracking_url(order_ref)
+        if result:
+            destination = result['tracking_url'] or 'https://boxbox.in'
+            order_number = result['order_number'] or order_ref
+        else:
+            destination = 'https://boxbox.in'
+            order_number = order_ref
         logger.info(f"🔗 Tracking interstitial: /track/{order_ref} → {destination}")
     except Exception as e:
         logger.error(f"❌ /track/{order_ref} error: {e}")
         destination = 'https://boxbox.in'
+        order_number = order_ref
+
+    # Detect courier name from URL
+    courier_map = {
+        'dtdc.com': 'DTDC',
+        'delhivery.com': 'Delhivery',
+        'fedex.com': 'FedEx',
+        'bluedart.com': 'BlueDart',
+        'ecomexpress.in': 'Ecom Express',
+        'xpressbees.com': 'XpressBees',
+        'shiprocket': 'Shiprocket',
+        'ekart': 'Ekart',
+        'shadowfax': 'Shadowfax',
+        'amazonlogistics': 'Amazon Logistics',
+    }
+    courier_name = 'our courier partner'
+    for domain, name in courier_map.items():
+        if domain in destination:
+            courier_name = name
+            break
+
+    # Format order number for display
+    display_order = f"#{order_number}" if not str(order_number).startswith('#') else order_number
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>boxbox — Order Tracking</title>
-  <meta http-equiv="refresh" content="3;url={destination}">
+  <title>Track Your Order — boxbox</title>
+  <meta http-equiv="refresh" content="4;url={destination}">
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0a0a0a;
-      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      background: #f9f7f4;
+      color: #1a1a1a;
       min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }}
+    .wrapper {{
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }}
+    .logo {{
+      display: block;
+      margin-bottom: 16px;
+      text-decoration: none;
+    }}
+    .logo img {{
+      height: 250px;
+      width: auto;
+      margin-top: -60px;
+      margin-bottom: -60px;
+    }}
+    .card {{
+      background: #fff;
+      border-radius: 20px;
+      padding: 40px 32px;
+      box-shadow: 0 2px 24px rgba(0,0,0,0.07);
+    }}
+    .icon-wrap {{
+      width: 72px;
+      height: 72px;
+      background: #f0f7f0;
+      border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 32px;
     }}
-    .card {{
-      text-align: center;
-      padding: 48px 40px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(212,168,75,0.3);
-      border-radius: 16px;
-      max-width: 380px;
-      width: 90%;
+    h1 {{
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 10px;
+      line-height: 1.3;
     }}
-    .logo {{ font-size: 28px; font-weight: 700; color: #d4a84b; letter-spacing: 2px; margin-bottom: 8px; }}
-    .subtitle {{ font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 32px; }}
-    .icon {{ font-size: 48px; margin-bottom: 20px; }}
-    h2 {{ font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
-    p {{ font-size: 14px; color: rgba(255,255,255,0.5); margin-bottom: 28px; }}
-    .btn {{
+    .order-tag {{
       display: inline-block;
-      background: #d4a84b;
-      color: #0a0a0a;
+      background: #f0f7f0;
+      color: #2d7a2d;
+      font-size: 13px;
       font-weight: 600;
-      font-size: 14px;
-      padding: 12px 28px;
-      border-radius: 8px;
-      text-decoration: none;
+      padding: 5px 14px;
+      border-radius: 20px;
+      margin-bottom: 16px;
     }}
-    .note {{ font-size: 12px; color: rgba(255,255,255,0.25); margin-top: 20px; }}
+    .sub {{
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 28px;
+      line-height: 1.6;
+    }}
+    .btn {{
+      display: block;
+      background: #1a1a1a;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 16px 24px;
+      border-radius: 12px;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s;
+    }}
+    .btn:hover {{ opacity: 0.85; }}
+    .courier-tag {{
+      font-size: 12px;
+      color: #999;
+      margin-top: 18px;
+    }}
+    .courier-tag span {{ color: #1a1a1a; font-weight: 600; }}
+    .footer {{
+      margin-top: 32px;
+      font-size: 12px;
+      color: #aaa;
+    }}
+    .footer a {{ color: #aaa; text-decoration: none; }}
+    .progress {{
+      height: 3px;
+      background: #f0f0f0;
+      border-radius: 2px;
+      margin-top: 24px;
+      overflow: hidden;
+    }}
+    .progress-bar {{
+      height: 100%;
+      background: #1a1a1a;
+      border-radius: 2px;
+      width: 0%;
+      animation: fill 4s linear forwards;
+    }}
+    @keyframes fill {{ to {{ width: 100%; }} }}
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="logo">boxbox</div>
-    <div class="subtitle">Order Tracking</div>
-    <div class="icon">📦</div>
-    <h2>Your order is on its way!</h2>
-    <p>Redirecting you to your tracking page in a moment...</p>
-    <a class="btn" href="{destination}">Track Now →</a>
-    <div class="note">You'll be redirected automatically in 3 seconds</div>
+  <div class="wrapper">
+    <a class="logo" href="https://boxbox.in"><img src="/static/boxbox-logo.png" alt="boxbox"></a>
+    <div class="card">
+      <div class="icon-wrap">🚚</div>
+      <div class="order-tag">Order {display_order}</div>
+      <h1>Your order is on its way!</h1>
+      <p class="sub">We're taking you to <span style="font-weight:600;">{courier_name}</span> to track your shipment live.</p>
+      <a class="btn" href="{destination}">Track My Order →</a>
+      <div class="courier-tag">Shipped via <span>{courier_name}</span></div>
+      <div class="progress"><div class="progress-bar"></div></div>
+    </div>
+    <div class="footer">
+      Questions? <a href="https://boxbox.in">Visit boxbox.in</a> or reply to your WhatsApp message.
+    </div>
   </div>
 </body>
 </html>"""
