@@ -2301,6 +2301,7 @@ def shopify_fulfillment():
             shopify_order_id = str(data.get('order_id', ''))
             tracking_number = data.get('tracking_number') or 'Will be provided'
             tracking_url    = data.get('tracking_url') or ''
+            courier_name    = data.get('tracking_company') or 'our courier'
             line_items = data.get('line_items', [])
             order = db.get_order_by_shopify_id(shopify_order_id)
             if not order:
@@ -2331,10 +2332,12 @@ def shopify_fulfillment():
             fulfillments = data.get('fulfillments') or []
             tracking_number = 'Will be provided'
             tracking_url    = ''
+            courier_name    = 'our courier'
             if fulfillments:
                 last = fulfillments[-1]
                 tracking_number = last.get('tracking_number') or 'Will be provided'
                 tracking_url    = last.get('tracking_url') or ''
+                courier_name    = last.get('tracking_company') or 'our courier'
 
             # Fallback: use Shopify's order status page if no courier URL
             if not tracking_url:
@@ -2380,8 +2383,8 @@ def shopify_fulfillment():
                 if phone_e164:
                     lang = s.get('template_language') or 'en_US'
                     items_str = _format_items(line_items)
-                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=items
-                    params = [str(first_name), order_number_display, items_str]
+                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=courier, {{4}}=items, {{5}}=tracking#
+                    params = [str(first_name), order_number_display, courier_name, items_str, tracking_number]
 
                     # URL button — template has: https://dashboard.boxbox.in/track/{{1}}
                     # We pass the order number as the suffix; the /track/ endpoint
