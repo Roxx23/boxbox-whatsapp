@@ -2386,11 +2386,7 @@ def shopify_fulfillment():
                     # Template params: {{1}}=name, {{2}}=order#, {{3}}=courier, {{4}}=items, {{5}}=tracking#
                     params = [str(first_name), order_number_display, courier_name, items_str, tracking_number]
 
-                    # URL button — template has: https://dashboard.boxbox.in/track/{{1}}
-                    # We pass the order number as the suffix; the /track/ endpoint
-                    # looks up the actual Shopify tracking URL and 302-redirects.
-                    # This works across any courier (Delhivery, DTDC, FedEx, etc.)
-                    # because WhatsApp buttons require a fixed base URL.
+                    # URL button: pass order number as dynamic suffix for /track/{{1}}
                     btn_params = {"url_index_0": str(order_number)}
 
                     success, _ = _send_automation_message(
