@@ -1406,7 +1406,8 @@ def track_order(order_ref):
             break
 
     # Format order number for display
-    display_order = f"#{order_number}" if not str(order_number).startswith('#') else order_number
+    order_number_str = str(order_number).lstrip('#')
+    display_order = f"#F1{order_number_str}"
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
