@@ -1375,49 +1375,46 @@ def track_order(order_ref):
     """Public interstitial: /track/<order_number> → shows branded page → courier tracking URL."""
     tracking_number = None
     tracking_company = None
+    status_url = None
     try:
         result = db.get_order_tracking_url(order_ref)
         if result:
-            destination = result['tracking_url'] or 'https://boxbox.in'
+            destination = result['tracking_url'] or ''
             order_number = result['order_number'] or order_ref
             tracking_number = result.get('tracking_number')
             tracking_company = result.get('tracking_company')
+            status_url = result.get('order_status_url')
         else:
-            destination = 'https://boxbox.in'
+            destination = ''
             order_number = order_ref
-        logger.info(f"🔗 Tracking page: /track/{order_ref} → {destination}")
     except Exception as e:
         logger.error(f"❌ /track/{order_ref} error: {e}")
-        destination = 'https://boxbox.in'
+        destination = ''
         order_number = order_ref
 
-    # Courier registry: url fragment → (display name, AfterShip slug)
-    # AfterShip is used as the primary destination because several courier sites
-    # (DTDC in particular) serve a WAF "Attack detected" block page for deep links
-    # arriving from an external site / in-app browser.
+    # Courier name is display-only. We never link to a courier site directly:
+    # DTDC (and others) serve a WAF block page for deep links arriving from an
+    # external site / in-app browser, which reads as a scam to the customer.
     courier_map = {
-        'dtdc':            ('DTDC', 'dtdc'),
-        'delhivery':       ('Delhivery', 'delhivery'),
-        'fedex':           ('FedEx', 'fedex'),
-        'bluedart':        ('BlueDart', 'blue-dart'),
-        'ecomexpress':     ('Ecom Express', 'ecom-express'),
-        'xpressbees':      ('XpressBees', 'xpressbees'),
-        'shiprocket':      ('Shiprocket', 'shiprocket'),
-        'ekart':           ('Ekart', 'ekart'),
-        'shadowfax':       ('Shadowfax', 'shadowfax'),
-        'amazonlogistics': ('Amazon Logistics', 'amazon'),
+        'dtdc':            'DTDC',
+        'delhivery':       'Delhivery',
+        'fedex':           'FedEx',
+        'bluedart':        'BlueDart',
+        'ecomexpress':     'Ecom Express',
+        'xpressbees':      'XpressBees',
+        'shiprocket':      'Shiprocket',
+        'ekart':           'Ekart',
+        'shadowfax':       'Shadowfax',
+        'amazonlogistics': 'Amazon Logistics',
     }
-
     courier_name = (tracking_company or '').strip() or 'our courier partner'
-    aftership_slug = None
-    haystack = f"{destination} {tracking_company or ''}".lower()
-    for key, (name, slug) in courier_map.items():
-        if key in haystack.replace(' ', '').replace('-', ''):
+    haystack = f"{destination} {tracking_company or ''}".lower().replace(' ', '').replace('-', '')
+    for key, name in courier_map.items():
+        if key in haystack:
             courier_name = name
-            aftership_slug = slug
             break
 
-    # AWB: prefer the stored value, else recover it from the tracking URL query string
+    # AWB: prefer the stored value, else recover it from the courier tracking URL
     if not tracking_number:
         try:
             qs = parse_qs(urlparse(destination).query)
@@ -1429,11 +1426,12 @@ def track_order(order_ref):
         except Exception:
             pass
 
-    # Primary destination: AfterShip when we can build it, else the courier URL
-    if aftership_slug and tracking_number:
-        primary_url = f"https://track.aftership.com/{aftership_slug}/{quote(str(tracking_number))}"
-    else:
-        primary_url = destination
+    # Primary destination is Shopify's own customer-facing order page (on boxbox.in,
+    # carries its own auth key). Orders predating this column have none stored — those
+    # fall back to the copyable AWB rather than a courier link that may block.
+    primary_url = status_url or ''
+    logger.info(f"🔗 Tracking page: /track/{order_ref} → "
+                f"{primary_url or '(no link, AWB only)'} (awb={tracking_number})")
 
     # Format order number for display
     order_number_str = str(order_number).lstrip('#')
@@ -1449,11 +1447,16 @@ def track_order(order_ref):
         <button class="copy" onclick="copyAwb()" aria-label="Copy tracking number">Copy</button>
       </div>"""
 
-    alt_block = ""
-    if primary_url != destination:
-        alt_block = f"""
-      <a class="btn-alt" href="{destination}" target="_blank" rel="noopener noreferrer"
-         referrerpolicy="no-referrer">Or track on {courier_name}'s site</a>"""
+    if primary_url:
+        cta_block = f"""
+      <a class="btn" href="{primary_url}">Track My Order &rarr;</a>"""
+    elif tracking_number:
+        cta_block = f"""
+      <p class="hint">Use the tracking number above on
+        <span style="font-weight:600;">{courier_name}</span>'s website to see live status.</p>"""
+    else:
+        cta_block = """
+      <a class="btn" href="https://boxbox.in">Visit boxbox.in &rarr;</a>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1544,16 +1547,13 @@ def track_order(order_ref):
       transition: opacity 0.2s;
     }}
     .btn:hover {{ opacity: 0.85; }}
-    .btn-alt {{
-      display: block;
-      margin-top: 12px;
-      padding: 14px 24px;
-      border: 1px solid #e2e2e2;
+    .hint {{
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+      background: #f7f7f5;
       border-radius: 12px;
-      color: #555;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
+      padding: 14px 16px;
     }}
     .awb-label {{
       font-size: 11px;
@@ -1618,9 +1618,7 @@ def track_order(order_ref):
       <h1>Your order is on its way!</h1>
       <p class="sub">Your parcel has been picked up by <span style="font-weight:600;">{courier_name}</span>.</p>
       {awb_block}
-      <a class="btn" href="{primary_url}" target="_blank" rel="noopener noreferrer"
-         referrerpolicy="no-referrer">Track My Order →</a>
-      {alt_block}
+      {cta_block}
       <div class="courier-tag">Shipped via <span>{courier_name}</span></div>
     </div>
     <div class="footer">
@@ -2335,6 +2333,12 @@ def shopify_order_create():
         order_db_id = db.add_order(user_id, order_data)
         logger.info(f"✅ Order stored: DB id={order_db_id} (user_id={user_id})")
 
+        # Store Shopify's customer-facing order page — used later by /track/<order_ref>
+        try:
+            db.save_order_status_url(str(data.get('id', '')), data.get('order_status_url'))
+        except Exception as e:
+            logger.warning(f"Could not save order status URL: {e}")
+
         # Mark any abandoned cart as recovered
         cart_token = data.get('cart_token')
         if cart_token:
@@ -2415,6 +2419,9 @@ def shopify_fulfillment():
             tracking_number = data.get('tracking_number') or 'Will be provided'
             tracking_url    = data.get('tracking_url') or ''
             courier_name    = data.get('tracking_company') or 'our courier'
+            # fulfillments/create payloads carry no order_status_url; if the order was
+            # seen by orders/create we already have it stored, so leave it untouched.
+            status_url      = ''
             line_items = data.get('line_items', [])
             order = db.get_order_by_shopify_id(shopify_order_id)
             if not order:
@@ -2452,9 +2459,12 @@ def shopify_fulfillment():
                 tracking_url    = last.get('tracking_url') or ''
                 courier_name    = last.get('tracking_company') or 'our courier'
 
+            # Shopify's customer-facing order page — the primary /track/ destination
+            status_url = data.get('order_status_url') or ''
+
             # Fallback: use Shopify's order status page if no courier URL
             if not tracking_url:
-                tracking_url = data.get('order_status_url') or ''
+                tracking_url = status_url
 
             # Upsert order so we have an id
             order_data_payload = {
@@ -2480,10 +2490,12 @@ def shopify_fulfillment():
                 db.save_order_tracking_url(
                     shopify_order_id, tracking_url,
                     tracking_number=awb,
-                    tracking_company=(courier_name if courier_name != 'our courier' else None)
+                    tracking_company=(courier_name if courier_name != 'our courier' else None),
+                    order_status_url=(status_url or None)
                 )
                 logger.info(f"📌 Tracking saved for order {shopify_order_id}: "
-                            f"{tracking_url} (awb={awb}, courier={courier_name})")
+                            f"{tracking_url} (awb={awb}, courier={courier_name}, "
+                            f"status_url={'yes' if status_url else 'no'})")
             except Exception as e:
                 logger.warning(f"Could not save tracking URL: {e}")
 

@@ -268,6 +268,7 @@ class Database:
                 'ALTER TABLE abandoned_carts ADD COLUMN customer_name TEXT',
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_number TEXT',
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_company TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN order_status_url TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -1042,10 +1043,11 @@ class Database:
             ''', (datetime.now().isoformat(), str(shopify_order_id)))
 
     def save_order_tracking_url(self, shopify_order_id, tracking_url,
-                                tracking_number=None, tracking_company=None):
+                                tracking_number=None, tracking_company=None,
+                                order_status_url=None):
         """Save tracking URL/number/courier for an order (used by /track/<order_ref>).
 
-        tracking_number and tracking_company are optional so older callers keep working;
+        All fields but tracking_url are optional so older callers keep working;
         when omitted the existing stored values are left untouched.
         """
         with self.get_connection() as conn:
@@ -1055,10 +1057,23 @@ class Database:
                 SET tracking_url = ?,
                     tracking_number = COALESCE(?, tracking_number),
                     tracking_company = COALESCE(?, tracking_company),
+                    order_status_url = COALESCE(?, order_status_url),
                     updated_at = ?
                 WHERE shopify_order_id = ?
-            ''', (tracking_url, tracking_number, tracking_company,
+            ''', (tracking_url, tracking_number, tracking_company, order_status_url,
                   datetime.now().isoformat(), str(shopify_order_id)))
+
+    def save_order_status_url(self, shopify_order_id, order_status_url):
+        """Store Shopify's customer-facing order status URL (set from orders/create)."""
+        if not order_status_url:
+            return
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shopify_orders
+                SET order_status_url = ?, updated_at = ?
+                WHERE shopify_order_id = ?
+            ''', (order_status_url, datetime.now().isoformat(), str(shopify_order_id)))
 
     def get_order_tracking_url(self, order_ref):
         """Get tracking info by order number (for /track/<order_ref>).
@@ -1068,7 +1083,8 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT tracking_url, tracking_number, tracking_company, order_number
+                SELECT tracking_url, tracking_number, tracking_company,
+                       order_status_url, order_number
                 FROM shopify_orders
                 WHERE order_number = ? OR order_number = ? OR shopify_order_id = ?
                 ORDER BY updated_at DESC LIMIT 1
@@ -1079,6 +1095,7 @@ class Database:
                     'tracking_url': row['tracking_url'],
                     'tracking_number': row['tracking_number'],
                     'tracking_company': row['tracking_company'],
+                    'order_status_url': row['order_status_url'],
                     'order_number': row['order_number'],
                 }
             return None
