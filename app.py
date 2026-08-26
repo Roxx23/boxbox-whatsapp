@@ -12,6 +12,7 @@ import hashlib
 import base64
 import time
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, send_template, upload_media, upload_media_from_bytes
@@ -1372,42 +1373,87 @@ def save_automation_settings():
 @app.route("/track/<order_ref>")
 def track_order(order_ref):
     """Public interstitial: /track/<order_number> → shows branded page → courier tracking URL."""
+    tracking_number = None
+    tracking_company = None
     try:
         result = db.get_order_tracking_url(order_ref)
         if result:
             destination = result['tracking_url'] or 'https://boxbox.in'
             order_number = result['order_number'] or order_ref
+            tracking_number = result.get('tracking_number')
+            tracking_company = result.get('tracking_company')
         else:
             destination = 'https://boxbox.in'
             order_number = order_ref
-        logger.info(f"🔗 Tracking interstitial: /track/{order_ref} → {destination}")
+        logger.info(f"🔗 Tracking page: /track/{order_ref} → {destination}")
     except Exception as e:
         logger.error(f"❌ /track/{order_ref} error: {e}")
         destination = 'https://boxbox.in'
         order_number = order_ref
 
-    # Detect courier name from URL
+    # Courier registry: url fragment → (display name, AfterShip slug)
+    # AfterShip is used as the primary destination because several courier sites
+    # (DTDC in particular) serve a WAF "Attack detected" block page for deep links
+    # arriving from an external site / in-app browser.
     courier_map = {
-        'dtdc.com': 'DTDC',
-        'delhivery.com': 'Delhivery',
-        'fedex.com': 'FedEx',
-        'bluedart.com': 'BlueDart',
-        'ecomexpress.in': 'Ecom Express',
-        'xpressbees.com': 'XpressBees',
-        'shiprocket': 'Shiprocket',
-        'ekart': 'Ekart',
-        'shadowfax': 'Shadowfax',
-        'amazonlogistics': 'Amazon Logistics',
+        'dtdc':            ('DTDC', 'dtdc'),
+        'delhivery':       ('Delhivery', 'delhivery'),
+        'fedex':           ('FedEx', 'fedex'),
+        'bluedart':        ('BlueDart', 'blue-dart'),
+        'ecomexpress':     ('Ecom Express', 'ecom-express'),
+        'xpressbees':      ('XpressBees', 'xpressbees'),
+        'shiprocket':      ('Shiprocket', 'shiprocket'),
+        'ekart':           ('Ekart', 'ekart'),
+        'shadowfax':       ('Shadowfax', 'shadowfax'),
+        'amazonlogistics': ('Amazon Logistics', 'amazon'),
     }
-    courier_name = 'our courier partner'
-    for domain, name in courier_map.items():
-        if domain in destination:
+
+    courier_name = (tracking_company or '').strip() or 'our courier partner'
+    aftership_slug = None
+    haystack = f"{destination} {tracking_company or ''}".lower()
+    for key, (name, slug) in courier_map.items():
+        if key in haystack.replace(' ', '').replace('-', ''):
             courier_name = name
+            aftership_slug = slug
             break
+
+    # AWB: prefer the stored value, else recover it from the tracking URL query string
+    if not tracking_number:
+        try:
+            qs = parse_qs(urlparse(destination).query)
+            for k in ('awb', 'AWB', 'awb_no', 'trackingnumber', 'tracking_number',
+                      'trackingNo', 'ref', 'id'):
+                if qs.get(k):
+                    tracking_number = qs[k][0]
+                    break
+        except Exception:
+            pass
+
+    # Primary destination: AfterShip when we can build it, else the courier URL
+    if aftership_slug and tracking_number:
+        primary_url = f"https://track.aftership.com/{aftership_slug}/{quote(str(tracking_number))}"
+    else:
+        primary_url = destination
 
     # Format order number for display
     order_number_str = str(order_number).lstrip('#')
     display_order = f"#F1{order_number_str}"
+
+    # Optional blocks — only rendered when we actually have the data
+    awb_block = ""
+    if tracking_number:
+        awb_block = f"""
+      <div class="awb-label">Tracking number</div>
+      <div class="awb-row">
+        <span class="awb" id="awb">{tracking_number}</span>
+        <button class="copy" onclick="copyAwb()" aria-label="Copy tracking number">Copy</button>
+      </div>"""
+
+    alt_block = ""
+    if primary_url != destination:
+        alt_block = f"""
+      <a class="btn-alt" href="{destination}" target="_blank" rel="noopener noreferrer"
+         referrerpolicy="no-referrer">Or track on {courier_name}'s site</a>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1416,7 +1462,6 @@ def track_order(order_ref):
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
   <title>Track Your Order — boxbox</title>
-  <meta http-equiv="refresh" content="4;url={destination}">
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
@@ -1499,6 +1544,56 @@ def track_order(order_ref):
       transition: opacity 0.2s;
     }}
     .btn:hover {{ opacity: 0.85; }}
+    .btn-alt {{
+      display: block;
+      margin-top: 12px;
+      padding: 14px 24px;
+      border: 1px solid #e2e2e2;
+      border-radius: 12px;
+      color: #555;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+    }}
+    .awb-label {{
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #999;
+      margin-bottom: 8px;
+    }}
+    .awb-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #f7f7f5;
+      border: 1px dashed #ddd;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 24px;
+    }}
+    .awb {{
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #1a1a1a;
+      word-break: break-all;
+      text-align: left;
+    }}
+    .copy {{
+      flex-shrink: 0;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }}
     .courier-tag {{
       font-size: 12px;
       color: #999;
@@ -1509,23 +1604,9 @@ def track_order(order_ref):
       margin-top: 32px;
       font-size: 12px;
       color: #aaa;
+      line-height: 1.6;
     }}
     .footer a {{ color: #aaa; text-decoration: none; }}
-    .progress {{
-      height: 3px;
-      background: #f0f0f0;
-      border-radius: 2px;
-      margin-top: 24px;
-      overflow: hidden;
-    }}
-    .progress-bar {{
-      height: 100%;
-      background: #1a1a1a;
-      border-radius: 2px;
-      width: 0%;
-      animation: fill 4s linear forwards;
-    }}
-    @keyframes fill {{ to {{ width: 100%; }} }}
   </style>
 </head>
 <body>
@@ -1535,15 +1616,46 @@ def track_order(order_ref):
       <div class="icon-wrap">🚚</div>
       <div class="order-tag">Order {display_order}</div>
       <h1>Your order is on its way!</h1>
-      <p class="sub">We're taking you to <span style="font-weight:600;">{courier_name}</span> to track your shipment live.</p>
-      <a class="btn" href="{destination}" referrerpolicy="no-referrer">Track My Order →</a>
+      <p class="sub">Your parcel has been picked up by <span style="font-weight:600;">{courier_name}</span>.</p>
+      {awb_block}
+      <a class="btn" href="{primary_url}" target="_blank" rel="noopener noreferrer"
+         referrerpolicy="no-referrer">Track My Order →</a>
+      {alt_block}
       <div class="courier-tag">Shipped via <span>{courier_name}</span></div>
-      <div class="progress"><div class="progress-bar"></div></div>
     </div>
     <div class="footer">
       Questions? <a href="https://boxbox.in">Visit boxbox.in</a> or reply to your WhatsApp message.
     </div>
   </div>
+  <script>
+    function copyAwb() {{
+      var el = document.getElementById('awb');
+      if (!el) return;
+      var text = el.innerText.trim();
+      var btn = document.querySelector('.copy');
+      function done() {{
+        if (!btn) return;
+        var old = btn.innerText;
+        btn.innerText = 'Copied';
+        setTimeout(function () {{ btn.innerText = old; }}, 1500);
+      }}
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+      }} else {{
+        fallback();
+      }}
+      function fallback() {{
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {{ document.execCommand('copy'); done(); }} catch (e) {{}}
+        document.body.removeChild(ta);
+      }}
+    }}
+  </script>
 </body>
 </html>"""
     return html, 200
@@ -2364,8 +2476,14 @@ def shopify_fulfillment():
         # tracking_url is courier URL if available, otherwise Shopify order status page
         if tracking_url:
             try:
-                db.save_order_tracking_url(shopify_order_id, tracking_url)
-                logger.info(f"📌 Tracking URL saved for order {shopify_order_id}: {tracking_url}")
+                awb = tracking_number if tracking_number != 'Will be provided' else None
+                db.save_order_tracking_url(
+                    shopify_order_id, tracking_url,
+                    tracking_number=awb,
+                    tracking_company=(courier_name if courier_name != 'our courier' else None)
+                )
+                logger.info(f"📌 Tracking saved for order {shopify_order_id}: "
+                            f"{tracking_url} (awb={awb}, courier={courier_name})")
             except Exception as e:
                 logger.warning(f"Could not save tracking URL: {e}")
 

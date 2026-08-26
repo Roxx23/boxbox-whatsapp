@@ -266,6 +266,8 @@ class Database:
                 "ALTER TABLE automation_settings ADD COLUMN extra_data TEXT DEFAULT '{}'",
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_url TEXT',
                 'ALTER TABLE abandoned_carts ADD COLUMN customer_name TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN tracking_number TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN tracking_company TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -1039,31 +1041,46 @@ class Database:
                 WHERE shopify_order_id = ?
             ''', (datetime.now().isoformat(), str(shopify_order_id)))
 
-    def save_order_tracking_url(self, shopify_order_id, tracking_url):
-        """Save tracking URL for an order (used by /track/<order_ref> redirect)"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE shopify_orders
-                SET tracking_url = ?, updated_at = ?
-                WHERE shopify_order_id = ?
-            ''', (tracking_url, datetime.now().isoformat(), str(shopify_order_id)))
+    def save_order_tracking_url(self, shopify_order_id, tracking_url,
+                                tracking_number=None, tracking_company=None):
+        """Save tracking URL/number/courier for an order (used by /track/<order_ref>).
 
-    def get_order_tracking_url(self, order_ref):
-        """Get tracking URL and order info by order number (for /track/<order_ref> redirect).
-        order_ref is the raw order number digits (e.g. '4123' for order #F14123).
-        Returns dict with tracking_url and order_number, or None.
+        tracking_number and tracking_company are optional so older callers keep working;
+        when omitted the existing stored values are left untouched.
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT tracking_url, order_number FROM shopify_orders
+                UPDATE shopify_orders
+                SET tracking_url = ?,
+                    tracking_number = COALESCE(?, tracking_number),
+                    tracking_company = COALESCE(?, tracking_company),
+                    updated_at = ?
+                WHERE shopify_order_id = ?
+            ''', (tracking_url, tracking_number, tracking_company,
+                  datetime.now().isoformat(), str(shopify_order_id)))
+
+    def get_order_tracking_url(self, order_ref):
+        """Get tracking info by order number (for /track/<order_ref>).
+        order_ref is the raw order number digits (e.g. '4123' for order #F14123).
+        Returns dict with tracking_url, tracking_number, tracking_company, order_number.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT tracking_url, tracking_number, tracking_company, order_number
+                FROM shopify_orders
                 WHERE order_number = ? OR order_number = ? OR shopify_order_id = ?
                 ORDER BY updated_at DESC LIMIT 1
             ''', (order_ref, '#' + order_ref, order_ref))
             row = cursor.fetchone()
             if row:
-                return {'tracking_url': row['tracking_url'], 'order_number': row['order_number']}
+                return {
+                    'tracking_url': row['tracking_url'],
+                    'tracking_number': row['tracking_number'],
+                    'tracking_company': row['tracking_company'],
+                    'order_number': row['order_number'],
+                }
             return None
 
     # Automation Settings Methods
