@@ -7,6 +7,7 @@ import atexit
 import threading
 import logging
 import json
+import re
 import hmac
 import hashlib
 import base64
@@ -271,6 +272,46 @@ def _verify_shopify_hmac(raw_data, hmac_header):
     h = hmac.new(secret.encode('utf-8'), raw_data, hashlib.sha256)
     computed = base64.b64encode(h.digest()).decode('utf-8')
     return hmac.compare_digest(computed, hmac_header)
+
+
+def _template_shape(template_name, template_language=None):
+    """Inspect the approved WhatsApp template and return how it expects to be filled.
+
+    Returns {'body_vars': int, 'has_dynamic_url_button': bool}, or None if the
+    template can't be looked up (API error, not found). Callers must fall back to
+    their previous fixed assumptions on None so a Meta outage never blocks sends.
+
+    Lets the sender adapt to whatever is currently approved — add or remove a
+    body variable or a URL button in Business Manager and the payload follows,
+    instead of failing with 132000 (param count) or 132018 (button params).
+    """
+    if not (WABA_ID and template_name):
+        return None
+    try:
+        candidates = [t for t in get_templates(WABA_ID) if t.get('name') == template_name]
+        if not candidates:
+            logger.warning(f"_template_shape: template '{template_name}' not found")
+            return None
+        # Prefer exact language match, then APPROVED, then whatever's first.
+        def rank(t):
+            return (t.get('language') != template_language, t.get('status') != 'APPROVED')
+        tmpl = sorted(candidates, key=rank)[0]
+
+        body_vars = 0
+        has_dyn_url = False
+        for comp in tmpl.get('components', []):
+            ctype = comp.get('type')
+            if ctype == 'BODY':
+                nums = [int(n) for n in re.findall(r'\{\{(\d+)\}\}', comp.get('text') or '')]
+                body_vars = max(nums) if nums else 0
+            elif ctype == 'BUTTONS':
+                for b in comp.get('buttons', []):
+                    if b.get('type') == 'URL' and '{{' in (b.get('url') or ''):
+                        has_dyn_url = True
+        return {'body_vars': body_vars, 'has_dynamic_url_button': has_dyn_url}
+    except Exception as e:
+        logger.warning(f"_template_shape: could not inspect '{template_name}': {e}")
+        return None
 
 
 def _send_automation_message(phone, event_type, template_name, template_language, params,
@@ -2559,15 +2600,28 @@ def shopify_fulfillment():
                 if phone_e164:
                     lang = s.get('template_language') or 'en_US'
                     items_str = _format_items(line_items)
-                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=courier, {{4}}=items, {{5}}=tracking#
-                    params = [str(first_name), order_number_display, courier_name, items_str, tracking_number]
+                    # Every value the template *could* ask for, in variable order:
+                    #   {{1}}=name  {{2}}=order#  {{3}}=courier  {{4}}=items
+                    #   {{5}}=tracking#  {{6}}=courier tracking link (body-link variant)
+                    # The approved template decides how many are actually sent.
+                    link_for_body = tracking_url or 'https://boxbox.in'
+                    all_params = [str(first_name), order_number_display, courier_name,
+                                  items_str, tracking_number, link_for_body]
 
-                    # URL button — template has: https://dashboard.boxbox.in/track/{{1}}
-                    # We pass the order number as the suffix; the /track/ endpoint
-                    # looks up the actual Shopify tracking URL and 302-redirects.
-                    # This works across any courier (Delhivery, DTDC, FedEx, etc.)
-                    # because WhatsApp buttons require a fixed base URL.
-                    btn_params = {"url_index_0": str(order_number)}
+                    shape = _template_shape(template_name, lang)
+                    if shape:
+                        params = all_params[:shape['body_vars']]
+                        # Dynamic URL button → suffix is the order number, resolved by /track/.
+                        # No such button on the template → send none, or Meta returns 132018.
+                        btn_params = ({"url_index_0": str(order_number)}
+                                      if shape['has_dynamic_url_button'] else None)
+                        logger.info(f"fulfillment template '{template_name}': "
+                                    f"{shape['body_vars']} body vars, "
+                                    f"url button={'yes' if btn_params else 'no'}")
+                    else:
+                        # Couldn't inspect the template — keep the last known-good shape.
+                        params = all_params[:5]
+                        btn_params = {"url_index_0": str(order_number)}
 
                     success, _ = _send_automation_message(
                         phone_e164, 'fulfillment', template_name, lang, params,
