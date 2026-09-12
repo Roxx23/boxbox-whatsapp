@@ -1083,7 +1083,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT tracking_url, tracking_number, tracking_company,
+                SELECT shopify_order_id, tracking_url, tracking_number, tracking_company,
                        order_status_url, order_number
                 FROM shopify_orders
                 WHERE order_number = ? OR order_number = ? OR shopify_order_id = ?
@@ -1092,6 +1092,7 @@ class Database:
             row = cursor.fetchone()
             if row:
                 return {
+                    'shopify_order_id': row['shopify_order_id'],
                     'tracking_url': row['tracking_url'],
                     'tracking_number': row['tracking_number'],
                     'tracking_company': row['tracking_company'],

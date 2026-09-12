@@ -104,6 +104,41 @@ def _format_items(line_items, max_items=3):
     return result
 
 
+def _fetch_order_status_url(shopify_order_id):
+    """Fetch Shopify's customer-facing order_status_url for one order via the Admin API.
+
+    Used by /track/<order_ref> to self-heal orders fulfilled before the
+    order_status_url column existed. Needs the read_orders scope on
+    SHOPIFY_ACCESS_TOKEN; returns None (and logs why) on any failure so the
+    caller falls through to the AWB-only page.
+    """
+    if not shopify_order_id:
+        return None
+    shop  = os.getenv('SHOPIFY_SHOP_NAME', '')
+    token = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
+    if not (shop and token):
+        return None
+    try:
+        import requests as _req
+        url = (f"https://{shop}.myshopify.com/admin/api/2024-01/orders/"
+               f"{shopify_order_id}.json?fields=order_status_url")
+        resp = _req.get(url, headers={"X-Shopify-Access-Token": token}, timeout=10)
+        if resp.status_code == 200:
+            status_url = (resp.json().get('order') or {}).get('order_status_url')
+            if status_url:
+                logger.info(f"order_status_url backfilled from Shopify for {shopify_order_id}")
+            return status_url or None
+        if resp.status_code == 403:
+            logger.warning("Shopify orders API returned 403 — SHOPIFY_ACCESS_TOKEN "
+                           "lacks read_orders scope; /track/ cannot backfill old orders")
+        else:
+            logger.warning(f"Shopify orders API returned {resp.status_code} "
+                           f"for order {shopify_order_id}")
+    except Exception as e:
+        logger.warning(f"Could not fetch order_status_url from Shopify: {e}")
+    return None
+
+
 def _get_product_image_url(line_items):
     """Return the src URL of the first product image from a Shopify line_items list.
 
@@ -1384,6 +1419,16 @@ def track_order(order_ref):
             tracking_number = result.get('tracking_number')
             tracking_company = result.get('tracking_company')
             status_url = result.get('order_status_url')
+
+            # Self-heal: orders fulfilled before order_status_url was stored have
+            # none — fetch it once from Shopify and cache it for next time.
+            if not status_url:
+                status_url = _fetch_order_status_url(result.get('shopify_order_id'))
+                if status_url:
+                    try:
+                        db.save_order_status_url(result['shopify_order_id'], status_url)
+                    except Exception as e:
+                        logger.warning(f"Could not cache backfilled order_status_url: {e}")
         else:
             destination = ''
             order_number = order_ref
