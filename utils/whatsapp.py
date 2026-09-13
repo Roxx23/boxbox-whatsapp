@@ -47,7 +47,13 @@ def format_phone_number(number: str) -> str:
 def get_templates(waba_id):
     """Fetch all WhatsApp message templates (all statuses)"""
     url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
-    params = {"access_token": ACCESS_TOKEN, "limit": 100}
+    # Without an explicit fields= param, the Graph API's default field set omits
+    # quality_score and rejected_reason -- templates_manager.html already has
+    # display code for rejected_reason that was silently dead for exactly this
+    # reason. Everything else here is a field some part of the app already reads
+    # off a template dict (name/status/category/language/components).
+    fields = "id,name,status,category,language,components,quality_score,rejected_reason"
+    params = {"access_token": ACCESS_TOKEN, "limit": 100, "fields": fields}
 
     all_templates = []
     try:
@@ -407,32 +413,70 @@ def upload_image_for_template(image_file):
     return handle, None
 
 
+# WhatsApp's actual per-component limits. Enforced here (not just in the
+# create-template form) because the form's client-side checks are trivially
+# bypassable by posting to /submit-template directly -- without a server-side
+# check, an over-limit template would sail past this app and get rejected by
+# Meta with a much less specific error.
+_HEADER_TEXT_MAX = 60
+_BODY_TEXT_MAX = 1024
+_FOOTER_TEXT_MAX = 60
+_BUTTON_TEXT_MAX = 25
+_TEMPLATE_NAME_RE = re.compile(r'^[a-z0-9_]+$')
+
+
+def _validate_body_variable_numbering(body_text):
+    """WhatsApp requires {{n}} placeholders to be sequential starting at 1
+    (e.g. {{1}},{{2}},{{3}} -- not {{1}},{{3}} skipping {{2}}, and not
+    starting at {{2}}). A gap is accepted by this app's own regex-based
+    extraction (which just collects whatever numbers appear) but rejected by
+    Meta at submission time. Returns an error message, or None if fine."""
+    numbers = sorted(set(int(n) for n in re.findall(r'\{\{(\d+)\}\}', body_text)))
+    if not numbers:
+        return None
+    expected = list(range(1, len(numbers) + 1))
+    if numbers != expected:
+        found_str = ', '.join('{{%d}}' % n for n in numbers)
+        expected_str = ', '.join('{{%d}}' % n for n in expected)
+        return (
+            "Body variables must be sequential starting at {{1}} with no gaps "
+            "(found " + found_str + ", expected " + expected_str + ")"
+        )
+    return None
+
+
 def create_template(waba_id, template_data, image_file=None):
     """Create a new WhatsApp message template"""
-    
+
     # Validate credentials
     if not ACCESS_TOKEN or ACCESS_TOKEN == "None":
         return 500, {"error": {"message": "WHATSAPP_ACCESS_TOKEN not configured. Check your .env file."}}
-    
+
     if not waba_id or waba_id == "None":
         return 500, {"error": {"message": "WABA_ID not configured. Check your .env file."}}
-    
+
+    template_name = (template_data.get('template_name') or '').strip().lower()
+    if not template_name or not _TEMPLATE_NAME_RE.match(template_name):
+        return 400, {"error": {"message": "Template name must contain only lowercase letters, numbers, and underscores"}}
+
     url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
-    
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    
+
     logger.debug(f"Create template API endpoint: {url} (WABA: {waba_id})")
-    
+
     components = []
-    
+
     # Header component
     if template_data.get('header_type') == 'TEXT' and template_data.get('header_text'):
         header_text = template_data.get('header_text') or ''
         header_text = header_text.strip() if header_text else ''
         if header_text:
+            if len(header_text) > _HEADER_TEXT_MAX:
+                return 400, {"error": {"message": f"Header text must be {_HEADER_TEXT_MAX} characters or fewer (got {len(header_text)})"}}
             header_component = {
                 "type": "HEADER",
                 "format": "TEXT",
@@ -470,46 +514,57 @@ def create_template(waba_id, template_data, image_file=None):
     body_text = body_text.strip() if body_text else ''
     if not body_text:
         return 400, {"error": {"message": "Body text is required"}}
-    
+    if len(body_text) > _BODY_TEXT_MAX:
+        return 400, {"error": {"message": f"Body text must be {_BODY_TEXT_MAX} characters or fewer (got {len(body_text)})"}}
+
+    numbering_error = _validate_body_variable_numbering(body_text)
+    if numbering_error:
+        return 400, {"error": {"message": numbering_error}}
+
     body_component = {
         "type": "BODY",
         "text": body_text
     }
-    
+
     variables = re.findall(r'\{\{(\d+)\}\}', body_text)
     if variables:
         example_values = [f"Sample{i}" for i in range(1, len(variables) + 1)]
         body_component['example'] = {"body_text": [example_values]}
-    
+
     components.append(body_component)
-    
+
     # Footer component (optional)
     footer_text = template_data.get('footer_text', '') or ''
     footer_text = footer_text.strip() if footer_text else ''
     if footer_text:
+        if len(footer_text) > _FOOTER_TEXT_MAX:
+            return 400, {"error": {"message": f"Footer text must be {_FOOTER_TEXT_MAX} characters or fewer (got {len(footer_text)})"}}
         components.append({
             "type": "FOOTER",
             "text": footer_text
         })
-    
+
     # Buttons component (optional)
     buttons = []
     for i in range(1, 4):
         button_type = template_data.get(f'button_type_{i}')
         button_text = template_data.get(f'button_text_{i}') or ''
         button_value = template_data.get(f'button_value_{i}') or ''
-        
+
         # Safely strip strings
         button_text = button_text.strip() if button_text else ''
         button_value = button_value.strip() if button_value else ''
-        
+
         if not button_type or not button_text or not button_value:
             continue
-        
+
+        if len(button_text) > _BUTTON_TEXT_MAX:
+            return 400, {"error": {"message": f"Button {i} text must be {_BUTTON_TEXT_MAX} characters or fewer (got {len(button_text)})"}}
+
         if button_type == 'URL':
             if not button_value.startswith('http://') and not button_value.startswith('https://'):
                 return 400, {"error": {"message": f"Button {i} URL must start with http:// or https://"}}
-            
+
             buttons.append({
                 "type": "URL",
                 "text": button_text,
@@ -532,7 +587,7 @@ def create_template(waba_id, template_data, image_file=None):
         })
     
     payload = {
-        "name": template_data['template_name'].strip().lower(),
+        "name": template_name,
         "language": template_data['language'],
         "category": template_data['category'],
         "components": components
