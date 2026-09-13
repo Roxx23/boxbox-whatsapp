@@ -63,6 +63,15 @@ db = Database()
 def load_user(user_id):
     return user_manager.get_user_by_id(user_id)
 
+
+@app.context_processor
+def inject_unread_inbox():
+    """Makes has_unread_inbox available in every template (base.html nav dot)
+    without threading it through every route. Cheap EXISTS check, not a count."""
+    if not current_user.is_authenticated:
+        return {'has_unread_inbox': False}
+    return {'has_unread_inbox': db.has_unread_inbox_messages(current_user.id)}
+
 # Initialize GLOBAL rate limiter and message queue
 # These persist across requests
 rate_limiter = RateLimiter(max_requests=MAX_REQUESTS, time_window=TIME_WINDOW)
@@ -2215,6 +2224,7 @@ def inbox_thread_page(phone):
     thread = db.get_inbox_thread(current_user.id, phone)
     within_window, last_inbound_at = _inbox_within_24h_window(current_user.id, phone)
     customer = db.get_customer_by_phone(phone)
+    db.mark_inbox_thread_read(current_user.id, phone)
     return render_template(
         'inbox_thread.html',
         phone=phone, thread=thread, customer=customer,
