@@ -227,6 +227,16 @@ def _normalize_phone_webhook(phone):
     return '+' + cleaned
 
 
+def _has_active_flow(user_id, trigger_type):
+    """True if a Flows automation is active for this trigger type.
+
+    Used to make Flows and the legacy automation_settings mutually exclusive per
+    event type — whichever system is active for a trigger owns it, so a customer
+    never gets the same notification twice.
+    """
+    return bool(db.get_active_flows_by_trigger(user_id, trigger_type))
+
+
 def _verify_shopify_hmac(raw_data, hmac_header):
     """Verify Shopify webhook HMAC-SHA256 signature.
     Returns True if valid, or if SHOPIFY_WEBHOOK_SECRET is not configured."""
@@ -279,6 +289,11 @@ def _start_abandoned_cart_checker():
                     settings = db.get_automation_settings(user.id)
                     s = settings.get('abandoned_cart', {})
                     if not s.get('enabled'):
+                        continue
+                    if _has_active_flow(user.id, 'abandoned_cart'):
+                        # A Flows automation already owns this trigger — skip the
+                        # legacy path to avoid sending the reminder twice.
+                        logger.info(f"Skipping legacy abandoned_cart automation for user {user.id} — active flow owns this trigger")
                         continue
                     template_name = (s.get('template_name') or '').strip()
                     template_language = s.get('template_language') or 'en_US'
@@ -2446,7 +2461,7 @@ def shopify_order_create():
             s = settings.get('order_confirmation', {})
             template_name = (s.get('template_name') or '').strip()
 
-            if s.get('enabled') and template_name:
+            if s.get('enabled') and template_name and not _has_active_flow(user_id, 'order_confirmation'):
                 phone_e164 = _normalize_phone_webhook(phone)
                 if phone_e164:
                     first_name = (data.get('customer') or {}).get('first_name') or 'there'
@@ -2477,6 +2492,8 @@ def shopify_order_create():
                                 if success else 'Automation: Order Confirmation Failed'),
                         details=f"Order {order_number_display} → {phone_e164}"
                     )
+            elif s.get('enabled') and template_name:
+                logger.info(f"Skipping legacy order_confirmation automation for user {user_id} — active flow owns this trigger")
 
             # Enroll in any active flows for order_confirmation trigger
             phone_e164 = _normalize_phone_webhook(phone) if phone else None
@@ -2598,7 +2615,7 @@ def shopify_fulfillment():
             s = settings.get('fulfillment', {})
             template_name = (s.get('template_name') or '').strip()
 
-            if s.get('enabled') and template_name:
+            if s.get('enabled') and template_name and not _has_active_flow(user_id, 'fulfillment'):
                 phone_e164 = _normalize_phone_webhook(phone)
                 if phone_e164:
                     lang = s.get('template_language') or 'en_US'
@@ -2626,6 +2643,8 @@ def shopify_fulfillment():
                                 if success else 'Automation: Dispatch Notification Failed'),
                         details=f"Order {order_number_display} → {phone_e164}, tracking={tracking_number}"
                     )
+            elif s.get('enabled') and template_name:
+                logger.info(f"Skipping legacy fulfillment automation for user {user_id} — active flow owns this trigger")
 
             # Enroll in any active flows for fulfillment trigger
             phone_e164 = _normalize_phone_webhook(phone) if phone else None

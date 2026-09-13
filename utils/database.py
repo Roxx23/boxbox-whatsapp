@@ -3,10 +3,20 @@ import sqlite3
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+
+def _now_utc():
+    """UTC timestamp as a naive ISO string, matching SQLite's strftime('now').
+
+    Flow timestamps must use this (not datetime.now().isoformat(), which is
+    server-local IST) because flow_engine.py compares them against UTC.
+    """
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
 
 class Database:
     """Database manager for campaign tracking"""
@@ -1550,8 +1560,7 @@ class Database:
     # Flow Participants
 
     def enroll_flow_participant(self, flow_id, phone, context_dict, first_step_key):
-        from datetime import timezone
-        now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+        now = _now_utc()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1606,18 +1615,17 @@ class Database:
             )
 
     def complete_participant(self, participant_id):
-        now = datetime.now().isoformat()
         with self.get_connection() as conn:
             conn.cursor().execute(
                 "UPDATE flow_participants SET status = 'completed', completed_at = ? WHERE id = ?",
-                (now, participant_id)
+                (_now_utc(), participant_id)
             )
 
     def exit_participant(self, participant_id, reason=None):
         with self.get_connection() as conn:
             conn.cursor().execute(
                 "UPDATE flow_participants SET status = 'exited', exit_reason = ?, completed_at = ? WHERE id = ?",
-                (reason, datetime.now().isoformat(), participant_id)
+                (reason, _now_utc(), participant_id)
             )
 
     def set_participant_error(self, participant_id):
@@ -1652,7 +1660,7 @@ class Database:
     # Flow Messages
 
     def add_flow_message(self, flow_id, participant_id, step_key, phone, wamid=None):
-        now = datetime.now().isoformat()
+        now = _now_utc()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1704,13 +1712,18 @@ class Database:
             return {r['status']: r['cnt'] for r in cursor.fetchall()}
 
     def customer_placed_order_since(self, phone, since_iso):
+        """since_iso is 'YYYY-MM-DDTHH:MM:SS' (from _now_utc). shopify_orders.created_at
+        defaults to SQLite's CURRENT_TIMESTAMP, which uses a space separator
+        ('YYYY-MM-DD HH:MM:SS') — space sorts before 'T' as a string, so comparing
+        them directly makes every same-day order look older than it is. Normalise
+        the separator before comparing."""
         phone_clean = phone.lstrip('+')
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 '''SELECT id FROM shopify_orders
                    WHERE (customer_phone = ? OR customer_phone = ?)
-                   AND created_at > ? LIMIT 1''',
+                   AND replace(created_at, ' ', 'T') > ? LIMIT 1''',
                 (phone, phone_clean, since_iso)
             )
             return cursor.fetchone() is not None
