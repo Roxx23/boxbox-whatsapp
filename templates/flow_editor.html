@@ -526,6 +526,23 @@ const CTX_KEYS = [
   {v:'tracking_number',l:'tracking_number'},
   {v:'cart_url',   l:'cart_url'},
 ];
+// Mirrors utils/flow_engine.py build_trigger_context(): which keys actually get
+// populated for a given trigger type. A key not in this list for the current
+// flow's trigger will always resolve blank at send time (e.g. cart_url only
+// exists for abandoned_cart), so it's left out of the dropdown entirely rather
+// than offered and silently failing. 'manual' (or any future trigger type not
+// listed here) falls back to showing every key — build_trigger_context() itself
+// doesn't special-case it, so we don't guess either.
+const CTX_KEYS_BY_TRIGGER = {
+  order_confirmation: ['first_name','order_number','items','total'],
+  fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number'],
+  abandoned_cart:     ['first_name','items','total','cart_url'],
+};
+function _availableCtxKeys() {
+  const allowed = CTX_KEYS_BY_TRIGGER[TRIG_TYPE];
+  if (!allowed) return CTX_KEYS;
+  return CTX_KEYS.filter(k => k.v === '' || allowed.includes(k.v));
+}
 
 // ── Drawflow init ─────────────────────────────────────────────────────────────
 const editor = new Drawflow(document.getElementById('drawflow'));
@@ -659,17 +676,23 @@ function buildConfigForm(type, data) {
       ? '<div class="config-field"><label class="form-label">Time window (hours)</label>' +
         '<input id="cfg_hours" type="number" min="1" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
         '</div>' : '';
+    const placedOrderHint = '<div class="config-field" id="placedOrderHint" style="' +
+      (data.condition_type === 'placed_order' ? '' : 'display:none;') + '">' +
+      '<div style="padding:0.6rem 0.75rem;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;font-size:0.8rem;color:#B45309;">' +
+      '<i class="fas fa-triangle-exclamation me-1"></i>This checks once, the instant the flow reaches this step — unlike the other two conditions, it does not keep re-checking over a window. Right after enrollment, the customer almost certainly hasn\'t placed a new order yet, so this will usually evaluate No unless a Wait step runs first.</div></div>';
     return '<div class="config-field"><label class="form-label">Condition</label>' +
       '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this);applyConfig()">' + opts + '</select>' +
       '<div class="config-hint">Output <strong style="color:#059669;">Yes</strong> if condition is met, <strong style="color:#DC2626;">No</strong> otherwise.</div>' +
-      '</div>' + hoursBlock;
+      '</div>' + hoursBlock + placedOrderHint;
   }
   if (type === 'send_message') {
     const tplOpts = WA_TEMPLATES.map(t =>
       '<option value="' + t.name + '"' + (data.template_name===t.name?' selected':'') + '>' + t.name + '</option>'
     ).join('');
-    const langOpts = ['en','en_US','en_GB','hi','ta','te','kn','ml','mr','gu','bn'].map(l =>
-      '<option value="' + l + '"' + ((data.template_language||'en_US')===l?' selected':'') + '>' + l + '</option>'
+    const availableLangs = _langsForTemplate(data.template_name);
+    const chosenLang = availableLangs.includes(data.template_language) ? data.template_language : availableLangs[0];
+    const langOpts = availableLangs.map(l =>
+      '<option value="' + l + '"' + (chosenLang===l?' selected':'') + '>' + l + '</option>'
     ).join('');
     return '<div class="config-field"><label class="form-label">Template</label>' +
       '<select id="cfg_template_name" class="form-select form-select-sm" onchange="onTemplateChange(this.value)">' +
@@ -700,6 +723,27 @@ function onConditionChange(sel) {
     const wrap = hoursField.closest('.config-field');
     if (wrap) wrap.style.display = sel.value === 'placed_order' ? 'none' : '';
   }
+  const hint = document.getElementById('placedOrderHint');
+  if (hint) hint.style.display = sel.value === 'placed_order' ? '' : 'none';
+}
+
+// Approved language variants for a given template name, from the server-provided
+// WA_TEMPLATES list (already filtered to status==='APPROVED' in app.py). Offering
+// any language beyond what's actually approved for THIS template lets a flow
+// owner pick one WhatsApp will reject at send time.
+function _langsForTemplate(name) {
+  const langs = [...new Set(WA_TEMPLATES.filter(t => t.name === name).map(t => t.language))];
+  return langs.length ? langs : ['en_US'];
+}
+
+function _rebuildLangSelect(name, existingLang) {
+  const sel = document.getElementById('cfg_lang');
+  if (!sel) return;
+  const langs = _langsForTemplate(name);
+  const chosen = langs.includes(existingLang) ? existingLang : langs[0];
+  sel.innerHTML = langs.map(l =>
+    '<option value="' + l + '"' + (chosen===l?' selected':'') + '>' + l + '</option>'
+  ).join('');
 }
 
 async function onTemplateChange(name) {
@@ -711,6 +755,7 @@ async function onTemplateChange(name) {
     _rebuildMediaHeaderRow('', '', null);
     _rebuildLocationHeaderWarning(false);
     _rebuildButtonRows({}, []);
+    _rebuildLangSelect('', 'en_US');
     applyConfig();
     return;
   }
@@ -719,6 +764,8 @@ async function onTemplateChange(name) {
   const existingHeaderParam = (node&&node.data&&node.data.header_param)||'';
   const existingMediaSource = (node&&node.data&&node.data.header_media_source)||'';
   const existingMediaUrl = (node&&node.data&&node.data.header_media_url)||'';
+  const existingLang = (node&&node.data&&node.data.template_language)||'en_US';
+  _rebuildLangSelect(name, existingLang);
   try {
     const r = await fetch('/template-info?name=' + encodeURIComponent(name));
     const info = await r.json();
@@ -743,7 +790,7 @@ function _rebuildParamRows(existingMap, templateName, forcedCount) {
   let count = forcedCount !== undefined ? forcedCount : Object.keys(existingMap).length;
   rows.innerHTML = '';
   for (let i = 1; i <= count; i++) {
-    const selOpts = CTX_KEYS.map(k =>
+    const selOpts = _availableCtxKeys().map(k =>
       '<option value="' + k.v + '"' + (existingMap[String(i)]===k.v?' selected':'') + '>' + k.l + '</option>'
     ).join('');
     rows.insertAdjacentHTML('beforeend',
@@ -768,7 +815,7 @@ function _rebuildHeaderRow(existingHeaderParam, hasHeaderParam) {
     return;
   }
   section.style.display = '';
-  const selOpts = CTX_KEYS.map(k =>
+  const selOpts = _availableCtxKeys().map(k =>
     '<option value="' + k.v + '"' + (existingHeaderParam===k.v?' selected':'') + '>' + k.l + '</option>'
   ).join('');
   rows.insertAdjacentHTML('beforeend',
@@ -844,7 +891,7 @@ function _rebuildButtonRows(existingButtonParams, buttons) {
   section.style.display = '';
   buttons.forEach(btn => {
     const btnKey = btn.type === 'COPY_CODE' ? 'copy_code' : 'url_index_' + btn.index;
-    const selOpts = CTX_KEYS.map(k =>
+    const selOpts = _availableCtxKeys().map(k =>
       '<option value="' + k.v + '"' + (existingButtonParams[btnKey]===k.v?' selected':'') + '>' + k.l + '</option>'
     ).join('');
     rows.insertAdjacentHTML('beforeend',

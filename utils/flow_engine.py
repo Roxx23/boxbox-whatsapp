@@ -271,6 +271,29 @@ def _execute_send_message(participant, step, config):
         _advance_to_step(participant, step['next_yes'])
         return
 
+    # A mapped context key can still resolve blank -- either the key doesn't
+    # apply to this flow's trigger type (e.g. tracking_number mapped on a
+    # non-fulfillment flow) or the Shopify payload legitimately omitted it this
+    # time (e.g. no courier assigned yet). WhatsApp generally rejects blank body
+    # params outright, so surface *why* before the send is attempted rather than
+    # letting it fail with only a generic status-code warning.
+    blank_mappings = []
+    for i in range(len(params)):
+        ctx_key = param_map.get(str(i + 1), '')
+        if ctx_key and not context.get(ctx_key):
+            blank_mappings.append(f"body {{{{{i + 1}}}}}->'{ctx_key}'")
+    for btn_key, ctx_key in config.get('button_params', {}).items():
+        if ctx_key and not context.get(ctx_key):
+            blank_mappings.append(f"button '{btn_key}'->'{ctx_key}'")
+    if header_ctx_key and not context.get(header_ctx_key):
+        blank_mappings.append(f"header->'{header_ctx_key}'")
+    if blank_mappings:
+        logger.warning(
+            f"Flow participant {participant['id']}: sending template '{template_name}' with "
+            f"blank mapped param(s) (context key resolved empty/missing for this trigger type "
+            f"or this webhook payload): {', '.join(blank_mappings)}"
+        )
+
     status_code, response = send_template(
         participant['phone'],
         template_name,
