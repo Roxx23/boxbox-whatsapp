@@ -693,16 +693,21 @@ def template_info():
     count = 0
     buttons = []
     has_header_param = False
+    header_image = False
 
     if selected:
         body = next((c for c in selected["components"] if c["type"] == "BODY"), None)
         if body and "text" in body:
             count = body["text"].count("{{")
 
-        # Check for a TEXT header with a {{1}} variable (WhatsApp allows at most one)
+        # A template's HEADER is either TEXT (with a {{1}} variable, at most one)
+        # or IMAGE, never both — mirrors send_template()'s header_param/
+        # header_media_id being mutually exclusive.
         header = next((c for c in selected["components"] if c["type"] == "HEADER"), None)
         if header and header.get("format") == "TEXT" and "{{1}}" in header.get("text", ""):
             has_header_param = True
+        elif header and header.get("format") == "IMAGE":
+            header_image = True
 
         # Check for buttons component
         buttons_component = next((c for c in selected["components"] if c["type"] == "BUTTONS"), None)
@@ -727,7 +732,8 @@ def template_info():
                         "requires": "url_parameter"
                     })
 
-    return jsonify({"count": count, "buttons": buttons, "has_header_param": has_header_param})
+    return jsonify({"count": count, "buttons": buttons, "has_header_param": has_header_param,
+                     "header_image": header_image})
 
 
 @app.route("/queue-stats")

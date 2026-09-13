@@ -597,7 +597,7 @@ function defaultData(type) {
   if (type === 'trigger')      return {trigger_type: TRIG_TYPE};
   if (type === 'wait')         return {hours: 24};
   if (type === 'condition')    return {condition_type: 'replied_within_X_hours', hours: 24};
-  if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', param_map:{}, button_params:{}};
+  if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', header_image_source:'', header_image_url:'', param_map:{}, button_params:{}};
   return {};
 }
 
@@ -679,6 +679,8 @@ function buildConfigForm(type, data) {
       '<div class="config-field" id="headerSection" style="display:none;"><label class="form-label">Header parameter</label>' +
       '<div id="headerParamRow"></div>' +
       '<div class="config-hint">Map the header&rsquo;s <code>&#123;&#123;1&#125;&#125;</code> placeholder to a customer data field.</div></div>' +
+      '<div class="config-field" id="imageHeaderSection" style="display:none;"><label class="form-label">Header image</label>' +
+      '<div id="imageHeaderBody"></div></div>' +
       '<div class="config-field" id="paramSection"><label class="form-label">Template params</label>' +
       '<div id="paramRows"></div>' +
       '<div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> placeholder to a customer data field.</div></div>' +
@@ -703,6 +705,7 @@ async function onTemplateChange(name) {
   if (!name) {
     rows.innerHTML = '';
     _rebuildHeaderRow({}, false);
+    _rebuildImageHeaderRow('', '', false);
     _rebuildButtonRows({}, []);
     applyConfig();
     return;
@@ -710,15 +713,19 @@ async function onTemplateChange(name) {
   const node = editor.getNodeFromId(_selId);
   const existingButtonParams = (node&&node.data&&node.data.button_params)||{};
   const existingHeaderParam = (node&&node.data&&node.data.header_param)||'';
+  const existingImageSource = (node&&node.data&&node.data.header_image_source)||'';
+  const existingImageUrl = (node&&node.data&&node.data.header_image_url)||'';
   try {
     const r = await fetch('/template-info?name=' + encodeURIComponent(name));
     const info = await r.json();
     _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.count||0);
     _rebuildHeaderRow(existingHeaderParam, !!info.has_header_param);
+    _rebuildImageHeaderRow(existingImageSource, existingImageUrl, !!info.header_image);
     _rebuildButtonRows(existingButtonParams, info.buttons||[]);
   } catch(e) {
     _rebuildParamRows({}, name, 0);
     _rebuildHeaderRow(existingHeaderParam, false);
+    _rebuildImageHeaderRow(existingImageSource, existingImageUrl, false);
     _rebuildButtonRows(existingButtonParams, []);
   }
   applyConfig();  // immediately persist template_name + language into node data
@@ -766,6 +773,37 @@ function _rebuildHeaderRow(existingHeaderParam, hasHeaderParam) {
   );
 }
 
+function _rebuildImageHeaderRow(existingSource, existingUrl, hasImageHeader) {
+  const section = document.getElementById('imageHeaderSection');
+  const body = document.getElementById('imageHeaderBody');
+  if (!body || !section) return;
+  body.innerHTML = '';
+  if (!hasImageHeader) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  const source = existingSource || 'auto';
+  const hint = TRIG_TYPE === 'manual'
+    ? 'This flow has no order data, so Auto will find nothing to send — use Static for a marketing image.'
+    : 'Auto pulls the first product image from the order. Static always sends the URL you set here.';
+  body.innerHTML =
+    '<select id="cfg_header_image_source" class="form-select form-select-sm mb-2" onchange="onHeaderImageSourceChange(this)">' +
+      '<option value="auto"' + (source==='auto'?' selected':'') + '>Auto — product image from order</option>' +
+      '<option value="static"' + (source==='static'?' selected':'') + '>Static image URL</option>' +
+    '</select>' +
+    '<input id="cfg_header_image_url" type="text" class="form-control form-control-sm" placeholder="https://…" ' +
+      'value="' + (existingUrl||'').replace(/"/g,'&quot;') + '"' +
+      (source==='static' ? '' : ' style="display:none;"') + '>' +
+    '<div class="config-hint">' + hint + '</div>';
+}
+
+function onHeaderImageSourceChange(sel) {
+  const urlInput = document.getElementById('cfg_header_image_url');
+  if (urlInput) urlInput.style.display = sel.value === 'static' ? '' : 'none';
+  applyConfig();
+}
+
 function _rebuildButtonRows(existingButtonParams, buttons) {
   const section = document.getElementById('buttonSection');
   const rows = document.getElementById('buttonParamRows');
@@ -811,6 +849,8 @@ function applyConfig() {
       if (s.value) d.param_map[s.dataset.param] = s.value;
     });
     d.header_param = document.querySelector('#headerParamRow [data-header-param]')?.value || '';
+    d.header_image_source = document.getElementById('cfg_header_image_source')?.value || '';
+    d.header_image_url = document.getElementById('cfg_header_image_url')?.value || '';
     d.button_params = {};
     document.querySelectorAll('#buttonParamRows [data-button-param]').forEach(s => {
       if (s.value) d.button_params[s.dataset.buttonParam] = s.value;
