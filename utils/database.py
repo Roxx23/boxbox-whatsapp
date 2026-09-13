@@ -3,7 +3,7 @@ import sqlite3
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,27 @@ def _now_utc():
     server-local IST) because flow_engine.py compares them against UTC.
     """
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+
+def _parse_legacy_ts(ts):
+    """Normalize a `messages.replied_at` value to an ISO string, or None if it
+    can't be parsed. That column is usually ISO (from datetime.now().isoformat()),
+    but process_incoming_message() also writes the raw WhatsApp webhook
+    `timestamp` verbatim when the webhook supplies one — a Unix epoch string like
+    '1730000000', not ISO. Every reader that sorts, compares, or displays this
+    column needs to go through this first; get_last_inbound_message_at() avoids
+    the column entirely instead, since it gates a send decision."""
+    if not ts:
+        return None
+    try:
+        datetime.fromisoformat(ts)
+        return ts
+    except (ValueError, TypeError):
+        pass
+    try:
+        return datetime.fromtimestamp(int(ts)).isoformat()
+    except (ValueError, TypeError, OSError, OverflowError):
+        return None
 
 
 class Database:
@@ -248,6 +269,29 @@ class Database:
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(user_id, event_type)
                 )
+            ''')
+
+            # Inbox: full two-way message log (inbound customer replies + manual outbound
+            # sends from the inbox UI). Separate from `messages` (campaign sends, which only
+            # ever record ONE reply per outbound message via reply_text/replied_at) so no
+            # incoming message is ever dropped or overwritten.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS inbox_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    message_text TEXT,
+                    message_type TEXT,
+                    whatsapp_message_id TEXT,
+                    status TEXT DEFAULT 'received',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_inbox_messages_phone
+                ON inbox_messages(user_id, phone, created_at)
             ''')
 
             # Flows tables
@@ -667,6 +711,197 @@ class Database:
                 
                 logger.info(f"✅ Updated {engagement_type} count for campaign {campaign_id}")
     
+    # Inbox (two-way messaging)
+
+    def add_inbox_message(self, user_id, phone, direction, message_text,
+                           message_type=None, whatsapp_message_id=None, status=None):
+        """Log one inbound or outbound message for the two-way inbox.
+
+        This is the complete, going-forward record of every message exchanged with a
+        customer — unlike `messages.reply_text`, which only ever captures the FIRST
+        reply to a given outbound campaign message (a second reply to the same message
+        is silently dropped by update_message_engagement's `WHERE ... IS NULL` guard).
+        """
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO inbox_messages
+                   (user_id, phone, direction, message_text, message_type,
+                    whatsapp_message_id, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (user_id, phone, direction, message_text, message_type,
+                 whatsapp_message_id, status or ('received' if direction == 'inbound' else 'sent'), now)
+            )
+            return cursor.lastrowid
+
+    def get_inbox_conversations(self, user_id, limit=200):
+        """One row per phone number, most recent message first. Primary source is
+        inbox_messages (complete, going forward); for a phone with no inbox_messages
+        rows yet, falls back to the legacy messages.reply_text so customers who replied
+        before this feature shipped still show up in the list."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT phone, message_text, direction, created_at
+                   FROM inbox_messages WHERE user_id = ?''',
+                (user_id,)
+            )
+            latest = {}
+            for row in cursor.fetchall():
+                phone = row['phone']
+                if phone not in latest or row['created_at'] > latest[phone]['created_at']:
+                    latest[phone] = dict(row)
+
+            cursor.execute(
+                '''SELECT phone_number as phone, reply_text as message_text, replied_at as created_at
+                   FROM messages WHERE user_id = ? AND reply_text IS NOT NULL AND replied_at IS NOT NULL''',
+                (user_id,)
+            )
+            for row in cursor.fetchall():
+                phone = row['phone']
+                if phone not in latest:
+                    d = dict(row)
+                    d['direction'] = 'inbound'
+                    d['created_at'] = _parse_legacy_ts(d['created_at'])
+                    latest[phone] = d
+
+            phones = list(latest.keys())
+            customers_by_phone = {}
+            if phones:
+                placeholders = ','.join('?' * len(phones))
+                phones_clean = [p.lstrip('+') for p in phones]
+                cursor.execute(
+                    f'''SELECT phone, first_name, last_name FROM customers
+                        WHERE user_id = ? AND (phone IN ({placeholders}) OR phone IN ({placeholders}))''',
+                    [user_id] + phones + phones_clean
+                )
+                for row in cursor.fetchall():
+                    customers_by_phone[row['phone']] = dict(row)
+
+        results = []
+        for phone, row in latest.items():
+            customer = customers_by_phone.get(phone) or customers_by_phone.get(phone.lstrip('+'))
+            results.append({
+                'phone': phone,
+                'customer_name': f"{customer['first_name'] or ''} {customer['last_name'] or ''}".strip() if customer else None,
+                'last_message_text': row['message_text'],
+                'last_message_direction': row['direction'],
+                'last_message_at': row['created_at'],
+            })
+        results.sort(key=lambda r: r['last_message_at'] or '', reverse=True)
+        return results[:limit]
+
+    def get_inbox_thread(self, user_id, phone):
+        """Chronological two-way thread for one customer: outbound campaign sends
+        (messages table) merged with every inbox_messages row (inbound customer
+        replies + manual outbound sends from the inbox UI), plus legacy replies
+        recorded before this feature shipped (messages.reply_text)."""
+        phone_clean = phone.lstrip('+')
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT message_content as text, template_name, sent_at as ts
+                   FROM messages
+                   WHERE user_id = ? AND (phone_number = ? OR phone_number = ?) AND sent_at IS NOT NULL''',
+                (user_id, phone, phone_clean)
+            )
+            thread = []
+            for row in cursor.fetchall():
+                d = dict(row)
+                thread.append({
+                    'direction': 'outbound',
+                    'text': d['text'] or (f"[Template: {d['template_name']}]" if d['template_name'] else ''),
+                    'ts': d['ts'],
+                    'source': 'campaign',
+                })
+
+            cursor.execute(
+                '''SELECT direction, message_text as text, message_type, created_at as ts
+                   FROM inbox_messages
+                   WHERE user_id = ? AND (phone = ? OR phone = ?)
+                   ORDER BY created_at ASC''',
+                (user_id, phone, phone_clean)
+            )
+            inbox_rows = [dict(row) for row in cursor.fetchall()]
+            for d in inbox_rows:
+                thread.append({
+                    'direction': d['direction'],
+                    'text': d['text'],
+                    'ts': d['ts'],
+                    'source': 'inbox',
+                })
+
+            cursor.execute(
+                '''SELECT reply_text as text, replied_at as ts
+                   FROM messages
+                   WHERE user_id = ? AND (phone_number = ? OR phone_number = ?)
+                   AND reply_text IS NOT NULL AND replied_at IS NOT NULL''',
+                (user_id, phone, phone_clean)
+            )
+            legacy_replies = [dict(row) for row in cursor.fetchall()]
+
+        # messages.replied_at is usually ISO, but process_incoming_message() also
+        # writes WhatsApp's raw webhook timestamp (a Unix epoch string) verbatim
+        # when one is supplied — normalize before any comparison, sort, or display
+        # ever touches it.
+        for d in legacy_replies:
+            d['ts'] = _parse_legacy_ts(d['ts'])
+
+        # Dedup: a reply captured by BOTH this legacy column AND the (going-forward)
+        # inbox_messages log — same webhook call writes both — would otherwise show
+        # as two near-identical bubbles. inbox_messages.created_at and
+        # messages.replied_at are written moments apart in the same request, so
+        # treat any inbound inbox_messages row within 60s of a legacy reply as the
+        # same event and skip the legacy one. A legacy reply whose timestamp can't
+        # be parsed at all, or has no nearby inbox_messages row, is shown — false
+        # negatives here (an extra bubble) are far less bad than hiding a real reply.
+        inbound_times = []
+        for d in inbox_rows:
+            if d['direction'] != 'inbound' or not d['ts']:
+                continue
+            try:
+                inbound_times.append(datetime.fromisoformat(d['ts']))
+            except Exception:
+                continue
+
+        for d in legacy_replies:
+            is_duplicate = False
+            try:
+                legacy_dt = datetime.fromisoformat(d['ts'])
+                is_duplicate = any(abs((legacy_dt - t).total_seconds()) <= 60 for t in inbound_times)
+            except Exception:
+                pass
+            if not is_duplicate:
+                thread.append({
+                    'direction': 'inbound',
+                    'text': d['text'],
+                    'ts': d['ts'],
+                    'source': 'legacy',
+                })
+
+        thread.sort(key=lambda m: m['ts'] or '')
+        return thread
+
+    def get_last_inbound_message_at(self, user_id, phone):
+        """Most recent inbound inbox_messages timestamp for this phone, or None.
+        Deliberately does NOT consult the legacy messages.replied_at column — that
+        field's timestamp source (raw webhook value) isn't reliably ISO-formatted,
+        and this value gates whether a free-form WhatsApp reply is allowed, so a
+        clean, self-controlled timestamp is safer than a best-effort one. WhatsApp's
+        own API is still the final authority and will reject sends outside the
+        24h window regardless of this check."""
+        phone_clean = phone.lstrip('+')
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT MAX(created_at) as ts FROM inbox_messages
+                   WHERE user_id = ? AND direction = 'inbound' AND (phone = ? OR phone = ?)''',
+                (user_id, phone, phone_clean)
+            )
+            row = cursor.fetchone()
+            return row['ts'] if row else None
+
     def get_campaign_messages(self, campaign_id, limit=None):
         """Get messages for a campaign"""
         with self.get_connection() as conn:

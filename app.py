@@ -12,7 +12,7 @@ import hmac
 import hashlib
 import base64
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
@@ -2184,6 +2184,84 @@ def track_order(order_ref):
 
 
 # ============================================================
+# TWO-WAY INBOX
+# ============================================================
+
+def _inbox_within_24h_window(user_id, phone):
+    """WhatsApp only allows free-form (non-template) replies within 24h of the
+    customer's last inbound message. Returns (within_window, last_inbound_at)."""
+    last_inbound = db.get_last_inbound_message_at(user_id, phone)
+    if not last_inbound:
+        return False, None
+    try:
+        last_dt = datetime.fromisoformat(last_inbound)
+    except Exception:
+        return False, last_inbound
+    return (datetime.now() - last_dt) < timedelta(hours=24), last_inbound
+
+
+@app.route("/inbox")
+@login_required
+def inbox_page():
+    conversations = db.get_inbox_conversations(current_user.id)
+    return render_template('inbox.html', conversations=conversations)
+
+
+@app.route("/inbox/<path:phone>")
+@login_required
+def inbox_thread_page(phone):
+    if not phone.startswith('+'):
+        phone = '+' + phone
+    thread = db.get_inbox_thread(current_user.id, phone)
+    within_window, last_inbound_at = _inbox_within_24h_window(current_user.id, phone)
+    customer = db.get_customer_by_phone(phone)
+    return render_template(
+        'inbox_thread.html',
+        phone=phone, thread=thread, customer=customer,
+        within_window=within_window, last_inbound_at=last_inbound_at
+    )
+
+
+@app.route("/api/inbox/send", methods=["POST"])
+@login_required
+def api_inbox_send():
+    data = request.json or {}
+    phone = (data.get('phone') or '').strip()
+    message = (data.get('message') or '').strip()
+    if not phone or not message:
+        return jsonify({'success': False, 'error': 'phone and message required'}), 400
+
+    within_window, _ = _inbox_within_24h_window(current_user.id, phone)
+    if not within_window:
+        return jsonify({
+            'success': False,
+            'error': 'outside_24h_window',
+            'message': "This customer hasn't messaged in the last 24 hours. WhatsApp only allows "
+                       "free-form replies within 24h of their last message — send a template message instead."
+        }), 409
+
+    status_code, response = send_text(phone, message)
+    if status_code not in (200, 201):
+        err = None
+        if isinstance(response, dict):
+            err_obj = response.get('error')
+            err = err_obj.get('message') if isinstance(err_obj, dict) else err_obj
+        return jsonify({'success': False, 'error': err or f'Send failed ({status_code})'}), 502
+
+    wamid = None
+    if isinstance(response, dict):
+        msgs = response.get('messages', [])
+        wamid = msgs[0].get('id') if msgs else None
+
+    db.add_inbox_message(
+        user_id=current_user.id, phone=phone, direction='outbound',
+        message_text=message, message_type='text',
+        whatsapp_message_id=wamid, status='sent'
+    )
+    return jsonify({'success': True})
+
+
+# ============================================================
 # SHOPIFY & CUSTOMER MANAGEMENT
 # ============================================================
 
@@ -2591,7 +2669,24 @@ def process_incoming_message(message_data):
             reply_text = message_data.get("button", {}).get("text", "[Button Click]")
         
         logger.info(f"💬 Reply text: {reply_text}")
-        
+
+        # Log to the two-way inbox — captures every incoming message (not just the
+        # first reply to a given outbound campaign message, which is all
+        # update_message_engagement below can record).
+        try:
+            inbox_user_id = _get_webhook_user_id()
+            if inbox_user_id and from_number:
+                db.add_inbox_message(
+                    user_id=inbox_user_id,
+                    phone=_normalize_phone_webhook(from_number),
+                    direction='inbound',
+                    message_text=reply_text if reply_text is not None else f'[{message_type or "unsupported"} message]',
+                    message_type=message_type,
+                    whatsapp_message_id=message_id,
+                )
+        except Exception as e:
+            logger.error(f"Inbox logging failed for incoming message: {e}", exc_info=True)
+
         # Check if this is a reply to our message (has context)
         context = message_data.get("context")
         if context and context.get("id"):

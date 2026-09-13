@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Inbox - WhatsApp Dashboard{% endblock %}
+{% block page_title %}Inbox{% endblock %}
+
+{% block head %}
+<style>
+  .inbox-list {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .inbox-row {
+    display: flex; align-items: center; gap: 0.9rem;
+    padding: 0.95rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .inbox-row:last-child { border-bottom: none; }
+  .inbox-row:hover { background: rgba(37,211,102,0.05); }
+  .inbox-avatar {
+    width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+    background: rgba(37,211,102,0.1);
+    border: 1px solid rgba(37,211,102,0.2);
+    color: var(--gold-dark); font-size: 0.85rem; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .inbox-row-main { flex: 1; min-width: 0; }
+  .inbox-row-top {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
+  }
+  .inbox-name { font-weight: 600; color: var(--text); font-size: 0.92rem; }
+  .inbox-phone { font-family: monospace; font-size: 0.75rem; color: var(--text-dim); margin-left: 0.4rem; }
+  .inbox-time { font-size: 0.72rem; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+  .inbox-preview {
+    font-size: 0.82rem; color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 0.15rem;
+  }
+  .inbox-preview .dir-tag {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.03em; margin-right: 0.35rem;
+  }
+  .dir-inbound  { color: var(--gold-dark); }
+  .dir-outbound { color: var(--text-dim); }
+  .inbox-chevron { color: var(--text-dim); font-size: 0.8rem; flex-shrink: 0; }
+
+  .empty-state { padding: 4rem 1rem; text-align: center; color: var(--text-muted); }
+  .empty-state-icon { font-size: 2.5rem; opacity: 0.2; margin-bottom: 1rem; display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+  <div>
+    <div class="page-title">
+      <i class="fas fa-inbox me-2" style="color:var(--gold);"></i>Inbox
+    </div>
+    <div class="page-subtitle">
+      {{ conversations|length }} conversation{{ 's' if conversations|length != 1 else '' }}
+    </div>
+  </div>
+</div>
+
+<div class="inbox-list">
+  {% if conversations %}
+    {% for c in conversations %}
+    <a class="inbox-row" href="{{ url_for('inbox_thread_page', phone=c.phone) }}">
+      <div class="inbox-avatar">
+        {% if c.customer_name %}{{ c.customer_name[0]|upper }}{% else %}<i class="fas fa-user"></i>{% endif %}
+      </div>
+      <div class="inbox-row-main">
+        <div class="inbox-row-top">
+          <div>
+            <span class="inbox-name">{{ c.customer_name or c.phone }}</span>
+            {% if c.customer_name %}<span class="inbox-phone">{{ c.phone }}</span>{% endif %}
+          </div>
+          <span class="inbox-time" data-ts="{{ c.last_message_at }}">{{ c.last_message_at[:16] if c.last_message_at else '' }}</span>
+        </div>
+        <div class="inbox-preview">
+          <span class="dir-tag {{ 'dir-inbound' if c.last_message_direction == 'inbound' else 'dir-outbound' }}">
+            {{ 'Them' if c.last_message_direction == 'inbound' else 'You' }}
+          </span>{{ c.last_message_text or '' }}
+        </div>
+      </div>
+      <i class="fas fa-chevron-right inbox-chevron"></i>
+    </a>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <i class="fas fa-comment-slash empty-state-icon"></i>
+      <div>No replies yet. Once a customer replies to a message, they'll show up here.</div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}
