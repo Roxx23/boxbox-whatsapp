@@ -3111,7 +3111,22 @@ def shopify_fulfillment():
             if phone_e164:
                 active_flows = db.get_active_flows_by_trigger(user_id, 'fulfillment')
                 if active_flows:
-                    ctx = build_trigger_context('fulfillment', data)
+                    # build_trigger_context reads customer/order_number/line_items/
+                    # fulfillments straight off the raw payload, but this webhook
+                    # accepts two different Shopify shapes (full order vs. bare
+                    # fulfillment object) and the block above already resolved the
+                    # correct first_name/order_number/line_items/tracking_url for
+                    # either shape — feed those in so flows get the same values
+                    # the dispatch notification above used, not a re-derivation
+                    # that's wrong for the fulfillments/create shape (no top-level
+                    # customer/order_number, and tracking_url may come from the
+                    # order_status_url fallback rather than data['fulfillments']).
+                    ctx_data = dict(data)
+                    ctx_data['customer'] = {'first_name': first_name}
+                    ctx_data['order_number'] = order_number
+                    ctx_data['line_items'] = line_items
+                    ctx_data['fulfillments'] = [{'tracking_url': tracking_url}]
+                    ctx = build_trigger_context('fulfillment', ctx_data)
                     for flow in active_flows:
                         first_step = get_flow_first_step_key(db, flow['id'])
                         if first_step:
