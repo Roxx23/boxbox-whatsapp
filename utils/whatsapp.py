@@ -74,7 +74,8 @@ def delete_template(waba_id, template_name):
         return 500, {"error": {"message": str(e)}}
 
 
-def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None, header_param=None):
+def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None,
+                   header_param=None, header_media_type="image"):
     """Send a WhatsApp template message
 
     Args:
@@ -82,7 +83,10 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         template_name: Name of the template
         params: Body text parameters
         lang: Language code (default: en_US)
-        header_media_id: Optional media ID for image header
+        header_media_id: Optional media ID for an image/video/document header
+        header_media_type: Which kind of media header_media_id is — 'image'
+            (default), 'video', or 'document'. Ignored when header_media_id
+            isn't set.
         button_params: Optional dict with button parameters, e.g.:
             {"copy_code": "SAVE20"} for coupon code button
             {"url_index_0": "param1"} for dynamic URL button parameters
@@ -90,7 +94,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             {"copy_code": "SAVE20", "copy_code_index": 1}
         header_param: Optional text value for a TEXT header's {{1}} variable.
             Ignored if header_media_id is set (a template header is either
-            an image or a text variable, never both).
+            media (image/video/document) or a text variable, never both).
     """
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
 
@@ -98,13 +102,14 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
 
     components = []
 
-    # IMAGE HEADER (if provided)
+    # MEDIA HEADER (image/video/document — WhatsApp's parameter shape is the
+    # same for all three, just keyed by the type name)
     if header_media_id:
         components.append({
             "type": "header",
             "parameters": [{
-                "type": "image",
-                "image": {"id": header_media_id}
+                "type": header_media_type,
+                header_media_type: {"id": header_media_id}
             }]
         })
     elif header_param is not None:

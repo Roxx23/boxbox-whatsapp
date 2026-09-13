@@ -95,6 +95,9 @@ def build_trigger_context(trigger_type, data):
         ctx['order_number'] = f"#F1{raw_num}"
         ctx['items'] = _format_items_from_line_items(data.get('line_items', []))
         ctx['total'] = _format_currency(data.get('total_price', ''))
+        # Raw line items (not the formatted 'items' string) — needed to resolve a
+        # product image for an IMAGE-header template's 'auto' source at send time.
+        ctx['line_items'] = data.get('line_items', [])
         if trigger_type == 'fulfillment':
             fulfillments = data.get('fulfillments', [])
             tracking = ''
@@ -109,6 +112,7 @@ def build_trigger_context(trigger_type, data):
         ctx['items'] = _format_items_from_line_items(data.get('line_items', []))
         ctx['total'] = _format_currency(data.get('total_price', ''))
         ctx['cart_url'] = data.get('abandoned_checkout_url', '')
+        ctx['line_items'] = data.get('line_items', [])
     return ctx
 
 
@@ -182,6 +186,57 @@ def _process_participant(participant):
         _advance_to_step(participant, step['next_yes'])
 
 
+def _resolve_header_media_id(participant, config, context):
+    """Resolve the WhatsApp media_id for an image/video/document-header
+    template, or None. header_media_type ('image'/'video'/'document') and
+    header_media_source ('auto'/'static') are set on the node by the editor
+    from template_info()'s detection.
+
+    Only IMAGE has a real 'auto' data source — the participant's order context
+    (line_items), fetched via the same Shopify-Admin-API-backed helper the
+    legacy order_confirmation automation already uses. VIDEO/DOCUMENT headers
+    always use a static, node-configured URL: there's no equivalent 'product
+    video'/'product document' concept anywhere else in this codebase to
+    auto-fetch from, so offering a dead-end 'auto' option for those would just
+    be confusing UI. Either path re-uploads to WhatsApp fresh on every send
+    rather than caching a media_id — WhatsApp media IDs expire.
+
+    Non-fatal by design, matching _upload_media_from_url's own convention: if no
+    media can be resolved (no header_media_type on this template — including a
+    LOCATION header, which Flows doesn't support sending yet — 'auto' with no
+    line_items in context, or a download/upload failure), this returns None and
+    the send proceeds without a header component. WhatsApp itself will reject a
+    send that omits a header a template structurally requires; that failure is
+    caught by the existing 'status_code not in (200, 201)' handling below, same
+    as any other send failure. Failing the step outright instead of attempting
+    the send would need a new error path for the same ultimate outcome
+    (participant doesn't get this message) with no extra information for the
+    flow owner.
+    """
+    media_type = config.get('header_media_type')
+    if not media_type:
+        return None
+
+    from app import _get_product_image_url, _upload_media_from_url
+
+    source = config.get('header_media_source') or ('auto' if media_type == 'image' else 'static')
+
+    if source == 'auto':
+        if media_type != 'image':
+            return None
+        line_items = context.get('line_items') or []
+        media_url = _get_product_image_url(line_items)
+        if not media_url:
+            logger.info(
+                f"Flow participant {participant['id']}: 'auto' header media has no "
+                f"line_items in context (trigger has no order data) — sending without header"
+            )
+            return None
+        return _upload_media_from_url(media_url, media_type)
+
+    return _upload_media_from_url(config.get('header_media_url'), media_type)
+
+
 def _execute_send_message(participant, step, config):
     from utils.whatsapp import send_template
 
@@ -206,6 +261,8 @@ def _execute_send_message(participant, step, config):
     if header_ctx_key:
         header_param = context.get(header_ctx_key, '')
 
+    header_media_id = _resolve_header_media_id(participant, config, context)
+
     template_name = config.get('template_name', '')
     lang = config.get('template_language', 'en_US')
 
@@ -220,6 +277,8 @@ def _execute_send_message(participant, step, config):
         params,
         lang=lang,
         header_param=header_param,
+        header_media_id=header_media_id,
+        header_media_type=config.get('header_media_type') or 'image',
         button_params=button_params or None
     )
 

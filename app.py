@@ -195,27 +195,46 @@ def _get_product_image_url(line_items):
     return None
 
 
-def _upload_image_from_url(image_url):
-    """Download an image from a URL and upload it to WhatsApp. Returns media_id or None."""
-    if not image_url:
+_MEDIA_HEADER_CONTENT_TYPES = {
+    # WhatsApp's accepted MIME types per header media type, and the fallback used
+    # when a server doesn't send a (useful) Content-Type — same graceful-degrade
+    # shape as the original image-only version of this function.
+    'image': ({'image/jpeg', 'image/png', 'image/jpg'}, 'image/jpeg'),
+    'video': ({'video/mp4', 'video/3gpp'}, 'video/mp4'),
+    'document': ({'application/pdf'}, 'application/pdf'),
+}
+
+
+def _upload_media_from_url(media_url, media_type='image'):
+    """Download a file from a URL and upload it to WhatsApp as a header media_id.
+    `media_type` is 'image', 'video', or 'document' (matches send_template()'s
+    header_media_type). Returns media_id or None — non-fatal, same as the
+    image-only version this generalizes."""
+    if not media_url:
         return None
+    accepted_types, fallback_type = _MEDIA_HEADER_CONTENT_TYPES.get(
+        media_type, _MEDIA_HEADER_CONTENT_TYPES['image'])
     try:
         import requests as _requests
-        resp = _requests.get(image_url, timeout=15)
+        resp = _requests.get(media_url, timeout=15)
         if resp.status_code != 200:
-            logger.warning(f"Could not download product image ({resp.status_code}): {image_url}")
+            logger.warning(f"Could not download {media_type} ({resp.status_code}): {media_url}")
             return None
-        content_type = resp.headers.get('Content-Type', 'image/jpeg').split(';')[0].strip()
-        # WhatsApp only accepts JPEG and PNG for IMAGE headers
-        if content_type not in ('image/jpeg', 'image/png', 'image/jpg'):
-            content_type = 'image/jpeg'
+        content_type = resp.headers.get('Content-Type', fallback_type).split(';')[0].strip()
+        if content_type not in accepted_types:
+            content_type = fallback_type
         media_id = upload_media_from_bytes(resp.content, content_type)
         if media_id:
-            logger.info(f"Product image uploaded to WhatsApp: {media_id}")
+            logger.info(f"{media_type.capitalize()} uploaded to WhatsApp: {media_id}")
         return media_id
     except Exception as e:
-        logger.warning(f"Product image upload failed (non-fatal): {e}")
+        logger.warning(f"{media_type.capitalize()} upload failed (non-fatal): {e}")
         return None
+
+
+def _upload_image_from_url(image_url):
+    """Download an image from a URL and upload it to WhatsApp. Returns media_id or None."""
+    return _upload_media_from_url(image_url, 'image')
 
 
 def _get_webhook_user_id():
@@ -702,16 +721,27 @@ def template_info():
     count = 0
     buttons = []
     has_header_param = False
+    header_media_type = None   # 'image' | 'video' | 'document', when the header takes a media id
+    header_location = False    # LOCATION header — different shape (lat/lng/name/address), no media id
 
     if selected:
         body = next((c for c in selected["components"] if c["type"] == "BODY"), None)
         if body and "text" in body:
             count = body["text"].count("{{")
 
-        # Check for a TEXT header with a {{1}} variable (WhatsApp allows at most one)
+        # A template's HEADER is exactly one of TEXT (with a {{1}} variable, at
+        # most one), IMAGE/VIDEO/DOCUMENT (all take a media id, just a different
+        # WhatsApp API 'type'), or LOCATION (lat/lng/name/address — no media id at
+        # all) — mirrors send_template()'s header_param/header_media_id being
+        # mutually exclusive.
         header = next((c for c in selected["components"] if c["type"] == "HEADER"), None)
-        if header and header.get("format") == "TEXT" and "{{1}}" in header.get("text", ""):
+        header_format = (header or {}).get("format")
+        if header_format == "TEXT" and "{{1}}" in header.get("text", ""):
             has_header_param = True
+        elif header_format in ("IMAGE", "VIDEO", "DOCUMENT"):
+            header_media_type = header_format.lower()
+        elif header_format == "LOCATION":
+            header_location = True
 
         # Check for buttons component
         buttons_component = next((c for c in selected["components"] if c["type"] == "BUTTONS"), None)
@@ -736,7 +766,8 @@ def template_info():
                         "requires": "url_parameter"
                     })
 
-    return jsonify({"count": count, "buttons": buttons, "has_header_param": has_header_param})
+    return jsonify({"count": count, "buttons": buttons, "has_header_param": has_header_param,
+                     "header_media_type": header_media_type, "header_location": header_location})
 
 
 @app.route("/queue-stats")
