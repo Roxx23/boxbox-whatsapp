@@ -72,6 +72,28 @@ def inject_unread_inbox():
         return {'has_unread_inbox': False}
     return {'has_unread_inbox': db.has_unread_inbox_messages(current_user.id)}
 
+
+@app.template_filter('ist_time')
+def format_ist_time(ts):
+    """Format a stored inbox timestamp for display.
+
+    Stored timestamps (inbox_messages.created_at, and messages.replied_at
+    once normalized by _parse_legacy_ts) are naive strings from
+    datetime.now() / datetime.fromtimestamp() — both of which already
+    return server-local time. Per CLAUDE.md, the production server's
+    timezone is set to IST (`timedatectl set-timezone Asia/Kolkata`), so
+    these values ARE ALREADY IST. This only formats for readability — it
+    must NOT apply a UTC->IST offset, which would double-shift an
+    already-correct value.
+    """
+    if not ts:
+        return ''
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return ts[:16] if isinstance(ts, str) else ''
+    return dt.strftime('%d %b, %I:%M %p')
+
 # Initialize GLOBAL rate limiter and message queue
 # These persist across requests
 rate_limiter = RateLimiter(max_requests=MAX_REQUESTS, time_window=TIME_WINDOW)

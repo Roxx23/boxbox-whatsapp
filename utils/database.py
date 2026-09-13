@@ -767,6 +767,13 @@ class Database:
                     d['created_at'] = _parse_legacy_ts(d['created_at'])
                     latest[phone] = d
 
+            cursor.execute(
+                '''SELECT DISTINCT phone FROM inbox_messages
+                   WHERE user_id = ? AND direction = 'inbound' AND read_at IS NULL''',
+                (user_id,)
+            )
+            unread_phones_clean = {row['phone'].lstrip('+') for row in cursor.fetchall()}
+
             phones = list(latest.keys())
             customers_by_phone = {}
             if phones:
@@ -789,6 +796,7 @@ class Database:
                 'last_message_text': row['message_text'],
                 'last_message_direction': row['direction'],
                 'last_message_at': row['created_at'],
+                'has_unread': phone.lstrip('+') in unread_phones_clean,
             })
         results.sort(key=lambda r: r['last_message_at'] or '', reverse=True)
         return results[:limit]

@@ -33,6 +33,11 @@
   .inbox-name { font-weight: 600; color: var(--text); font-size: 0.92rem; }
   .inbox-phone { font-family: monospace; font-size: 0.75rem; color: var(--text-dim); margin-left: 0.4rem; }
   .inbox-time { font-size: 0.72rem; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+  .inbox-unread-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    flex-shrink: 0; margin-right: 0.15rem;
+  }
   .inbox-preview {
     font-size: 0.82rem; color: var(--text-muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -77,7 +82,10 @@
             <span class="inbox-name">{{ c.customer_name or c.phone }}</span>
             {% if c.customer_name %}<span class="inbox-phone">{{ c.phone }}</span>{% endif %}
           </div>
-          <span class="inbox-time" data-ts="{{ c.last_message_at }}">{{ c.last_message_at[:16] if c.last_message_at else '' }}</span>
+          <span class="d-flex align-items-center gap-2">
+            {% if c.has_unread %}<span class="inbox-unread-dot" title="Unread"></span>{% endif %}
+            <span class="inbox-time" data-ts="{{ c.last_message_at }}">{{ c.last_message_at | ist_time }}</span>
+          </span>
         </div>
         <div class="inbox-preview">
           <span class="dir-tag {{ 'dir-inbound' if c.last_message_direction == 'inbound' else 'dir-outbound' }}">
