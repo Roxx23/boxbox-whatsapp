@@ -74,9 +74,9 @@ def delete_template(waba_id, template_name):
         return 500, {"error": {"message": str(e)}}
 
 
-def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None):
+def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None, header_param=None):
     """Send a WhatsApp template message
-    
+
     Args:
         number: Phone number to send to
         template_name: Name of the template
@@ -88,6 +88,9 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             {"url_index_0": "param1"} for dynamic URL button parameters
             Or specify index explicitly:
             {"copy_code": "SAVE20", "copy_code_index": 1}
+        header_param: Optional text value for a TEXT header's {{1}} variable.
+            Ignored if header_media_id is set (a template header is either
+            an image or a text variable, never both).
     """
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
 
@@ -102,6 +105,14 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             "parameters": [{
                 "type": "image",
                 "image": {"id": header_media_id}
+            }]
+        })
+    elif header_param is not None:
+        components.append({
+            "type": "header",
+            "parameters": [{
+                "type": "text",
+                "text": str(header_param)
             }]
         })
 
@@ -208,7 +219,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         # Retry on rate limit
         if resp.status_code == 429:
             time.sleep(2)
-            return send_template(number, template_name, params, lang, header_media_id)
+            return send_template(number, template_name, params, lang, header_media_id, button_params, header_param)
         
         return resp.status_code, response_data
     except requests.exceptions.RequestException as e:

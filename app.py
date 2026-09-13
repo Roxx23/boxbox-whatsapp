@@ -692,12 +692,18 @@ def template_info():
 
     count = 0
     buttons = []
-    
+    has_header_param = False
+
     if selected:
         body = next((c for c in selected["components"] if c["type"] == "BODY"), None)
         if body and "text" in body:
             count = body["text"].count("{{")
-        
+
+        # Check for a TEXT header with a {{1}} variable (WhatsApp allows at most one)
+        header = next((c for c in selected["components"] if c["type"] == "HEADER"), None)
+        if header and header.get("format") == "TEXT" and "{{1}}" in header.get("text", ""):
+            has_header_param = True
+
         # Check for buttons component
         buttons_component = next((c for c in selected["components"] if c["type"] == "BUTTONS"), None)
         if buttons_component and "buttons" in buttons_component:
@@ -721,7 +727,7 @@ def template_info():
                         "requires": "url_parameter"
                     })
 
-    return jsonify({"count": count, "buttons": buttons})
+    return jsonify({"count": count, "buttons": buttons, "has_header_param": has_header_param})
 
 
 @app.route("/queue-stats")

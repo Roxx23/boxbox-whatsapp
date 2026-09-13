@@ -198,6 +198,11 @@ def _execute_send_message(participant, step, config):
     for btn_key, ctx_key in config.get('button_params', {}).items():
         button_params[btn_key] = context.get(ctx_key, '')
 
+    header_param = None
+    header_ctx_key = config.get('header_param')
+    if header_ctx_key:
+        header_param = context.get(header_ctx_key, '')
+
     template_name = config.get('template_name', '')
     lang = config.get('template_language', 'en_US')
 
@@ -211,6 +216,7 @@ def _execute_send_message(participant, step, config):
         template_name,
         params,
         lang=lang,
+        header_param=header_param,
         button_params=button_params or None
     )
 
