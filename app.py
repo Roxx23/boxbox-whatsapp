@@ -3132,6 +3132,8 @@ def shopify_fulfillment():
                     ctx_data['order_number'] = order_number
                     ctx_data['line_items'] = line_items
                     ctx_data['fulfillments'] = [{'tracking_url': tracking_url}]
+                    ctx_data['courier_name'] = courier_name
+                    ctx_data['tracking_number'] = tracking_number
                     ctx = build_trigger_context('fulfillment', ctx_data)
                     for flow in active_flows:
                         first_step = get_flow_first_step_key(db, flow['id'])

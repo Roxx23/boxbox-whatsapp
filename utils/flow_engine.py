@@ -101,6 +101,8 @@ def build_trigger_context(trigger_type, data):
             if fulfillments:
                 tracking = fulfillments[0].get('tracking_url') or ''
             ctx['tracking_url'] = tracking
+            ctx['courier_name'] = data.get('courier_name', '')
+            ctx['tracking_number'] = data.get('tracking_number', '')
     elif trigger_type == 'abandoned_cart':
         customer = data.get('customer') or {}
         ctx['first_name'] = customer.get('first_name') or (data.get('email', '').split('@')[0])
