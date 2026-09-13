@@ -18,6 +18,27 @@ def _now_utc():
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
 
 
+def _parse_legacy_ts(ts):
+    """Normalize a `messages.replied_at` value to an ISO string, or None if it
+    can't be parsed. That column is usually ISO (from datetime.now().isoformat()),
+    but process_incoming_message() also writes the raw WhatsApp webhook
+    `timestamp` verbatim when the webhook supplies one — a Unix epoch string like
+    '1730000000', not ISO. Every reader that sorts, compares, or displays this
+    column needs to go through this first; get_last_inbound_message_at() avoids
+    the column entirely instead, since it gates a send decision."""
+    if not ts:
+        return None
+    try:
+        datetime.fromisoformat(ts)
+        return ts
+    except (ValueError, TypeError):
+        pass
+    try:
+        return datetime.fromtimestamp(int(ts)).isoformat()
+    except (ValueError, TypeError, OSError, OverflowError):
+        return None
+
+
 class Database:
     """Database manager for campaign tracking"""
     
@@ -742,6 +763,7 @@ class Database:
                 if phone not in latest:
                     d = dict(row)
                     d['direction'] = 'inbound'
+                    d['created_at'] = _parse_legacy_ts(d['created_at'])
                     latest[phone] = d
 
             phones = list(latest.keys())
@@ -819,15 +841,21 @@ class Database:
             )
             legacy_replies = [dict(row) for row in cursor.fetchall()]
 
+        # messages.replied_at is usually ISO, but process_incoming_message() also
+        # writes WhatsApp's raw webhook timestamp (a Unix epoch string) verbatim
+        # when one is supplied — normalize before any comparison, sort, or display
+        # ever touches it.
+        for d in legacy_replies:
+            d['ts'] = _parse_legacy_ts(d['ts'])
+
         # Dedup: a reply captured by BOTH this legacy column AND the (going-forward)
         # inbox_messages log — same webhook call writes both — would otherwise show
         # as two near-identical bubbles. inbox_messages.created_at and
         # messages.replied_at are written moments apart in the same request, so
         # treat any inbound inbox_messages row within 60s of a legacy reply as the
         # same event and skip the legacy one. A legacy reply whose timestamp can't
-        # be parsed (older raw-webhook-format rows) or has no nearby inbox_messages
-        # row is shown — false negatives here (an extra bubble) are far less bad
-        # than hiding a real reply.
+        # be parsed at all, or has no nearby inbox_messages row, is shown — false
+        # negatives here (an extra bubble) are far less bad than hiding a real reply.
         inbound_times = []
         for d in inbox_rows:
             if d['direction'] != 'inbound' or not d['ts']:
