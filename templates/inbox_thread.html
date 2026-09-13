@@ -124,7 +124,7 @@
         <div class="bubble {{ m.direction }}">
           {% if m.source == 'campaign' %}<span class="bubble-source">Campaign</span>{% endif %}
           {{ m.text or '' }}
-          <div class="bubble-time">{{ m.ts[:16] if m.ts else '' }}</div>
+          <div class="bubble-time">{{ m.ts | ist_time }}</div>
         </div>
       </div>
       {% endfor %}
