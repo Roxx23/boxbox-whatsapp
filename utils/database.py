@@ -334,6 +334,7 @@ class Database:
                 'ALTER TABLE messages ADD COLUMN template_params TEXT',
                 'ALTER TABLE messages ADD COLUMN template_language TEXT',
                 'ALTER TABLE messages ADD COLUMN button_params TEXT',
+                'ALTER TABLE messages ADD COLUMN header_media_id TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -348,6 +349,9 @@ class Database:
                 "ALTER TABLE automation_settings ADD COLUMN extra_data TEXT DEFAULT '{}'",
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_url TEXT',
                 'ALTER TABLE abandoned_carts ADD COLUMN customer_name TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN tracking_number TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN tracking_company TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN order_status_url TEXT',
                 'ALTER TABLE flows ADD COLUMN allow_reenroll INTEGER DEFAULT 1',
             ]:
                 try:
@@ -461,20 +465,23 @@ class Database:
     # Message Methods
     def add_message(self, campaign_id, user_id, phone_number, recipient_name=None,
                    message_content=None, template_name=None, status='pending',
-                   template_params=None, template_language=None, button_params=None):
+                   template_params=None, template_language=None, button_params=None,
+                   header_media_id=None):
         """Add a message to campaign"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO messages (campaign_id, user_id, phone_number, recipient_name,
                                     message_content, template_name, status,
-                                    template_params, template_language, button_params)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    template_params, template_language, button_params,
+                                    header_media_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (campaign_id, user_id, phone_number, recipient_name,
                   message_content, template_name, status,
                   json.dumps(template_params) if template_params is not None else None,
                   template_language,
-                  json.dumps(button_params) if button_params is not None else None))
+                  json.dumps(button_params) if button_params is not None else None,
+                  header_media_id))
             return cursor.lastrowid
 
     def fail_message_by_whatsapp_id(self, whatsapp_message_id, error_code, error_message):
@@ -512,7 +519,8 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id, phone_number, recipient_name, template_name,
-                       message_content, template_params, template_language, button_params
+                       message_content, template_params, template_language, button_params,
+                       header_media_id
                 FROM messages
                 WHERE campaign_id = ? AND status IN ('failed', 'queued')
             ''', (campaign_id,))
@@ -1118,29 +1126,64 @@ class Database:
                 WHERE shopify_order_id = ?
             ''', (datetime.now().isoformat(), str(shopify_order_id)))
 
-    def save_order_tracking_url(self, shopify_order_id, tracking_url):
-        """Save tracking URL for an order (used by /track/<order_ref> redirect)"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE shopify_orders
-                SET tracking_url = ?, updated_at = ?
-                WHERE shopify_order_id = ?
-            ''', (tracking_url, datetime.now().isoformat(), str(shopify_order_id)))
+    def save_order_tracking_url(self, shopify_order_id, tracking_url,
+                                tracking_number=None, tracking_company=None,
+                                order_status_url=None):
+        """Save tracking URL/number/courier for an order (used by /track/<order_ref>).
 
-    def get_order_tracking_url(self, order_ref):
-        """Get tracking URL by order number (for /track/<order_ref> redirect).
-        order_ref is the raw order number digits (e.g. '4123' for order #F14123).
+        All fields but tracking_url are optional so older callers keep working;
+        when omitted the existing stored values are left untouched.
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT tracking_url FROM shopify_orders
+                UPDATE shopify_orders
+                SET tracking_url = ?,
+                    tracking_number = COALESCE(?, tracking_number),
+                    tracking_company = COALESCE(?, tracking_company),
+                    order_status_url = COALESCE(?, order_status_url),
+                    updated_at = ?
+                WHERE shopify_order_id = ?
+            ''', (tracking_url, tracking_number, tracking_company, order_status_url,
+                  datetime.now().isoformat(), str(shopify_order_id)))
+
+    def save_order_status_url(self, shopify_order_id, order_status_url):
+        """Store Shopify's customer-facing order status URL (set from orders/create)."""
+        if not order_status_url:
+            return
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shopify_orders
+                SET order_status_url = ?, updated_at = ?
+                WHERE shopify_order_id = ?
+            ''', (order_status_url, datetime.now().isoformat(), str(shopify_order_id)))
+
+    def get_order_tracking_url(self, order_ref):
+        """Get tracking info by order number (for /track/<order_ref>).
+        order_ref is the raw order number digits (e.g. '4123' for order #F14123).
+        Returns dict with tracking_url, tracking_number, tracking_company, order_number.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT shopify_order_id, tracking_url, tracking_number, tracking_company,
+                       order_status_url, order_number
+                FROM shopify_orders
                 WHERE order_number = ? OR order_number = ? OR shopify_order_id = ?
                 ORDER BY updated_at DESC LIMIT 1
             ''', (order_ref, '#' + order_ref, order_ref))
             row = cursor.fetchone()
-            return row['tracking_url'] if row else None
+            if row:
+                return {
+                    'shopify_order_id': row['shopify_order_id'],
+                    'tracking_url': row['tracking_url'],
+                    'tracking_number': row['tracking_number'],
+                    'tracking_company': row['tracking_company'],
+                    'order_status_url': row['order_status_url'],
+                    'order_number': row['order_number'],
+                }
+            return None
 
     # Automation Settings Methods
     def get_automation_settings(self, user_id):

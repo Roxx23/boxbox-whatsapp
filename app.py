@@ -7,11 +7,13 @@ import atexit
 import threading
 import logging
 import json
+import re
 import hmac
 import hashlib
 import base64
 import time
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, send_template, upload_media, upload_media_from_bytes
@@ -105,6 +107,41 @@ def _format_items(line_items, max_items=3):
     if extra > 0:
         result += f" & {extra} more"
     return result
+
+
+def _fetch_order_status_url(shopify_order_id):
+    """Fetch Shopify's customer-facing order_status_url for one order via the Admin API.
+
+    Used by /track/<order_ref> to self-heal orders fulfilled before the
+    order_status_url column existed. Needs the read_orders scope on
+    SHOPIFY_ACCESS_TOKEN; returns None (and logs why) on any failure so the
+    caller falls through to the AWB-only page.
+    """
+    if not shopify_order_id:
+        return None
+    shop  = os.getenv('SHOPIFY_SHOP_NAME', '')
+    token = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
+    if not (shop and token):
+        return None
+    try:
+        import requests as _req
+        url = (f"https://{shop}.myshopify.com/admin/api/2024-01/orders/"
+               f"{shopify_order_id}.json?fields=order_status_url")
+        resp = _req.get(url, headers={"X-Shopify-Access-Token": token}, timeout=10)
+        if resp.status_code == 200:
+            status_url = (resp.json().get('order') or {}).get('order_status_url')
+            if status_url:
+                logger.info(f"order_status_url backfilled from Shopify for {shopify_order_id}")
+            return status_url or None
+        if resp.status_code == 403:
+            logger.warning("Shopify orders API returned 403 — SHOPIFY_ACCESS_TOKEN "
+                           "lacks read_orders scope; /track/ cannot backfill old orders")
+        else:
+            logger.warning(f"Shopify orders API returned {resp.status_code} "
+                           f"for order {shopify_order_id}")
+    except Exception as e:
+        logger.warning(f"Could not fetch order_status_url from Shopify: {e}")
+    return None
 
 
 def _get_product_image_url(line_items):
@@ -249,6 +286,46 @@ def _verify_shopify_hmac(raw_data, hmac_header):
     h = hmac.new(secret.encode('utf-8'), raw_data, hashlib.sha256)
     computed = base64.b64encode(h.digest()).decode('utf-8')
     return hmac.compare_digest(computed, hmac_header)
+
+
+def _template_shape(template_name, template_language=None):
+    """Inspect the approved WhatsApp template and return how it expects to be filled.
+
+    Returns {'body_vars': int, 'has_dynamic_url_button': bool}, or None if the
+    template can't be looked up (API error, not found). Callers must fall back to
+    their previous fixed assumptions on None so a Meta outage never blocks sends.
+
+    Lets the sender adapt to whatever is currently approved — add or remove a
+    body variable or a URL button in Business Manager and the payload follows,
+    instead of failing with 132000 (param count) or 132018 (button params).
+    """
+    if not (WABA_ID and template_name):
+        return None
+    try:
+        candidates = [t for t in get_templates(WABA_ID) if t.get('name') == template_name]
+        if not candidates:
+            logger.warning(f"_template_shape: template '{template_name}' not found")
+            return None
+        # Prefer exact language match, then APPROVED, then whatever's first.
+        def rank(t):
+            return (t.get('language') != template_language, t.get('status') != 'APPROVED')
+        tmpl = sorted(candidates, key=rank)[0]
+
+        body_vars = 0
+        has_dyn_url = False
+        for comp in tmpl.get('components', []):
+            ctype = comp.get('type')
+            if ctype == 'BODY':
+                nums = [int(n) for n in re.findall(r'\{\{(\d+)\}\}', comp.get('text') or '')]
+                body_vars = max(nums) if nums else 0
+            elif ctype == 'BUTTONS':
+                for b in comp.get('buttons', []):
+                    if b.get('type') == 'URL' and '{{' in (b.get('url') or ''):
+                        has_dyn_url = True
+        return {'body_vars': body_vars, 'has_dynamic_url_button': has_dyn_url}
+    except Exception as e:
+        logger.warning(f"_template_shape: could not inspect '{template_name}': {e}")
+        return None
 
 
 def _send_automation_message(phone, event_type, template_name, template_language, params,
@@ -1052,7 +1129,8 @@ def index():
                     status='queued',
                     template_params=params,
                     template_language=template_language,
-                    button_params=button_params if button_params else None
+                    button_params=button_params if button_params else None,
+                    header_media_id=header_media_id
                 )
 
                 # Add to queue instead of sending immediately
@@ -1202,6 +1280,18 @@ def campaign_details(campaign_id):
                          messages=messages)
 
 
+@app.route("/api/campaigns/<int:campaign_id>/mark-failed", methods=["POST"])
+@login_required
+def mark_campaign_failed(campaign_id):
+    """Force a stuck running campaign to failed status."""
+    campaign = db.get_campaign(campaign_id)
+    if not campaign or campaign['user_id'] != current_user.id:
+        return jsonify({'success': False, 'error': 'Campaign not found'}), 404
+    from datetime import datetime as _dt
+    db.update_campaign_status(campaign_id, 'failed', completed_at=_dt.now().isoformat())
+    return jsonify({'success': True})
+
+
 @app.route("/api/campaigns/<int:campaign_id>/delete", methods=["POST"])
 @login_required
 def delete_campaign(campaign_id):
@@ -1234,43 +1324,58 @@ def resend_unsent_campaign(campaign_id):
     if not unsent:
         return jsonify({'success': False, 'error': 'No unsent messages found'})
 
+    import json as _json
+
     count = db.reset_messages_for_resend(campaign_id)
+    queued = 0
+    errors = []
 
     for msg in unsent:
-        phone = msg['phone_number']
-        name  = msg['recipient_name'] or ''
-        msg_id = msg['id']
+        try:
+            phone  = msg['phone_number']
+            msg_id = msg['id']
 
-        if msg['template_name']:
-            import json as _json
-            params   = _json.loads(msg['template_params'])   if msg.get('template_params')  else []
-            btn_p    = _json.loads(msg['button_params'])     if msg.get('button_params')    else None
-            lang     = msg.get('template_language') or 'en'
-            message_queue.add_message(
-                send_template,
-                phone,
-                msg['template_name'],
-                params,
-                lang,
-                button_params=btn_p,
-                user_id=current_user.id,
-                username=current_user.username,
-                campaign_id=campaign_id,
-                message_id=msg_id
-            )
-        else:
-            message_queue.add_message(
-                send_text,
-                phone,
-                msg['message_content'] or '',
-                user_id=current_user.id,
-                username=current_user.username,
-                campaign_id=campaign_id,
-                message_id=msg_id
-            )
+            if msg['template_name']:
+                try:
+                    params = _json.loads(msg['template_params']) if msg.get('template_params') else []
+                except Exception:
+                    params = []
+                try:
+                    btn_p = _json.loads(msg['button_params']) if msg.get('button_params') else None
+                except Exception:
+                    btn_p = None
+                lang = msg.get('template_language') or 'en_US'
+                stored_media_id = msg.get('header_media_id') or None
+                message_queue.add_message(
+                    send_template,
+                    phone,
+                    msg['template_name'],
+                    params,
+                    lang,
+                    header_media_id=stored_media_id,
+                    button_params=btn_p,
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    campaign_id=campaign_id,
+                    message_id=msg_id
+                )
+            else:
+                message_queue.add_message(
+                    send_text,
+                    phone,
+                    msg['message_content'] or '',
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    campaign_id=campaign_id,
+                    message_id=msg_id
+                )
+            queued += 1
+        except Exception as e:
+            logger.error(f"Resend: failed to queue message {msg.get('id')}: {e}")
+            errors.append(str(e))
 
-    logger.info(f"Resend: queued {count} messages for campaign {campaign_id}")
-    return jsonify({'success': True, 'queued': count})
+    logger.info(f"Resend: queued {queued}/{count} messages for campaign {campaign_id}")
+    return jsonify({'success': True, 'queued': queued, 'errors': errors})
 
 
 @app.route("/activity-log")
@@ -1775,24 +1880,301 @@ def save_automation_settings():
 
 @app.route("/track/<order_ref>")
 def track_order(order_ref):
-    """Public redirect: /track/<order_number> → courier tracking URL.
-
-    The URL button in the fulfillment WhatsApp template points here.
-    Template button URL: https://dashboard.boxbox.in/track/{{1}}
-    At send time, {{1}} is the raw order number (e.g. '4123').
-    """
+    """Public interstitial: /track/<order_number> → shows branded page → courier tracking URL."""
+    tracking_number = None
+    tracking_company = None
+    status_url = None
     try:
-        tracking_url = db.get_order_tracking_url(order_ref)
-        if tracking_url:
-            logger.info(f"🔗 Tracking redirect: /track/{order_ref} → {tracking_url}")
-            return redirect(tracking_url, code=302)
+        result = db.get_order_tracking_url(order_ref)
+        if result:
+            destination = result['tracking_url'] or ''
+            order_number = result['order_number'] or order_ref
+            tracking_number = result.get('tracking_number')
+            tracking_company = result.get('tracking_company')
+            status_url = result.get('order_status_url')
+
+            # Self-heal: orders fulfilled before order_status_url was stored have
+            # none — fetch it once from Shopify and cache it for next time.
+            if not status_url:
+                status_url = _fetch_order_status_url(result.get('shopify_order_id'))
+                if status_url:
+                    try:
+                        db.save_order_status_url(result['shopify_order_id'], status_url)
+                    except Exception as e:
+                        logger.warning(f"Could not cache backfilled order_status_url: {e}")
         else:
-            # Fallback — send to store homepage
-            logger.info(f"⚠️ Tracking URL not found for order_ref={order_ref}, redirecting to store")
-            return redirect('https://boxbox.in', code=302)
+            destination = ''
+            order_number = order_ref
     except Exception as e:
         logger.error(f"❌ /track/{order_ref} error: {e}")
-        return redirect('https://boxbox.in', code=302)
+        destination = ''
+        order_number = order_ref
+
+    # Courier name is display-only. We never link to a courier site directly:
+    # DTDC (and others) serve a WAF block page for deep links arriving from an
+    # external site / in-app browser, which reads as a scam to the customer.
+    courier_map = {
+        'dtdc':            'DTDC',
+        'delhivery':       'Delhivery',
+        'fedex':           'FedEx',
+        'bluedart':        'BlueDart',
+        'ecomexpress':     'Ecom Express',
+        'xpressbees':      'XpressBees',
+        'shiprocket':      'Shiprocket',
+        'ekart':           'Ekart',
+        'shadowfax':       'Shadowfax',
+        'amazonlogistics': 'Amazon Logistics',
+    }
+    courier_name = (tracking_company or '').strip() or 'our courier partner'
+    haystack = f"{destination} {tracking_company or ''}".lower().replace(' ', '').replace('-', '')
+    for key, name in courier_map.items():
+        if key in haystack:
+            courier_name = name
+            break
+
+    # AWB: prefer the stored value, else recover it from the courier tracking URL
+    if not tracking_number:
+        try:
+            qs = parse_qs(urlparse(destination).query)
+            for k in ('awb', 'AWB', 'awb_no', 'trackingnumber', 'tracking_number',
+                      'trackingNo', 'ref', 'id'):
+                if qs.get(k):
+                    tracking_number = qs[k][0]
+                    break
+        except Exception:
+            pass
+
+    # Primary destination is Shopify's own customer-facing order page (on boxbox.in,
+    # carries its own auth key). Orders predating this column have none stored — those
+    # fall back to the copyable AWB rather than a courier link that may block.
+    primary_url = status_url or ''
+    logger.info(f"🔗 Tracking page: /track/{order_ref} → "
+                f"{primary_url or '(no link, AWB only)'} (awb={tracking_number})")
+
+    # Format order number for display
+    order_number_str = str(order_number).lstrip('#')
+    display_order = f"#F1{order_number_str}"
+
+    # Optional blocks — only rendered when we actually have the data
+    awb_block = ""
+    if tracking_number:
+        awb_block = f"""
+      <div class="awb-label">Tracking number</div>
+      <div class="awb-row">
+        <span class="awb" id="awb">{tracking_number}</span>
+        <button class="copy" onclick="copyAwb()" aria-label="Copy tracking number">Copy</button>
+      </div>"""
+
+    if primary_url:
+        cta_block = f"""
+      <a class="btn" href="{primary_url}">Track My Order &rarr;</a>"""
+    elif tracking_number:
+        cta_block = f"""
+      <p class="hint">Use the tracking number above on
+        <span style="font-weight:600;">{courier_name}</span>'s website to see live status.</p>"""
+    else:
+        cta_block = """
+      <a class="btn" href="https://boxbox.in">Visit boxbox.in &rarr;</a>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>Track Your Order — boxbox</title>
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      background: #f9f7f4;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }}
+    .wrapper {{
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }}
+    .logo {{
+      display: block;
+      margin-bottom: 16px;
+      text-decoration: none;
+    }}
+    .logo img {{
+      height: 250px;
+      width: auto;
+      margin-top: -60px;
+      margin-bottom: -60px;
+    }}
+    .card {{
+      background: #fff;
+      border-radius: 20px;
+      padding: 40px 32px;
+      box-shadow: 0 2px 24px rgba(0,0,0,0.07);
+    }}
+    .icon-wrap {{
+      width: 72px;
+      height: 72px;
+      background: #f0f7f0;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 32px;
+    }}
+    h1 {{
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 10px;
+      line-height: 1.3;
+    }}
+    .order-tag {{
+      display: inline-block;
+      background: #f0f7f0;
+      color: #2d7a2d;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+    }}
+    .sub {{
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 28px;
+      line-height: 1.6;
+    }}
+    .btn {{
+      display: block;
+      background: #1a1a1a;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 16px 24px;
+      border-radius: 12px;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s;
+    }}
+    .btn:hover {{ opacity: 0.85; }}
+    .hint {{
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+      background: #f7f7f5;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }}
+    .awb-label {{
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #999;
+      margin-bottom: 8px;
+    }}
+    .awb-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #f7f7f5;
+      border: 1px dashed #ddd;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 24px;
+    }}
+    .awb {{
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #1a1a1a;
+      word-break: break-all;
+      text-align: left;
+    }}
+    .copy {{
+      flex-shrink: 0;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }}
+    .courier-tag {{
+      font-size: 12px;
+      color: #999;
+      margin-top: 18px;
+    }}
+    .courier-tag span {{ color: #1a1a1a; font-weight: 600; }}
+    .footer {{
+      margin-top: 32px;
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.6;
+    }}
+    .footer a {{ color: #aaa; text-decoration: none; }}
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <a class="logo" href="https://boxbox.in"><img src="/static/boxbox-logo.png" alt="boxbox"></a>
+    <div class="card">
+      <div class="icon-wrap">🚚</div>
+      <div class="order-tag">Order {display_order}</div>
+      <h1>Your order is on its way!</h1>
+      <p class="sub">Your parcel has been picked up by <span style="font-weight:600;">{courier_name}</span>.</p>
+      {awb_block}
+      {cta_block}
+      <div class="courier-tag">Shipped via <span>{courier_name}</span></div>
+    </div>
+    <div class="footer">
+      Questions? <a href="https://boxbox.in">Visit boxbox.in</a> or reply to your WhatsApp message.
+    </div>
+  </div>
+  <script>
+    function copyAwb() {{
+      var el = document.getElementById('awb');
+      if (!el) return;
+      var text = el.innerText.trim();
+      var btn = document.querySelector('.copy');
+      function done() {{
+        if (!btn) return;
+        var old = btn.innerText;
+        btn.innerText = 'Copied';
+        setTimeout(function () {{ btn.innerText = old; }}, 1500);
+      }}
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+      }} else {{
+        fallback();
+      }}
+      function fallback() {{
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {{ document.execCommand('copy'); done(); }} catch (e) {{}}
+        document.body.removeChild(ta);
+      }}
+    }}
+  </script>
+</body>
+</html>"""
+    return html, 200
 
 
 # ============================================================
@@ -2034,6 +2416,23 @@ def api_dashboard_stats():
     return jsonify(stats)
 
 
+@app.route("/api/worker-debug")
+@login_required
+def worker_debug():
+    """Show live stack traces of all threads — use when queue is stuck."""
+    import sys, traceback
+    frames = sys._current_frames()
+    traces = {}
+    for thread in threading.enumerate():
+        frame = frames.get(thread.ident)
+        if frame:
+            traces[thread.name] = ''.join(traceback.format_stack(frame))
+    return jsonify({
+        'workers': [{'name': w.name, 'alive': w.is_alive()} for w in message_queue.workers],
+        'thread_traces': traces
+    })
+
+
 @app.route("/queue-status")
 @login_required
 def queue_status():
@@ -2052,6 +2451,8 @@ def queue_status():
             'successful': stats.get('successful', 0),
             'failed': stats.get('failed', 0),
             'pending': stats.get('pending', 0),
+            'workers_alive': stats.get('workers_alive', 0),
+            'workers_total': stats.get('workers_total', 0),
             'current_batch': []
         })
     except Exception as e:
@@ -2472,6 +2873,12 @@ def shopify_order_create():
         order_db_id = db.add_order(user_id, order_data)
         logger.info(f"✅ Order stored: DB id={order_db_id} (user_id={user_id})")
 
+        # Store Shopify's customer-facing order page — used later by /track/<order_ref>
+        try:
+            db.save_order_status_url(str(data.get('id', '')), data.get('order_status_url'))
+        except Exception as e:
+            logger.warning(f"Could not save order status URL: {e}")
+
         # Mark any abandoned cart as recovered
         cart_token = data.get('cart_token')
         if cart_token:
@@ -2564,6 +2971,10 @@ def shopify_fulfillment():
             shopify_order_id = str(data.get('order_id', ''))
             tracking_number = data.get('tracking_number') or 'Will be provided'
             tracking_url    = data.get('tracking_url') or ''
+            courier_name    = data.get('tracking_company') or 'our courier'
+            # fulfillments/create payloads carry no order_status_url; if the order was
+            # seen by orders/create we already have it stored, so leave it untouched.
+            status_url      = ''
             line_items = data.get('line_items', [])
             order = db.get_order_by_shopify_id(shopify_order_id)
             if not order:
@@ -2594,14 +3005,19 @@ def shopify_fulfillment():
             fulfillments = data.get('fulfillments') or []
             tracking_number = 'Will be provided'
             tracking_url    = ''
+            courier_name    = 'our courier'
             if fulfillments:
                 last = fulfillments[-1]
                 tracking_number = last.get('tracking_number') or 'Will be provided'
                 tracking_url    = last.get('tracking_url') or ''
+                courier_name    = last.get('tracking_company') or 'our courier'
+
+            # Shopify's customer-facing order page — the primary /track/ destination
+            status_url = data.get('order_status_url') or ''
 
             # Fallback: use Shopify's order status page if no courier URL
             if not tracking_url:
-                tracking_url = data.get('order_status_url') or ''
+                tracking_url = status_url
 
             # Upsert order so we have an id
             order_data_payload = {
@@ -2623,8 +3039,16 @@ def shopify_fulfillment():
         # tracking_url is courier URL if available, otherwise Shopify order status page
         if tracking_url:
             try:
-                db.save_order_tracking_url(shopify_order_id, tracking_url)
-                logger.info(f"📌 Tracking URL saved for order {shopify_order_id}: {tracking_url}")
+                awb = tracking_number if tracking_number != 'Will be provided' else None
+                db.save_order_tracking_url(
+                    shopify_order_id, tracking_url,
+                    tracking_number=awb,
+                    tracking_company=(courier_name if courier_name != 'our courier' else None),
+                    order_status_url=(status_url or None)
+                )
+                logger.info(f"📌 Tracking saved for order {shopify_order_id}: "
+                            f"{tracking_url} (awb={awb}, courier={courier_name}, "
+                            f"status_url={'yes' if status_url else 'no'})")
             except Exception as e:
                 logger.warning(f"Could not save tracking URL: {e}")
 
@@ -2643,15 +3067,28 @@ def shopify_fulfillment():
                 if phone_e164:
                     lang = s.get('template_language') or 'en_US'
                     items_str = _format_items(line_items)
-                    # Template params: {{1}}=name, {{2}}=order#, {{3}}=items
-                    params = [str(first_name), order_number_display, items_str]
+                    # Every value the template *could* ask for, in variable order:
+                    #   {{1}}=name  {{2}}=order#  {{3}}=courier  {{4}}=items
+                    #   {{5}}=tracking#  {{6}}=courier tracking link (body-link variant)
+                    # The approved template decides how many are actually sent.
+                    link_for_body = tracking_url or 'https://boxbox.in'
+                    all_params = [str(first_name), order_number_display, courier_name,
+                                  items_str, tracking_number, link_for_body]
 
-                    # URL button — template has: https://dashboard.boxbox.in/track/{{1}}
-                    # We pass the order number as the suffix; the /track/ endpoint
-                    # looks up the actual Shopify tracking URL and 302-redirects.
-                    # This works across any courier (Delhivery, DTDC, FedEx, etc.)
-                    # because WhatsApp buttons require a fixed base URL.
-                    btn_params = {"url_index_0": str(order_number)}
+                    shape = _template_shape(template_name, lang)
+                    if shape:
+                        params = all_params[:shape['body_vars']]
+                        # Dynamic URL button → suffix is the order number, resolved by /track/.
+                        # No such button on the template → send none, or Meta returns 132018.
+                        btn_params = ({"url_index_0": str(order_number)}
+                                      if shape['has_dynamic_url_button'] else None)
+                        logger.info(f"fulfillment template '{template_name}': "
+                                    f"{shape['body_vars']} body vars, "
+                                    f"url button={'yes' if btn_params else 'no'}")
+                    else:
+                        # Couldn't inspect the template — keep the last known-good shape.
+                        params = all_params[:5]
+                        btn_params = {"url_index_0": str(order_number)}
 
                     success, _ = _send_automation_message(
                         phone_e164, 'fulfillment', template_name, lang, params,

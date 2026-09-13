@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>Track Your Order — boxbox</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+      background: #f9f7f4;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .wrapper {
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+    .logo {
+      display: block;
+      margin-bottom: 16px;
+      text-decoration: none;
+    }
+    .logo img {
+      height: 250px;
+      width: auto;
+      margin-top: -60px;
+      margin-bottom: -60px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 40px 32px;
+      box-shadow: 0 2px 24px rgba(0,0,0,0.07);
+    }
+    .icon-wrap {
+      width: 72px;
+      height: 72px;
+      background: #f0f7f0;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 32px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 10px;
+      line-height: 1.3;
+    }
+    .order-tag {
+      display: inline-block;
+      background: #f0f7f0;
+      color: #2d7a2d;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+    }
+    .sub {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 28px;
+      line-height: 1.6;
+    }
+    .btn {
+      display: block;
+      background: #1a1a1a;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 16px 24px;
+      border-radius: 12px;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .hint {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+      background: #f7f7f5;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .awb-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #999;
+      margin-bottom: 8px;
+    }
+    .awb-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #f7f7f5;
+      border: 1px dashed #ddd;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 24px;
+    }
+    .awb {
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #1a1a1a;
+      word-break: break-all;
+      text-align: left;
+    }
+    .copy {
+      flex-shrink: 0;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .courier-tag {
+      font-size: 12px;
+      color: #999;
+      margin-top: 18px;
+    }
+    .courier-tag span { color: #1a1a1a; font-weight: 600; }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.6;
+    }
+    .footer a { color: #aaa; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <a class="logo" href="https://boxbox.in"><img src="static/boxbox-logo.png" alt="boxbox"></a>
+    <div class="card">
+      <div class="icon-wrap">🚚</div>
+      <div class="order-tag">Order #F14862</div>
+      <h1>Your order is on its way!</h1>
+      <p class="sub">Your parcel has been picked up by <span style="font-weight:600;">DTDC</span>.</p>
+      
+      <div class="awb-label">Tracking number</div>
+      <div class="awb-row">
+        <span class="awb" id="awb">7D138412784</span>
+        <button class="copy" onclick="copyAwb()" aria-label="Copy tracking number">Copy</button>
+      </div>
+      
+      <a class="btn" href="https://boxbox.in/6079/orders/abc/authenticate?key=xyz">Track My Order &rarr;</a>
+      <div class="courier-tag">Shipped via <span>DTDC</span></div>
+    </div>
+    <div class="footer">
+      Questions? <a href="https://boxbox.in">Visit boxbox.in</a> or reply to your WhatsApp message.
+    </div>
+  </div>
+  <script>
+    function copyAwb() {
+      var el = document.getElementById('awb');
+      if (!el) return;
+      var text = el.innerText.trim();
+      var btn = document.querySelector('.copy');
+      function done() {
+        if (!btn) return;
+        var old = btn.innerText;
+        btn.innerText = 'Copied';
+        setTimeout(function () { btn.innerText = old; }, 1500);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+      } else {
+        fallback();
+      }
+      function fallback() {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    }
+  </script>
+</body>
+</html>

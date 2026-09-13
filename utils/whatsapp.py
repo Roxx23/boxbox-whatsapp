@@ -46,7 +46,7 @@ def format_phone_number(number: str) -> str:
 
 def get_templates(waba_id):
     """Fetch all WhatsApp message templates (all statuses)"""
-    url = f"https://graph.facebook.com/v20.0/{waba_id}/message_templates"
+    url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
     params = {"access_token": ACCESS_TOKEN, "limit": 100}
 
     all_templates = []
@@ -65,7 +65,7 @@ def get_templates(waba_id):
 
 def delete_template(waba_id, template_name):
     """Delete a WhatsApp message template by name"""
-    url = f"https://graph.facebook.com/v20.0/{waba_id}/message_templates"
+    url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     try:
         resp = requests.delete(url, headers=headers, params={"name": template_name}, timeout=10)
@@ -89,7 +89,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             Or specify index explicitly:
             {"copy_code": "SAVE20", "copy_code_index": 1}
     """
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
 
     formatted_number = format_phone_number(number)
 
@@ -218,7 +218,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
 
 def send_text(number: str, message: str, retry=True):
     """Send a plain text WhatsApp message"""
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
     
     formatted_number = format_phone_number(number)
 
@@ -253,25 +253,34 @@ def send_text(number: str, message: str, retry=True):
 
 def upload_media(image_file):
     """Upload media to WhatsApp and get media ID"""
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
-    
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media"
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
     }
-    
+
     image_file.seek(0)
-    
+    image_bytes = image_file.read()
+
+    # Determine a safe content type — WhatsApp only accepts image/jpeg and image/png
+    content_type = image_file.content_type or 'image/jpeg'
+    if content_type not in ('image/jpeg', 'image/png'):
+        content_type = 'image/jpeg'
+
+    filename = image_file.filename or 'header.jpg'
+    logger.info(f"Uploading media: filename={filename}, content_type={content_type}, size={len(image_bytes)} bytes")
+
     files = {
-        'file': (image_file.filename, image_file.stream, image_file.content_type)
+        'file': (filename, image_bytes, content_type)
     }
-    
+
     data = {
         'messaging_product': 'whatsapp'
     }
-    
+
     try:
         resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-        
+
         if resp.status_code in [200, 201]:
             media_id = resp.json().get('id')
             logger.info(f"Media uploaded OK, ID: {media_id}")
@@ -287,7 +296,7 @@ def upload_media(image_file):
 def upload_media_from_bytes(image_bytes, content_type='image/jpeg', filename='product.jpg'):
     """Upload raw image bytes to WhatsApp media API. Returns media_id or None.
     Used for automation (e.g. product image from Shopify CDN → WhatsApp header)."""
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     files = {'file': (filename, image_bytes, content_type)}
     data = {'messaging_product': 'whatsapp'}
@@ -344,7 +353,7 @@ def upload_image_for_template(image_file):
 
     # Step 1: Create upload session
     session_resp = requests.post(
-        "https://graph.facebook.com/v20.0/app/uploads",
+        "https://graph.facebook.com/v21.0/app/uploads",
         params={
             "file_name": file_name,
             "file_length": file_size,
@@ -363,7 +372,7 @@ def upload_image_for_template(image_file):
     # Step 2: Upload the binary data
     file_data = image_file.read()
     upload_resp = requests.post(
-        f"https://graph.facebook.com/v20.0/{session_id}",
+        f"https://graph.facebook.com/v21.0/{session_id}",
         headers={
             "Authorization": f"OAuth {ACCESS_TOKEN}",
             "file_offset": "0",

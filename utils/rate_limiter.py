@@ -76,6 +76,18 @@ class MessageQueue:
         self.results = []
         self.results_lock = threading.Lock()
     
+    def ensure_workers_running(self):
+        """Detect and restart any dead worker threads."""
+        if not self.running:
+            return
+        dead = [w for w in self.workers if not w.is_alive()]
+        for w in dead:
+            logger.warning("⚠️ Worker thread found dead — restarting")
+            self.workers.remove(w)
+            new_worker = threading.Thread(target=self._worker, daemon=True)
+            new_worker.start()
+            self.workers.append(new_worker)
+
     def add_message(self, send_function, *args, user_id=None, username=None, campaign_id=None, message_id=None, **kwargs):
         """
         Add a message to the queue
@@ -88,6 +100,7 @@ class MessageQueue:
             campaign_id: ID of the campaign (optional)
             message_id: ID of the message record in database (optional)
         """
+        self.ensure_workers_running()
         self.queue.put({
             'function': send_function,
             'args': args,
@@ -102,21 +115,25 @@ class MessageQueue:
     
     def _worker(self):
         """Worker thread that processes messages from queue"""
+        logger.info("Worker thread started")
         while self.running:
             try:
                 # Get message with timeout to allow checking running flag
                 message = self.queue.get(timeout=1)
-                
+
                 # Rate limit before sending
-                self.rate_limiter.wait_if_needed()
-                
+                try:
+                    self.rate_limiter.wait_if_needed()
+                except Exception as e:
+                    logger.error(f"❌ Rate limiter error: {e}")
+
                 # Send the message
                 try:
                     status, response = message['function'](
                         *message['args'],
                         **message['kwargs']
                     )
-                    
+
                     # Handle rate limit response (429)
                     if status == 429:
                         if message['retries'] < message['max_retries']:
@@ -128,32 +145,36 @@ class MessageQueue:
                         else:
                             logger.error(f"❌ Max retries reached for message")
                             self._record_result(message, status, response, failed=True)
-                    
+
                     # Handle other errors
                     elif status >= 400:
+                        logger.error(f"❌ API error {status} sending to {message['args'][0] if message['args'] else '?'}: {response}")
                         if message['retries'] < message['max_retries']:
                             message['retries'] += 1
-                            logger.warning(f"⚠️ Error {status}. Retry {message['retries']}/{message['max_retries']}")
-                            time.sleep(2)
-                            self.queue.put(message)  # Re-queue
+                            logger.warning(f"⚠️ Retry {message['retries']}/{message['max_retries']}")
+                            self.queue.put(message)  # Re-queue immediately (no sleep)
                         else:
                             logger.error(f"❌ Failed after {message['max_retries']} retries: {response}")
                             self._record_result(message, status, response, failed=True)
-                    
+
                     # Success
                     else:
                         logger.info(f"✅ Message sent successfully")
                         self._record_result(message, status, response, failed=False)
-                
+
                 except Exception as e:
                     logger.error(f"❌ Exception sending message: {e}")
                     self._record_result(message, 500, str(e), failed=True)
-                
+
                 finally:
                     self.queue.task_done()
-            
+
             except Empty:
                 continue  # No message available, continue loop
+            except Exception as e:
+                # Catch-all: log but keep the worker alive
+                logger.error(f"❌ CRITICAL worker error (thread stays alive): {e}", exc_info=True)
+                continue
     
     def _record_result(self, message, status, response, failed):
         """Thread-safe result recording with database logging"""
@@ -165,6 +186,9 @@ class MessageQueue:
                 'retries': message['retries'],
                 'timestamp': datetime.now()
             })
+            # Prevent unbounded memory growth — keep only the last 500 results in memory
+            if len(self.results) > 500:
+                self.results = self.results[-500:]
             
             # Log to database
             try:
@@ -304,13 +328,16 @@ class MessageQueue:
             total = len(self.results)
             successful = sum(1 for r in self.results if not r['failed'])
             failed = sum(1 for r in self.results if r['failed'])
-            
+            alive_workers = sum(1 for w in self.workers if w.is_alive())
+
             return {
                 'total': total,
                 'successful': successful,
                 'failed': failed,
                 'success_rate': (successful / total * 100) if total > 0 else 0,
-                'pending': self.queue.qsize()
+                'pending': self.queue.qsize(),
+                'workers_alive': alive_workers,
+                'workers_total': len(self.workers)
             }
 
 
