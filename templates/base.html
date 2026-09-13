@@ -123,6 +123,12 @@
     .sidebar-nav-item:hover i,
     .sidebar-nav-item.active i { opacity: 1; }
 
+    .nav-unread-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--danger);
+      margin-left: auto; flex-shrink: 0;
+    }
+
     .sidebar-spacer { flex: 1; }
 
     .sidebar-footer {
@@ -374,7 +380,7 @@
       <i class="fas fa-users"></i><span>Customers</span>
     </a>
     <a class="sidebar-nav-item {% if request.endpoint in ['inbox_page', 'inbox_thread_page'] %}active{% endif %}" href="{{ url_for('inbox_page') }}">
-      <i class="fas fa-inbox"></i><span>Inbox</span>
+      <i class="fas fa-inbox"></i><span>Inbox</span>{% if has_unread_inbox %}<span class="nav-unread-dot"></span>{% endif %}
     </a>
     <a class="sidebar-nav-item {% if request.endpoint in ['templates_manager', 'create_template_page'] %}active{% endif %}" href="{{ url_for('templates_manager') }}">
       <i class="fas fa-layer-group"></i><span>Templates</span>
