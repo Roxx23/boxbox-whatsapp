@@ -397,6 +397,7 @@ class Database:
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_company TEXT',
                 'ALTER TABLE shopify_orders ADD COLUMN order_status_url TEXT',
                 'ALTER TABLE flows ADD COLUMN allow_reenroll INTEGER DEFAULT 1',
+                'ALTER TABLE inbox_messages ADD COLUMN read_at TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -901,6 +902,32 @@ class Database:
             )
             row = cursor.fetchone()
             return row['ts'] if row else None
+
+    def has_unread_inbox_messages(self, user_id):
+        """Cheap boolean check: any inbound inbox_messages row for this user
+        not yet marked read. Used to drive the nav unread dot on every page,
+        so this must stay an EXISTS/LIMIT 1, not a full count."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT 1 FROM inbox_messages
+                   WHERE user_id = ? AND direction = 'inbound' AND read_at IS NULL
+                   LIMIT 1''',
+                (user_id,)
+            )
+            return cursor.fetchone() is not None
+
+    def mark_inbox_thread_read(self, user_id, phone):
+        """Mark all inbound messages in this thread as read."""
+        phone_clean = phone.lstrip('+')
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''UPDATE inbox_messages SET read_at = ?
+                   WHERE user_id = ? AND direction = 'inbound' AND read_at IS NULL
+                   AND (phone = ? OR phone = ?)''',
+                (datetime.now().isoformat(), user_id, phone, phone_clean)
+            )
 
     def get_campaign_messages(self, campaign_id, limit=None):
         """Get messages for a campaign"""
