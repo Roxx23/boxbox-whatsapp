@@ -594,7 +594,7 @@ function defaultData(type) {
   if (type === 'trigger')      return {trigger_type: TRIG_TYPE};
   if (type === 'wait')         return {hours: 24};
   if (type === 'condition')    return {condition_type: 'replied_within_X_hours', hours: 24};
-  if (type === 'send_message') return {template_name:'', template_language:'en_US', param_map:{}, button_params:{}};
+  if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', param_map:{}, button_params:{}};
   return {};
 }
 
@@ -673,9 +673,15 @@ function buildConfigForm(type, data) {
       '<option value="">— choose template —</option>' + tplOpts + '</select></div>' +
       '<div class="config-field"><label class="form-label">Language</label>' +
       '<select id="cfg_lang" class="form-select form-select-sm" onchange="applyConfig()">' + langOpts + '</select></div>' +
+      '<div class="config-field" id="headerSection" style="display:none;"><label class="form-label">Header parameter</label>' +
+      '<div id="headerParamRow"></div>' +
+      '<div class="config-hint">Map the header&rsquo;s <code>&#123;&#123;1&#125;&#125;</code> placeholder to a customer data field.</div></div>' +
       '<div class="config-field" id="paramSection"><label class="form-label">Template params</label>' +
       '<div id="paramRows"></div>' +
-      '<div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> placeholder to a customer data field.</div></div>';
+      '<div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> placeholder to a customer data field.</div></div>' +
+      '<div class="config-field" id="buttonSection" style="display:none;"><label class="form-label">Button parameters</label>' +
+      '<div id="buttonParamRows"></div>' +
+      '<div class="config-hint">Map each dynamic button to a customer data field.</div></div>';
   }
   return '';
 }
@@ -691,14 +697,26 @@ function onConditionChange(sel) {
 async function onTemplateChange(name) {
   const rows = document.getElementById('paramRows');
   if (!rows) return;
-  if (!name) { rows.innerHTML = ''; applyConfig(); return; }
+  if (!name) {
+    rows.innerHTML = '';
+    _rebuildHeaderRow({}, false);
+    _rebuildButtonRows({}, []);
+    applyConfig();
+    return;
+  }
+  const node = editor.getNodeFromId(_selId);
+  const existingButtonParams = (node&&node.data&&node.data.button_params)||{};
+  const existingHeaderParam = (node&&node.data&&node.data.header_param)||'';
   try {
     const r = await fetch('/template-info?name=' + encodeURIComponent(name));
     const info = await r.json();
-    const node = editor.getNodeFromId(_selId);
     _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.count||0);
+    _rebuildHeaderRow(existingHeaderParam, !!info.has_header_param);
+    _rebuildButtonRows(existingButtonParams, info.buttons||[]);
   } catch(e) {
     _rebuildParamRows({}, name, 0);
+    _rebuildHeaderRow(existingHeaderParam, false);
+    _rebuildButtonRows(existingButtonParams, []);
   }
   applyConfig();  // immediately persist template_name + language into node data
 }
@@ -724,6 +742,51 @@ function _rebuildParamRows(existingMap, templateName, forcedCount) {
   }
 }
 
+function _rebuildHeaderRow(existingHeaderParam, hasHeaderParam) {
+  const section = document.getElementById('headerSection');
+  const rows = document.getElementById('headerParamRow');
+  if (!rows || !section) return;
+  rows.innerHTML = '';
+  if (!hasHeaderParam) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  const selOpts = CTX_KEYS.map(k =>
+    '<option value="' + k.v + '"' + (existingHeaderParam===k.v?' selected':'') + '>' + k.l + '</option>'
+  ).join('');
+  rows.insertAdjacentHTML('beforeend',
+    '<div class="param-map-row">' +
+    '<span class="param-map-label">{'+ '{' + 1 + '}' + '}</span>' +
+    '<select class="form-select form-select-sm" data-header-param="1">' + selOpts + '</select>' +
+    '</div>'
+  );
+}
+
+function _rebuildButtonRows(existingButtonParams, buttons) {
+  const section = document.getElementById('buttonSection');
+  const rows = document.getElementById('buttonParamRows');
+  if (!rows || !section) return;
+  rows.innerHTML = '';
+  if (!buttons || !buttons.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  buttons.forEach(btn => {
+    const btnKey = btn.type === 'COPY_CODE' ? 'copy_code' : 'url_index_' + btn.index;
+    const selOpts = CTX_KEYS.map(k =>
+      '<option value="' + k.v + '"' + (existingButtonParams[btnKey]===k.v?' selected':'') + '>' + k.l + '</option>'
+    ).join('');
+    rows.insertAdjacentHTML('beforeend',
+      '<div class="param-map-row">' +
+      '<span class="param-map-label" title="' + (btn.text||'') + '">' + (btn.type === 'COPY_CODE' ? 'Coupon' : 'URL') + '</span>' +
+      '<select class="form-select form-select-sm" data-button-param="' + btnKey + '">' + selOpts + '</select>' +
+      '</div>'
+    );
+  });
+}
+
 function applyConfig() {
   if (!_selId) return;
   const node = editor.getNodeFromId(_selId);
@@ -743,6 +806,11 @@ function applyConfig() {
     d.param_map = {};
     document.querySelectorAll('#paramRows [data-param]').forEach(s => {
       if (s.value) d.param_map[s.dataset.param] = s.value;
+    });
+    d.header_param = document.querySelector('#headerParamRow [data-header-param]')?.value || '';
+    d.button_params = {};
+    document.querySelectorAll('#buttonParamRows [data-button-param]').forEach(s => {
+      if (s.value) d.button_params[s.dataset.buttonParam] = s.value;
     });
   }
 
