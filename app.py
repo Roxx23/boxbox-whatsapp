@@ -3091,6 +3091,12 @@ def shopify_fulfillment():
             if not order:
                 logger.warning(f"⚠️ Order {shopify_order_id} not in DB — cannot send fulfillment msg")
                 return jsonify({"status": "ok", "note": "order not found"}), 200
+            # Fallback: fulfillments/create payloads carry no courier tracking_url
+            # and no order_status_url of their own — fall back to the order's
+            # already-stored order_status_url (set from orders/create), same
+            # fallback the orders/fulfilled branch below already applies.
+            if not tracking_url:
+                tracking_url = order.get('order_status_url') or ''
             phone = order.get('customer_phone')
             order_number = order.get('order_number', '')
             first_name = 'there'
