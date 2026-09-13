@@ -128,12 +128,42 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             "parameters": [{"type": "text", "text": str(p)} for p in params]
         })
     
-    # BUTTON PARAMETERS (for copy_code, dynamic URLs, etc.)
+    # BUTTON PARAMETERS (for copy_code, dynamic URLs, CATALOG, etc.)
+    button_components = []
+
+    # CATALOG buttons take no per-recipient data (no {{n}} in the template,
+    # unlike URL/COPY_CODE), so this can't be gated behind `if button_params`
+    # like the rest of this section -- it must run even when the caller
+    # passed nothing. WhatsApp still requires an explicit components entry
+    # (sub_type=CATALOG with an action object, thumbnail_product_retailer_id
+    # optional) for the catalog to attach to the send at all.
+    if WABA_ID:
+        try:
+            templates = get_templates(WABA_ID)
+            template = next((t for t in templates if t["name"] == template_name), None)
+            if template:
+                buttons_comp = next((c for c in template["components"] if c["type"] == "BUTTONS"), None)
+                if buttons_comp and "buttons" in buttons_comp:
+                    for idx, btn in enumerate(buttons_comp["buttons"]):
+                        if btn.get("type") == "CATALOG":
+                            action = {}
+                            thumbnail_id = (button_params or {}).get("catalog_thumbnail_retailer_id")
+                            if thumbnail_id:
+                                action["thumbnail_product_retailer_id"] = str(thumbnail_id)
+                            button_components.append({
+                                "type": "button",
+                                "sub_type": "CATALOG",
+                                "index": str(idx),
+                                "parameters": [{"type": "action", "action": action}]
+                            })
+                            logger.debug(f"Adding CATALOG button at index {idx}")
+                            break
+        except Exception as e:
+            logger.warning(f"Could not check for CATALOG button: {e}")
+
     if button_params:
-        button_components = []
-        
         logger.debug(f"Button params: {button_params}")
-        
+
         # Handle copy_code button (utility button for coupons)
         if "copy_code" in button_params:
             # Allow explicit index specification, otherwise try to detect from template
@@ -188,9 +218,10 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
                     }]
                 })
         
+    if button_components:
         components.extend(button_components)
     else:
-        logger.debug("No button_params for this template (expected if template has no buttons)")
+        logger.debug("No button components for this template (expected if template has no buttons)")
 
     payload = {
         "messaging_product": "whatsapp",
