@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.first_name ~ ' ' ~ customer.last_name if customer else phone }} - Inbox{% endblock %}
+{% block page_title %}Inbox{% endblock %}
+
+{% block head %}
+<style>
+  .thread-root {
+    display: flex; flex-direction: column;
+    height: calc(100vh - 120px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .thread-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .thread-back {
+    color: var(--text-muted); font-size: 0.95rem; text-decoration: none;
+    padding: 0.3rem 0.5rem; border-radius: 8px;
+  }
+  .thread-back:hover { color: var(--text); background: var(--surface2); }
+  .thread-avatar {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: rgba(37,211,102,0.1); border: 1px solid rgba(37,211,102,0.2);
+    color: var(--gold-dark); font-weight: 700; font-size: 0.85rem;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .thread-name { font-weight: 700; color: var(--text); font-size: 0.92rem; }
+  .thread-phone { font-family: monospace; font-size: 0.76rem; color: var(--text-dim); }
+
+  .thread-body {
+    flex: 1; overflow-y: auto;
+    padding: 1.25rem; display: flex; flex-direction: column; gap: 0.6rem;
+  }
+  .bubble-row { display: flex; }
+  .bubble-row.outbound { justify-content: flex-end; }
+  .bubble-row.inbound { justify-content: flex-start; }
+  .bubble {
+    max-width: 62%; padding: 0.55rem 0.8rem;
+    border-radius: 12px; font-size: 0.86rem; line-height: 1.4;
+    word-wrap: break-word;
+  }
+  .bubble.outbound {
+    background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
+    color: #fff; border-bottom-right-radius: 3px;
+  }
+  .bubble.inbound {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 3px;
+  }
+  .bubble-time {
+    font-size: 0.66rem; margin-top: 0.25rem; opacity: 0.75;
+  }
+  .bubble-source {
+    font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em;
+    opacity: 0.7; margin-bottom: 0.15rem; display: block;
+  }
+
+  .thread-empty { text-align: center; color: var(--text-dim); padding: 3rem 1rem; }
+
+  .thread-footer {
+    border-top: 1px solid var(--border);
+    padding: 0.9rem 1.25rem;
+    flex-shrink: 0;
+  }
+  .reply-row { display: flex; gap: 0.6rem; align-items: flex-end; }
+  .reply-input {
+    flex: 1; resize: none; min-height: 42px; max-height: 120px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text);
+    padding: 0.6rem 0.8rem; font-size: 0.86rem;
+    font-family: var(--font-body);
+  }
+  .reply-input:focus {
+    outline: none; border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(37,211,102,0.1);
+  }
+  .reply-input::placeholder { color: var(--text-dim); }
+  .btn-send {
+    background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
+    color: #fff; border: none; border-radius: 10px;
+    width: 42px; height: 42px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: filter 0.15s;
+  }
+  .btn-send:hover { filter: brightness(1.06); }
+  .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .window-banner {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.7rem 0.9rem; margin-bottom: 0.75rem;
+    background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
+    border-radius: 10px; font-size: 0.8rem; color: #B45309;
+  }
+  .window-banner a { color: #B45309; font-weight: 700; text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="thread-root">
+  <div class="thread-header">
+    <a class="thread-back" href="{{ url_for('inbox_page') }}"><i class="fas fa-arrow-left"></i></a>
+    <div class="thread-avatar">
+      {% if customer and customer.first_name %}{{ customer.first_name[0]|upper }}{% else %}<i class="fas fa-user"></i>{% endif %}
+    </div>
+    <div>
+      <div class="thread-name">
+        {% if customer %}{{ customer.first_name }} {{ customer.last_name }}{% else %}{{ phone }}{% endif %}
+      </div>
+      <div class="thread-phone">{{ phone }}</div>
+    </div>
+  </div>
+
+  <div class="thread-body" id="threadBody">
+    {% if thread %}
+      {% for m in thread %}
+      <div class="bubble-row {{ m.direction }}">
+        <div class="bubble {{ m.direction }}">
+          {% if m.source == 'campaign' %}<span class="bubble-source">Campaign</span>{% endif %}
+          {{ m.text or '' }}
+          <div class="bubble-time">{{ m.ts[:16] if m.ts else '' }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="thread-empty">No messages yet with this customer.</div>
+    {% endif %}
+  </div>
+
+  <div class="thread-footer">
+    {% if not within_window %}
+    <div class="window-banner">
+      <i class="fas fa-clock"></i>
+      <span>
+        This customer hasn't messaged in the last 24 hours, so WhatsApp only allows template
+        messages now. <a href="{{ url_for('index') }}">Send a template instead</a>.
+      </span>
+    </div>
+    {% endif %}
+    <div class="reply-row">
+      <textarea
+        class="reply-input" id="replyInput" rows="1"
+        placeholder="{{ 'Type a message…' if within_window else 'Free-form replies are disabled outside the 24h window' }}"
+        {% if not within_window %}disabled{% endif %}
+      ></textarea>
+      <button class="btn-send" id="btnSendReply" onclick="sendReply()" {% if not within_window %}disabled{% endif %}>
+        <i class="fas fa-paper-plane"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PHONE = {{ phone | tojson }};
+
+const body = document.getElementById('threadBody');
+if (body) body.scrollTop = body.scrollHeight;
+
+async function sendReply() {
+  const input = document.getElementById('replyInput');
+  const btn = document.getElementById('btnSendReply');
+  const text = input.value.trim();
+  if (!text) return;
+
+  btn.disabled = true;
+  input.disabled = true;
+  try {
+    const r = await fetch('/api/inbox/send', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({phone: PHONE, message: text})
+    });
+    const data = await r.json();
+    if (data.success) {
+      location.reload();
+    } else {
+      alert(data.message || data.error || 'Send failed');
+      btn.disabled = false;
+      input.disabled = false;
+    }
+  } catch (e) {
+    alert('Network error');
+    btn.disabled = false;
+    input.disabled = false;
+  }
+}
+
+document.getElementById('replyInput')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendReply();
+  }
+});
+</script>
+{% endblock %}
