@@ -108,6 +108,7 @@ def build_trigger_context(trigger_type, data):
         ctx['first_name'] = customer.get('first_name') or (data.get('email', '').split('@')[0])
         ctx['items'] = _format_items_from_line_items(data.get('line_items', []))
         ctx['total'] = _format_currency(data.get('total_price', ''))
+        ctx['cart_url'] = data.get('abandoned_checkout_url', '')
     return ctx
 
 
