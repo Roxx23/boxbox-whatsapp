@@ -379,8 +379,8 @@
     <a class="sidebar-nav-item {% if request.endpoint == 'activity_log_page' %}active{% endif %}" href="{{ url_for('activity_log_page') }}">
       <i class="fas fa-history"></i><span>Activity</span>
     </a>
-    <a class="sidebar-nav-item {% if request.endpoint == 'automation_page' %}active{% endif %}" href="{{ url_for('automation_page') }}">
-      <i class="fas fa-bolt"></i><span>Automation</span>
+    <a class="sidebar-nav-item {% if request.endpoint in ['flows_page', 'flow_editor_page'] %}active{% endif %}" href="{{ url_for('flows_page') }}">
+      <i class="fas fa-project-diagram"></i><span>Flows</span>
     </a>
   </div>
 
