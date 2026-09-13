@@ -928,7 +928,6 @@ class Database:
                    AND (phone = ? OR phone = ?)''',
                 (datetime.now().isoformat(), user_id, phone, phone_clean)
             )
-            conn.commit()
 
     def get_campaign_messages(self, campaign_id, limit=None):
         """Get messages for a campaign"""
