@@ -1,0 +1,966 @@
+{% extends "base.html" %}
+{% block title %}{{ flow.name }} — Flow Editor{% endblock %}
+{% block page_title %}Flow Editor{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.css">
+<style>
+/* ── Full-page layout ─────────────────────────────────── */
+.editor-root {
+  position: fixed;
+  left: 228px; top: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  z-index: 50;
+}
+@media (max-width: 768px) {
+  .editor-root { left: 0; top: 56px; }
+}
+
+/* ── Top bar ──────────────────────────────────────────── */
+.editor-topbar {
+  height: 56px; flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0 1.25rem;
+  box-shadow: var(--shadow-xs);
+}
+.editor-topbar .divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+.flow-name-edit {
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 0.95rem;
+  color: var(--text); letter-spacing: -0.02em;
+  background: transparent; border: none; outline: none;
+  min-width: 140px; max-width: 260px;
+  padding: 0.3rem 0.5rem; border-radius: 6px;
+  transition: background 0.15s;
+}
+.flow-name-edit:hover { background: var(--surface2); }
+.flow-name-edit:focus { background: var(--surface2); outline: 2px solid rgba(37,211,102,0.4); }
+.status-chip {
+  padding: 0.22rem 0.65rem; border-radius: 20px;
+  font-size: 0.71rem; font-weight: 600; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 0.3rem;
+}
+.chip-active { background: rgba(37,211,102,0.1); color: #059669; border: 1px solid rgba(37,211,102,0.2); }
+.chip-paused { background: rgba(245,158,11,0.1); color: #B45309; border: 1px solid rgba(245,158,11,0.2); }
+.chip-draft  { background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); }
+.chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+.reenroll-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.75rem; color: var(--text-muted); cursor: pointer;
+  user-select: none;
+}
+.reenroll-toggle input { accent-color: var(--gold); cursor: pointer; width: 14px; height: 14px; }
+.reenroll-toggle:hover { color: var(--text); }
+
+.topbar-spacer { flex: 1; }
+.btn-topbar {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.38rem 0.875rem; border-radius: 8px;
+  font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer;
+  transition: all 0.15s; font-family: var(--font-body);
+}
+.btn-tb-back {
+  background: transparent; color: var(--text-muted);
+  border: 1.5px solid var(--border); text-decoration: none;
+}
+.btn-tb-back:hover { background: var(--surface2); color: var(--text); }
+.btn-tb-save {
+  background: transparent; color: var(--gold-dark);
+  border: 1.5px solid rgba(37,211,102,0.3);
+}
+.btn-tb-save:hover { background: rgba(37,211,102,0.07); border-color: var(--gold); }
+.btn-tb-activate {
+  background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
+  color: #fff; border: none;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 6px rgba(37,211,102,0.28);
+}
+.btn-tb-activate:hover { filter: brightness(1.06); box-shadow: 0 4px 14px rgba(37,211,102,0.35); }
+.btn-tb-pause {
+  background: rgba(245,158,11,0.1); color: #B45309;
+  border: 1.5px solid rgba(245,158,11,0.25);
+}
+.btn-tb-pause:hover { background: rgba(245,158,11,0.18); }
+
+/* ── Editor body ──────────────────────────────────────── */
+.editor-body {
+  display: flex; flex: 1; overflow: hidden; position: relative;
+}
+
+/* ── Node palette ─────────────────────────────────────── */
+.node-palette {
+  width: 210px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto; scrollbar-width: thin;
+  padding: 1rem 0.75rem;
+}
+.palette-section-label {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-dim);
+  padding: 0 0.25rem; margin-bottom: 0.4rem; margin-top: 0.75rem;
+}
+.palette-section-label:first-child { margin-top: 0; }
+.palette-node {
+  display: flex; align-items: center; gap: 0.65rem;
+  padding: 0.65rem 0.75rem; border-radius: 10px;
+  cursor: grab; user-select: none;
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  transition: all 0.15s; margin-bottom: 0.35rem;
+}
+.palette-node:hover {
+  border-color: rgba(37,211,102,0.3);
+  background: rgba(37,211,102,0.04);
+  box-shadow: var(--shadow-xs);
+  transform: translateX(2px);
+}
+.palette-node:active { cursor: grabbing; transform: scale(0.97); }
+.palette-icon {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; flex-shrink: 0;
+}
+.palette-info { flex: 1; min-width: 0; }
+.palette-name { font-size: 0.8rem; font-weight: 600; color: var(--text); }
+.palette-desc { font-size: 0.7rem; color: var(--text-dim); }
+.palette-grip { color: var(--text-dim); font-size: 0.7rem; }
+.palette-hint {
+  margin-top: auto; padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.7rem; color: var(--text-dim); line-height: 1.5;
+  text-align: center;
+}
+
+/* ── Canvas ───────────────────────────────────────────── */
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden;
+  background: #F4F5F7;
+  background-image:
+    radial-gradient(circle, rgba(13,17,23,0.09) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+#drawflow { width: 100%; height: 100%; }
+
+/* ── Drawflow overrides (light theme) ─────────────────── */
+.drawflow { background: transparent !important; }
+.drawflow .drawflow-node {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+.drawflow .drawflow-node.selected {
+  box-shadow: none !important;
+}
+.drawflow .drawflow-node .drawflow_content_node {
+  padding: 0 !important;
+}
+/* Node cards (the actual visual card) */
+.df-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 11px;
+  min-width: 200px; max-width: 250px;
+  box-shadow: 0 1px 4px rgba(13,17,23,0.07), 0 0 0 0 rgba(37,211,102,0);
+  overflow: hidden;
+  transition: box-shadow 0.18s, border-color 0.18s;
+}
+.drawflow-node.selected .df-card {
+  border-color: rgba(37,211,102,0.5) !important;
+  box-shadow: 0 0 0 3px rgba(37,211,102,0.14), 0 2px 8px rgba(13,17,23,0.1) !important;
+}
+.df-card-accent {
+  height: 3px;
+  width: 100%;
+}
+.df-card-body {
+  padding: 0.65rem 0.85rem;
+}
+.df-card-header {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;
+}
+.df-card-icon {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; flex-shrink: 0;
+}
+.df-card-title {
+  font-size: 0.78rem; font-weight: 700;
+  color: var(--text); letter-spacing: -0.01em;
+  font-family: var(--font-display);
+}
+.df-card-desc {
+  font-size: 0.73rem; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Node type colours */
+.accent-trigger    { background: #25D366; }
+.accent-send       { background: #2563EB; }
+.accent-wait       { background: #F59E0B; }
+.accent-condition  { background: #7C3AED; }
+.accent-exit       { background: #EF4444; }
+.icon-trigger   { background: rgba(37,211,102,0.1); color: #059669; }
+.icon-send      { background: rgba(37,99,235,0.1);  color: #2563EB; }
+.icon-wait      { background: rgba(245,158,11,0.1); color: #B45309; }
+.icon-condition { background: rgba(124,58,237,0.1); color: #7C3AED; }
+.icon-exit      { background: rgba(239,68,68,0.1);  color: #DC2626; }
+
+/* Ports */
+.drawflow .drawflow-node .input,
+.drawflow .drawflow-node .output {
+  background: var(--surface) !important;
+  border: 2px solid #CBD5E1 !important;
+  width: 12px !important; height: 12px !important;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drawflow .drawflow-node .input:hover,
+.drawflow .drawflow-node .output:hover {
+  background: rgba(37,211,102,0.12) !important;
+  border-color: var(--gold) !important;
+}
+/* Connection lines */
+.drawflow .connection .main-path {
+  stroke: #25D366 !important;
+  stroke-width: 2px !important;
+  opacity: 0.7;
+}
+.drawflow .connection .main-path:hover,
+.drawflow .connection.selected .main-path {
+  stroke: #128C7E !important;
+  stroke-width: 2.5px !important;
+  opacity: 1;
+}
+/* Output label for condition node */
+.drawflow-node.node-condition .output_1::after {
+  content: 'Yes'; position: absolute;
+  right: 14px; top: -9px;
+  font-size: 0.6rem; color: #059669; font-weight: 700;
+  font-family: var(--font-body);
+}
+.drawflow-node.node-condition .output_2::after {
+  content: 'No'; position: absolute;
+  right: 16px; top: -9px;
+  font-size: 0.6rem; color: #DC2626; font-weight: 700;
+  font-family: var(--font-body);
+}
+
+/* ── Config panel ─────────────────────────────────────── */
+.config-panel {
+  width: 0; flex-shrink: 0; overflow: hidden;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  transition: width 0.22s cubic-bezier(0.4,0,0.2,1);
+  display: flex; flex-direction: column;
+}
+.config-panel.open { width: 296px; overflow-y: auto; }
+.config-panel-inner { padding: 1.25rem; min-width: 296px; }
+.config-panel-title {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1.25rem; padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.config-panel-name {
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 0.9rem;
+  color: var(--text); letter-spacing: -0.015em;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.config-panel-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 0.85rem; padding: 0.2rem;
+  transition: color 0.15s;
+}
+.config-panel-close:hover { color: var(--text); }
+.config-field { margin-bottom: 1rem; }
+.config-field .form-label { font-size: 0.77rem; margin-bottom: 0.3rem; }
+.config-hint { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.3rem; line-height: 1.45; }
+.config-hint code {
+  background: rgba(37,211,102,0.08); padding: 1px 4px;
+  border-radius: 4px; font-size: 0.88em; color: var(--gold-dark);
+}
+.param-map-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-bottom: 0.5rem; font-size: 0.8rem;
+}
+.param-map-label {
+  font-family: monospace; font-size: 0.75rem;
+  color: var(--gold-dark); background: rgba(37,211,102,0.08);
+  padding: 2px 6px; border-radius: 4px; white-space: nowrap;
+}
+.btn-apply {
+  width: 100%; padding: 0.5rem;
+  background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
+  border: none; border-radius: 8px; color: #fff;
+  font-size: 0.83rem; font-weight: 600; cursor: pointer;
+  margin-top: 0.25rem;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 6px rgba(37,211,102,0.25);
+  transition: filter 0.15s;
+  font-family: var(--font-body);
+}
+.btn-apply:hover { filter: brightness(1.06); }
+.btn-del-node {
+  width: 100%; padding: 0.45rem; margin-top: 0.5rem;
+  background: transparent; border: 1.5px solid rgba(239,68,68,0.25);
+  border-radius: 8px; color: #DC2626;
+  font-size: 0.8rem; cursor: pointer; transition: all 0.15s;
+  font-family: var(--font-body);
+}
+.btn-del-node:hover { background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.4); }
+
+/* ── Stats panel ──────────────────────────────────────── */
+.stats-empty { padding: 1.5rem 0.5rem; text-align: center; color: var(--text-dim); font-size: 0.82rem; }
+.stats-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.85rem; margin-bottom: 0.75rem; background: var(--surface2);
+}
+.stats-card-head {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.82rem; font-weight: 700; color: var(--text);
+  margin-bottom: 0.6rem;
+}
+.stats-card-head .step-type-tag {
+  font-size: 0.65rem; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.stats-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.35rem;
+}
+.stats-row .val { color: var(--text); font-weight: 600; }
+.stats-bar-track {
+  height: 5px; border-radius: 3px; background: var(--surface3);
+  overflow: hidden; margin: 0.15rem 0 0.5rem;
+}
+.stats-bar-fill { height: 100%; background: var(--gold); border-radius: 3px; }
+
+/* ── Toast ────────────────────────────────────────────── */
+.toast-pop {
+  position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+  padding: 0.6rem 1rem; border-radius: 10px;
+  font-size: 0.82rem; font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.2s ease;
+  font-family: var(--font-body);
+}
+.toast-ok  { background: #fff; border: 1px solid rgba(37,211,102,0.3); color: #059669; }
+.toast-err { background: #fff; border: 1px solid rgba(239,68,68,0.3); color: #DC2626; }
+@keyframes slideUp {
+  from { opacity:0; transform:translateY(8px); }
+  to   { opacity:1; transform:none; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="editor-root">
+
+  <!-- Top bar -->
+  <div class="editor-topbar">
+    <a href="{{ url_for('flows_page') }}" class="btn-topbar btn-tb-back">
+      <i class="fas fa-arrow-left"></i>
+    </a>
+    <div class="divider"></div>
+    <input
+      class="flow-name-edit"
+      id="flowNameInput"
+      value="{{ flow.name }}"
+      placeholder="Flow name"
+      title="Click to rename"
+      spellcheck="false"
+    >
+    <span class="status-chip chip-{{ flow.status }}" id="statusChip">
+      <span class="chip-dot"></span>
+      <span id="statusLabel">{{ flow.status.capitalize() }}</span>
+    </span>
+    <label class="reenroll-toggle" title="When on, a customer who already completed/exited this flow is re-enrolled on their next matching order. When off, they're enrolled only once.">
+      <input type="checkbox" id="allowReenrollToggle"
+        {% if flow.allow_reenroll is none or flow.allow_reenroll %}checked{% endif %}
+        onchange="toggleReenroll(this.checked)">
+      Re-enroll returning customers
+    </label>
+    <div class="topbar-spacer"></div>
+    <button class="btn-topbar btn-tb-back" id="btnStats" onclick="openStatsPanel()">
+      <i class="fas fa-chart-bar"></i> Stats
+    </button>
+    <button class="btn-topbar btn-tb-save" id="btnSave" onclick="saveCanvas()">
+      <i class="fas fa-save"></i> Save
+    </button>
+    <button
+      class="btn-topbar {% if flow.status == 'active' %}btn-tb-pause{% else %}btn-tb-activate{% endif %}"
+      id="btnToggle"
+      onclick="toggleActive()"
+    >
+      {% if flow.status == 'active' %}
+        <i class="fas fa-pause"></i> Pause
+      {% else %}
+        <i class="fas fa-play"></i> Activate
+      {% endif %}
+    </button>
+  </div>
+
+  <!-- Editor body -->
+  <div class="editor-body">
+
+    <!-- Node palette -->
+    <div class="node-palette">
+      <div class="palette-section-label">Trigger</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'trigger')">
+        <div class="palette-icon icon-trigger"><i class="fas fa-bolt"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Trigger</div>
+          <div class="palette-desc">Start of flow</div>
+        </div>
+      </div>
+
+      <div class="palette-section-label">Actions</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'send_message')">
+        <div class="palette-icon icon-send"><i class="fas fa-comment-alt"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Send Message</div>
+          <div class="palette-desc">WhatsApp template</div>
+        </div>
+      </div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'wait')">
+        <div class="palette-icon icon-wait"><i class="fas fa-clock"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Wait / Delay</div>
+          <div class="palette-desc">Pause before next step</div>
+        </div>
+      </div>
+
+      <div class="palette-section-label">Logic</div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'condition')">
+        <div class="palette-icon icon-condition"><i class="fas fa-code-branch"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Condition</div>
+          <div class="palette-desc">Branch Yes / No</div>
+        </div>
+      </div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'exit')">
+        <div class="palette-icon icon-exit"><i class="fas fa-flag-checkered"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Exit Flow</div>
+          <div class="palette-desc">End of journey</div>
+        </div>
+      </div>
+
+      <div class="palette-hint">
+        Drag nodes onto the canvas, then connect them by pulling from the output ports.
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div
+      class="canvas-wrap"
+      id="canvasWrap"
+      ondrop="drop(event)"
+      ondragover="allowDrop(event)"
+    >
+      <div id="drawflow"></div>
+    </div>
+
+    <!-- Config panel -->
+    <div class="config-panel" id="configPanel">
+      <div class="config-panel-inner">
+        <div class="config-panel-title">
+          <div class="config-panel-name" id="configPanelName">
+            <span id="configPanelIcon"></span>
+            <span id="configPanelType">Configure</span>
+          </div>
+          <button class="config-panel-close" onclick="closeConfigPanel()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div id="configBody"></div>
+        <button class="btn-apply mt-1" onclick="applyConfig()">
+          <i class="fas fa-check me-1"></i> Apply Changes
+        </button>
+        <button class="btn-del-node" onclick="deleteSelectedNode()">
+          <i class="fas fa-trash-alt me-1"></i> Delete Node
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats panel -->
+    <div class="config-panel" id="statsPanel">
+      <div class="config-panel-inner">
+        <div class="config-panel-title">
+          <div class="config-panel-name">
+            <span><i class="fas fa-chart-bar me-1" style="color:var(--text-dim);font-size:0.8rem;"></i></span>
+            <span>Step Stats</span>
+          </div>
+          <button class="config-panel-close" onclick="closeStatsPanel()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div id="statsBody"><div class="stats-empty">Loading…</div></div>
+      </div>
+    </div>
+
+  </div><!-- end editor-body -->
+</div><!-- end editor-root -->
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.js"></script>
+<script>
+const FLOW_ID     = {{ flow.id }};
+const FLOW_STATUS = '{{ flow.status }}';
+const TRIG_TYPE   = '{{ flow.trigger_type }}';
+const WA_TEMPLATES = {{ wa_templates | tojson }};
+const CTX_KEYS = [
+  {v:'',           l:'— select —'},
+  {v:'first_name', l:'first_name'},
+  {v:'order_number',l:'order_number'},
+  {v:'items',      l:'items'},
+  {v:'total',      l:'total'},
+  {v:'tracking_url',l:'tracking_url'},
+];
+
+// ── Drawflow init ─────────────────────────────────────────────────────────────
+const editor = new Drawflow(document.getElementById('drawflow'));
+editor.reroute = true;
+editor.reroute_fix_curvature = true;
+editor.start();
+
+// ── Node HTML factories ───────────────────────────────────────────────────────
+const NODE_META = {
+  trigger:      {title:'Trigger',       accent:'accent-trigger',   icon:'fas fa-bolt',           iconCls:'icon-trigger'},
+  send_message: {title:'Send Message',  accent:'accent-send',      icon:'fas fa-comment-alt',    iconCls:'icon-send'},
+  wait:         {title:'Wait / Delay',  accent:'accent-wait',      icon:'fas fa-clock',          iconCls:'icon-wait'},
+  condition:    {title:'Condition',     accent:'accent-condition',  icon:'fas fa-code-branch',    iconCls:'icon-condition'},
+  exit:         {title:'Exit Flow',     accent:'accent-exit',      icon:'fas fa-flag-checkered', iconCls:'icon-exit'},
+};
+
+function nodeDesc(type, data) {
+  if (type === 'trigger') {
+    const m = {order_confirmation:'Order Placed',fulfillment:'Dispatched',abandoned_cart:'Abandoned Cart',manual:'Manual'};
+    return m[data.trigger_type || TRIG_TYPE] || 'Trigger';
+  }
+  if (type === 'send_message') return data.template_name ? data.template_name : '<em style="color:var(--text-dim)">No template set</em>';
+  if (type === 'wait') return data.hours ? data.hours + 'h delay' : '<em style="color:var(--text-dim)">Set hours</em>';
+  if (type === 'condition') {
+    const m = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?'};
+    return data.condition_type ? (m[data.condition_type] || data.condition_type) : '<em style="color:var(--text-dim)">Set condition</em>';
+  }
+  if (type === 'exit') return 'End of journey';
+  return type;
+}
+
+function buildNodeHtml(type, data) {
+  const m = NODE_META[type] || {title:type,accent:'accent-trigger',icon:'fas fa-circle',iconCls:'icon-trigger'};
+  return '<div class="df-card">' +
+    '<div class="df-card-accent ' + m.accent + '"></div>' +
+    '<div class="df-card-body">' +
+      '<div class="df-card-header">' +
+        '<div class="df-card-icon ' + m.iconCls + '"><i class="' + m.icon + '"></i></div>' +
+        '<div class="df-card-title">' + m.title + '</div>' +
+      '</div>' +
+      '<div class="df-card-desc">' + nodeDesc(type, data) + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function refreshNodeHtml(nodeId, type, data) {
+  const el = document.querySelector('.drawflow-node[id="node-'+nodeId+'"] .drawflow_content_node');
+  if (el) el.innerHTML = buildNodeHtml(type, data);
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+let _dragType = null;
+function drag(ev, type) { _dragType = type; ev.dataTransfer.effectAllowed = 'move'; }
+function allowDrop(ev) { ev.preventDefault(); }
+function drop(ev) {
+  ev.preventDefault();
+  if (!_dragType) return;
+  const rect = document.getElementById('canvasWrap').getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+  const inputs  = _dragType === 'trigger' ? 0 : 1;
+  const outputs = _dragType === 'exit' ? 0 : (_dragType === 'condition' ? 2 : 1);
+  const defData = defaultData(_dragType);
+  editor.addNode(_dragType, inputs, outputs, x, y, 'node-' + _dragType, defData, buildNodeHtml(_dragType, defData));
+  _dragType = null;
+}
+
+function defaultData(type) {
+  if (type === 'trigger')      return {trigger_type: TRIG_TYPE};
+  if (type === 'wait')         return {hours: 24};
+  if (type === 'condition')    return {condition_type: 'replied_within_X_hours', hours: 24};
+  if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', param_map:{}, button_params:{}};
+  return {};
+}
+
+// ── Config panel ──────────────────────────────────────────────────────────────
+let _selId = null;
+editor.on('nodeSelected', id => { _selId = id; openConfig(id); });
+
+function openConfig(id) {
+  const node = editor.getNodeFromId(id);
+  if (!node) return;
+  closeStatsPanel();
+  const type = node.name;
+  const data = node.data || {};
+  const m = NODE_META[type] || {};
+  document.getElementById('configPanelIcon').innerHTML = '<i class="' + (m.icon||'fas fa-circle') + ' me-1" style="color:var(--text-dim);font-size:0.8rem;"></i>';
+  document.getElementById('configPanelType').textContent = m.title || type;
+  document.getElementById('configBody').innerHTML = buildConfigForm(type, data);
+  document.getElementById('configPanel').classList.add('open');
+  if (type === 'send_message') {
+    if (data.template_name) {
+      onTemplateChange(data.template_name);  // fetch live param count from API
+    } else {
+      document.getElementById('paramRows').innerHTML = '';
+    }
+  }
+}
+
+function closeConfigPanel() {
+  document.getElementById('configPanel').classList.remove('open');
+  _selId = null;
+}
+
+function buildConfigForm(type, data) {
+  if (type === 'trigger') {
+    const labels = {order_confirmation:'Order Placed (Shopify)',fulfillment:'Order Dispatched (Shopify)',abandoned_cart:'Abandoned Cart',manual:'Manual Enrollment'};
+    return '<div class="config-field"><label class="form-label">Trigger</label>' +
+      '<div style="padding:0.5rem 0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:0.84rem;color:var(--gold-dark);font-weight:500;">' +
+      '<i class="fas fa-bolt me-2"></i>' + (labels[data.trigger_type] || data.trigger_type) + '</div>' +
+      '<div class="config-hint">Trigger type is set when creating the flow.</div></div>';
+  }
+  if (type === 'exit') {
+    return '<div style="padding:1rem;text-align:center;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">' +
+      '<i class="fas fa-flag-checkered" style="color:var(--text-dim);font-size:1.5rem;display:block;margin-bottom:0.5rem;"></i>' +
+      '<div style="font-size:0.83rem;color:var(--text-muted);">This node ends the flow for the customer. No configuration needed.</div>' +
+      '</div>';
+  }
+  if (type === 'wait') {
+    return '<div class="config-field"><label class="form-label">Delay (hours)</label>' +
+      '<input id="cfg_hours" type="number" min="1" max="720" class="form-control form-control-sm" value="' + (data.hours||24) + '" onchange="applyConfig()">' +
+      '<div class="config-hint">Wait this many hours before moving to the next step.</div></div>';
+  }
+  if (type === 'condition') {
+    const opts = [
+      {v:'replied_within_X_hours',l:'Customer replied within N hours'},
+      {v:'read_within_X_hours',   l:'Customer read message within N hours'},
+      {v:'placed_order',          l:'Customer placed an order'},
+    ].map(o => '<option value="' + o.v + '"' + (data.condition_type===o.v?' selected':'') + '>' + o.l + '</option>').join('');
+    const hoursBlock = data.condition_type !== 'placed_order'
+      ? '<div class="config-field"><label class="form-label">Time window (hours)</label>' +
+        '<input id="cfg_hours" type="number" min="1" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
+        '</div>' : '';
+    return '<div class="config-field"><label class="form-label">Condition</label>' +
+      '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this);applyConfig()">' + opts + '</select>' +
+      '<div class="config-hint">Output <strong style="color:#059669;">Yes</strong> if condition is met, <strong style="color:#DC2626;">No</strong> otherwise.</div>' +
+      '</div>' + hoursBlock;
+  }
+  if (type === 'send_message') {
+    const tplOpts = WA_TEMPLATES.map(t =>
+      '<option value="' + t.name + '"' + (data.template_name===t.name?' selected':'') + '>' + t.name + '</option>'
+    ).join('');
+    const langOpts = ['en','en_US','en_GB','hi','ta','te','kn','ml','mr','gu','bn'].map(l =>
+      '<option value="' + l + '"' + ((data.template_language||'en_US')===l?' selected':'') + '>' + l + '</option>'
+    ).join('');
+    return '<div class="config-field"><label class="form-label">Template</label>' +
+      '<select id="cfg_template_name" class="form-select form-select-sm" onchange="onTemplateChange(this.value)">' +
+      '<option value="">— choose template —</option>' + tplOpts + '</select></div>' +
+      '<div class="config-field"><label class="form-label">Language</label>' +
+      '<select id="cfg_lang" class="form-select form-select-sm" onchange="applyConfig()">' + langOpts + '</select></div>' +
+      '<div class="config-field" id="headerSection" style="display:none;"><label class="form-label">Header parameter</label>' +
+      '<div id="headerParamRow"></div>' +
+      '<div class="config-hint">Map the header&rsquo;s <code>&#123;&#123;1&#125;&#125;</code> placeholder to a customer data field.</div></div>' +
+      '<div class="config-field" id="paramSection"><label class="form-label">Template params</label>' +
+      '<div id="paramRows"></div>' +
+      '<div class="config-hint">Map each <code>&#123;&#123;N&#125;&#125;</code> placeholder to a customer data field.</div></div>' +
+      '<div class="config-field" id="buttonSection" style="display:none;"><label class="form-label">Button parameters</label>' +
+      '<div id="buttonParamRows"></div>' +
+      '<div class="config-hint">Map each dynamic button to a customer data field.</div></div>';
+  }
+  return '';
+}
+
+function onConditionChange(sel) {
+  const hoursField = document.querySelector('#cfg_hours');
+  if (hoursField) {
+    const wrap = hoursField.closest('.config-field');
+    if (wrap) wrap.style.display = sel.value === 'placed_order' ? 'none' : '';
+  }
+}
+
+async function onTemplateChange(name) {
+  const rows = document.getElementById('paramRows');
+  if (!rows) return;
+  if (!name) {
+    rows.innerHTML = '';
+    _rebuildHeaderRow({}, false);
+    _rebuildButtonRows({}, []);
+    applyConfig();
+    return;
+  }
+  const node = editor.getNodeFromId(_selId);
+  const existingButtonParams = (node&&node.data&&node.data.button_params)||{};
+  const existingHeaderParam = (node&&node.data&&node.data.header_param)||'';
+  try {
+    const r = await fetch('/template-info?name=' + encodeURIComponent(name));
+    const info = await r.json();
+    _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.count||0);
+    _rebuildHeaderRow(existingHeaderParam, !!info.has_header_param);
+    _rebuildButtonRows(existingButtonParams, info.buttons||[]);
+  } catch(e) {
+    _rebuildParamRows({}, name, 0);
+    _rebuildHeaderRow(existingHeaderParam, false);
+    _rebuildButtonRows(existingButtonParams, []);
+  }
+  applyConfig();  // immediately persist template_name + language into node data
+}
+
+function _rebuildParamRows(existingMap, templateName, forcedCount) {
+  const rows = document.getElementById('paramRows');
+  if (!rows) return;
+  let count = forcedCount !== undefined ? forcedCount : Object.keys(existingMap).length;
+  rows.innerHTML = '';
+  for (let i = 1; i <= count; i++) {
+    const selOpts = CTX_KEYS.map(k =>
+      '<option value="' + k.v + '"' + (existingMap[String(i)]===k.v?' selected':'') + '>' + k.l + '</option>'
+    ).join('');
+    rows.insertAdjacentHTML('beforeend',
+      '<div class="param-map-row">' +
+      '<span class="param-map-label">{'+ '{' + i + '}' + '}</span>' +
+      '<select class="form-select form-select-sm" data-param="' + i + '">' + selOpts + '</select>' +
+      '</div>'
+    );
+  }
+  if (count === 0 && templateName) {
+    rows.innerHTML = '<div style="font-size:0.75rem;color:var(--text-dim);">No body parameters detected.</div>';
+  }
+}
+
+function _rebuildHeaderRow(existingHeaderParam, hasHeaderParam) {
+  const section = document.getElementById('headerSection');
+  const rows = document.getElementById('headerParamRow');
+  if (!rows || !section) return;
+  rows.innerHTML = '';
+  if (!hasHeaderParam) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  const selOpts = CTX_KEYS.map(k =>
+    '<option value="' + k.v + '"' + (existingHeaderParam===k.v?' selected':'') + '>' + k.l + '</option>'
+  ).join('');
+  rows.insertAdjacentHTML('beforeend',
+    '<div class="param-map-row">' +
+    '<span class="param-map-label">{'+ '{' + 1 + '}' + '}</span>' +
+    '<select class="form-select form-select-sm" data-header-param="1">' + selOpts + '</select>' +
+    '</div>'
+  );
+}
+
+function _rebuildButtonRows(existingButtonParams, buttons) {
+  const section = document.getElementById('buttonSection');
+  const rows = document.getElementById('buttonParamRows');
+  if (!rows || !section) return;
+  rows.innerHTML = '';
+  if (!buttons || !buttons.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  buttons.forEach(btn => {
+    const btnKey = btn.type === 'COPY_CODE' ? 'copy_code' : 'url_index_' + btn.index;
+    const selOpts = CTX_KEYS.map(k =>
+      '<option value="' + k.v + '"' + (existingButtonParams[btnKey]===k.v?' selected':'') + '>' + k.l + '</option>'
+    ).join('');
+    rows.insertAdjacentHTML('beforeend',
+      '<div class="param-map-row">' +
+      '<span class="param-map-label" title="' + (btn.text||'') + '">' + (btn.type === 'COPY_CODE' ? 'Coupon' : 'URL') + '</span>' +
+      '<select class="form-select form-select-sm" data-button-param="' + btnKey + '">' + selOpts + '</select>' +
+      '</div>'
+    );
+  });
+}
+
+function applyConfig() {
+  if (!_selId) return;
+  const node = editor.getNodeFromId(_selId);
+  if (!node) return;
+  const type = node.name;
+  const d = {...node.data};
+
+  if (type === 'wait') {
+    d.hours = parseInt(document.getElementById('cfg_hours')?.value||24);
+  } else if (type === 'condition') {
+    d.condition_type = document.getElementById('cfg_condition_type')?.value||'replied_within_X_hours';
+    const h = document.getElementById('cfg_hours');
+    if (h) d.hours = parseInt(h.value||24);
+  } else if (type === 'send_message') {
+    d.template_name     = document.getElementById('cfg_template_name')?.value||'';
+    d.template_language = document.getElementById('cfg_lang')?.value||'en_US';
+    d.param_map = {};
+    document.querySelectorAll('#paramRows [data-param]').forEach(s => {
+      if (s.value) d.param_map[s.dataset.param] = s.value;
+    });
+    d.header_param = document.querySelector('#headerParamRow [data-header-param]')?.value || '';
+    d.button_params = {};
+    document.querySelectorAll('#buttonParamRows [data-button-param]').forEach(s => {
+      if (s.value) d.button_params[s.dataset.buttonParam] = s.value;
+    });
+  }
+
+  editor.updateNodeDataFromId(_selId, d);
+  refreshNodeHtml(_selId, type, d);
+  showToast('Applied', 'ok');
+}
+
+function deleteSelectedNode() {
+  if (!_selId) return;
+  if (!confirm('Delete this node?')) return;
+  editor.removeNodeId('node-' + _selId);
+  closeConfigPanel();
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+async function saveCanvas() {
+  if (_selId) applyConfig();  // flush any pending config panel changes into node data
+  const name = document.getElementById('flowNameInput').value.trim();
+  const canvasData = JSON.stringify(editor.export());
+  const btn = document.getElementById('btnSave');
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/flows/' + FLOW_ID + '/save', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, canvas_data: canvasData})
+    });
+    const data = await r.json();
+    if (data.success) {
+      if (name) document.getElementById('flowNameInput').value = name;
+      showToast('Saved', 'ok');
+    } else {
+      showToast(data.error || 'Save failed', 'err');
+    }
+  } catch(e) {
+    showToast('Network error', 'err');
+  } finally {
+    btn.innerHTML = '<i class="fas fa-save"></i> Save';
+    btn.disabled = false;
+  }
+}
+
+// ── Activate / Pause ──────────────────────────────────────────────────────────
+async function toggleActive() {
+  const chip = document.getElementById('statusChip');
+  const isActive = chip.classList.contains('chip-active');
+  await saveCanvas();
+  const endpoint = isActive ? 'pause' : 'activate';
+  const r = await fetch('/api/flows/' + FLOW_ID + '/' + endpoint, {method:'POST'});
+  const data = await r.json();
+  if (data.success) { location.reload(); }
+  else showToast(data.error || 'Action failed', 'err');
+}
+
+// ── Stats panel ───────────────────────────────────────────────────────────────
+async function openStatsPanel() {
+  closeConfigPanel();
+  document.getElementById('statsPanel').classList.add('open');
+  document.getElementById('statsBody').innerHTML = '<div class="stats-empty">Loading…</div>';
+  try {
+    const r = await fetch('/api/flows/' + FLOW_ID + '/stats');
+    const data = await r.json();
+    if (data.success) {
+      renderStats(data.steps);
+    } else {
+      document.getElementById('statsBody').innerHTML = '<div class="stats-empty">' + (data.error || 'Could not load stats') + '</div>';
+    }
+  } catch (e) {
+    document.getElementById('statsBody').innerHTML = '<div class="stats-empty">Network error</div>';
+  }
+}
+
+function closeStatsPanel() {
+  document.getElementById('statsPanel').classList.remove('open');
+}
+
+function renderStats(steps) {
+  const body = document.getElementById('statsBody');
+  if (!steps.length) {
+    body.innerHTML = '<div class="stats-empty">No steps yet — build and save the flow first.</div>';
+    return;
+  }
+  body.innerHTML = steps.map(s => {
+    const m = NODE_META[s.step_type] || {title: s.step_type, icon: 'fas fa-circle'};
+    let html = '<div class="stats-card">' +
+      '<div class="stats-card-head"><i class="' + m.icon + '" style="color:var(--text-dim);font-size:0.75rem;"></i>' +
+      '<span>' + m.title + '</span></div>' +
+      '<div class="stats-row"><span>Currently here</span><span class="val">' + s.currently_at + '</span></div>' +
+      '<div class="stats-row"><span>Reached this step</span><span class="val">' + s.passed_through + '</span></div>';
+    if (s.step_type === 'send_message') {
+      html += '<div class="stats-row"><span>Sent</span><span class="val">' + s.sent + '</span></div>' +
+        statBar('Delivered', s.delivered_rate) +
+        statBar('Read', s.read_rate) +
+        statBar('Replied', s.reply_rate);
+    }
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+function statBar(label, pct) {
+  return '<div class="stats-row"><span>' + label + '</span><span class="val">' + pct + '%</span></div>' +
+    '<div class="stats-bar-track"><div class="stats-bar-fill" style="width:' + pct + '%"></div></div>';
+}
+
+// ── Re-enroll toggle ─────────────────────────────────────────────────────────
+async function toggleReenroll(checked) {
+  try {
+    const r = await fetch('/api/flows/' + FLOW_ID + '/settings', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({allow_reenroll: checked})
+    });
+    const data = await r.json();
+    if (data.success) {
+      showToast(checked ? 'Re-enrollment on' : 'Re-enrollment off', 'ok');
+    } else {
+      showToast(data.error || 'Update failed', 'err');
+      document.getElementById('allowReenrollToggle').checked = !checked;
+    }
+  } catch(e) {
+    showToast('Network error', 'err');
+    document.getElementById('allowReenrollToggle').checked = !checked;
+  }
+}
+
+// ── Load saved canvas ─────────────────────────────────────────────────────────
+{% if flow.canvas_data %}
+try {
+  const saved = {{ flow.canvas_data | tojson }};
+  editor.import(JSON.parse(saved));
+} catch(e) {
+  console.warn('Could not restore canvas:', e);
+}
+{% endif %}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast-pop ' + (type === 'ok' ? 'toast-ok' : 'toast-err');
+  el.innerHTML = '<i class="fas ' + (type === 'ok' ? 'fa-check' : 'fa-exclamation-circle') + ' me-1"></i>' + msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// Ctrl/Cmd+S
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key === 's') { e.preventDefault(); saveCanvas(); }
+});
+</script>
+{% endblock %}

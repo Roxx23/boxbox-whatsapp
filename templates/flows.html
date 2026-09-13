@@ -1,0 +1,578 @@
+{% extends "base.html" %}
+{% block title %}Flows — WhatsApp Dashboard{% endblock %}
+{% block page_title %}Flows{% endblock %}
+
+{% block head %}
+<style>
+  .flow-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.4rem 1.5rem;
+    margin-bottom: 0.875rem;
+    transition: all 0.18s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+  }
+  .flow-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: transparent;
+    transition: background 0.18s;
+    border-radius: 14px 0 0 14px;
+  }
+  .flow-card:hover {
+    border-color: rgba(37,211,102,0.3);
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+  }
+  .flow-card.is-active::before { background: var(--gold); }
+  .flow-card.is-paused::before { background: #F59E0B; }
+
+  .flow-name {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 0.975rem;
+    color: var(--text); letter-spacing: -0.015em;
+    margin-bottom: 0.25rem;
+  }
+  .flow-meta { color: var(--text-dim); font-size: 0.8rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+  .trigger-badge {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.22rem 0.65rem; border-radius: 6px;
+    font-size: 0.73rem; font-weight: 600;
+    background: rgba(37,211,102,0.08);
+    color: var(--gold-dark);
+    border: 1px solid rgba(37,211,102,0.18);
+    letter-spacing: 0.005em;
+  }
+  .trigger-badge i { font-size: 0.65rem; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.22rem 0.7rem; border-radius: 20px;
+    font-size: 0.73rem; font-weight: 600;
+  }
+  .status-active  { background: rgba(37,211,102,0.1); color: #059669; }
+  .status-paused  { background: rgba(245,158,11,0.1); color: #B45309; }
+  .status-draft   { background: rgba(13,17,23,0.05); color: var(--text-muted); }
+
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+  }
+  .dot-active { background: #25D366; animation: pulse-dot 2s infinite; }
+  .dot-paused { background: #F59E0B; }
+  .dot-draft  { background: #CBD5E1; }
+  @keyframes pulse-dot {
+    0%,100% { opacity:1; } 50% { opacity:0.45; }
+  }
+
+  .stat-block {
+    text-align: center; padding: 0.5rem 1rem;
+    border-radius: 10px; background: var(--surface2);
+    border: 1px solid var(--border); min-width: 70px;
+  }
+  .stat-block .num {
+    font-family: var(--font-display);
+    font-size: 1.35rem; font-weight: 700;
+    color: var(--text); line-height: 1.2; letter-spacing: -0.02em;
+  }
+  .stat-block .lbl { font-size: 0.67rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 1px; }
+
+  .flow-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .btn-flow-edit {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.38rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 500;
+    background: transparent; border: 1.5px solid var(--border);
+    color: var(--text-muted); cursor: pointer; text-decoration: none;
+    transition: all 0.15s;
+  }
+  .btn-flow-edit:hover { background: var(--surface2); border-color: #CBD5E1; color: var(--text); }
+  .btn-flow-activate {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.38rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 600;
+    background: rgba(37,211,102,0.1); border: 1.5px solid rgba(37,211,102,0.25);
+    color: #059669; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-flow-activate:hover { background: rgba(37,211,102,0.17); border-color: rgba(37,211,102,0.4); }
+  .btn-flow-pause {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.38rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 600;
+    background: rgba(245,158,11,0.08); border: 1.5px solid rgba(245,158,11,0.2);
+    color: #B45309; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-flow-pause:hover { background: rgba(245,158,11,0.14); }
+  .btn-flow-enroll {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.38rem 0.875rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 600;
+    background: rgba(37,99,235,0.08); border: 1.5px solid rgba(37,99,235,0.2);
+    color: #1D4ED8; cursor: pointer; transition: all 0.15s;
+  }
+  .btn-flow-enroll:hover { background: rgba(37,99,235,0.14); border-color: rgba(37,99,235,0.35); }
+
+  .btn-flow-delete {
+    display: inline-flex; align-items: center;
+    padding: 0.38rem 0.6rem; border-radius: 8px;
+    font-size: 0.8rem; background: transparent;
+    border: 1.5px solid rgba(239,68,68,0.2);
+    color: #DC2626; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-flow-delete:hover { background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.35); }
+
+  .empty-wrap {
+    text-align: center; padding: 4.5rem 2rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: var(--shadow-sm);
+  }
+  .empty-icon-wrap {
+    width: 64px; height: 64px; border-radius: 18px;
+    background: rgba(37,211,102,0.08); border: 1px solid rgba(37,211,102,0.15);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 1.25rem;
+    font-size: 1.5rem; color: var(--gold);
+  }
+  .empty-title { font-family: var(--font-display); font-weight: 700; font-size: 1.1rem; color: var(--text); margin-bottom: 0.4rem; letter-spacing: -0.02em; }
+  .empty-sub { color: var(--text-muted); font-size: 0.85rem; max-width: 360px; margin: 0 auto 1.5rem; line-height: 1.55; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+  <div>
+    <div class="page-title">
+      <i class="fas fa-project-diagram me-2" style="color:var(--gold);"></i>Flows
+    </div>
+    <div class="page-subtitle">Automated multi-step WhatsApp journeys triggered by customer events</div>
+  </div>
+  <button class="btn btn-primary btn-sm px-3" onclick="openNewFlowModal()">
+    <i class="fas fa-plus me-1"></i> New Flow
+  </button>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible fade show mb-3" role="alert">
+      {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% if flows %}
+  {% for flow in flows %}
+  <div class="flow-card {% if flow.status == 'active' %}is-active{% elif flow.status == 'paused' %}is-paused{% endif %}" id="flow-card-{{ flow.id }}">
+    <div class="row align-items-center g-3">
+
+      <!-- Name + meta -->
+      <div class="col-lg-5">
+        <div class="flow-name">{{ flow.name }}</div>
+        <div class="flow-meta mt-1">
+          <span class="trigger-badge">
+            {% if flow.trigger_type == 'order_confirmation' %}
+              <i class="fas fa-shopping-cart"></i> Order Placed
+            {% elif flow.trigger_type == 'fulfillment' %}
+              <i class="fas fa-truck"></i> Dispatched
+            {% elif flow.trigger_type == 'abandoned_cart' %}
+              <i class="fas fa-shopping-basket"></i> Abandoned Cart
+            {% else %}
+              <i class="fas fa-hand-pointer"></i> Manual
+            {% endif %}
+          </span>
+          <span class="status-pill status-{{ flow.status }}">
+            <span class="status-dot dot-{{ flow.status }}"></span>
+            {{ flow.status.capitalize() }}
+          </span>
+        </div>
+        <div class="flow-meta mt-2">
+          <i class="fas fa-calendar-alt me-1"></i>Created {{ flow.created_at[:10] }}
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="col-lg-3">
+        <div class="d-flex gap-2 justify-content-lg-center">
+          <div class="stat-block">
+            <div class="num">{{ flow.active_count }}</div>
+            <div class="lbl">Active</div>
+          </div>
+          <div class="stat-block">
+            <div class="num">{{ flow.completed_count }}</div>
+            <div class="lbl">Done</div>
+          </div>
+          <div class="stat-block">
+            <div class="num">{{ flow.total_count }}</div>
+            <div class="lbl">Total</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="col-lg-4">
+        <div class="flow-actions justify-content-lg-end">
+          <a href="{{ url_for('flow_editor_page', flow_id=flow.id) }}" class="btn-flow-edit">
+            <i class="fas fa-pencil-alt"></i> Edit
+          </a>
+          {% if flow.status == 'active' %}
+          {% if flow.trigger_type == 'manual' %}
+          <button class="btn-flow-enroll" onclick="openEnrollModal({{ flow.id }}, '{{ flow.name | e }}')">
+            <i class="fas fa-user-plus"></i> Enroll
+          </button>
+          {% endif %}
+          <button class="btn-flow-pause" onclick="pauseFlow({{ flow.id }})">
+            <i class="fas fa-pause"></i> Pause
+          </button>
+          {% else %}
+          <button class="btn-flow-activate" onclick="activateFlow({{ flow.id }})">
+            <i class="fas fa-play"></i> Activate
+          </button>
+          {% endif %}
+          <button class="btn-flow-delete" onclick="deleteFlow({{ flow.id }}, '{{ flow.name | e }}')" title="Delete">
+            <i class="fas fa-trash-alt"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  {% endfor %}
+
+{% else %}
+  <div class="empty-wrap">
+    <div class="empty-icon-wrap"><i class="fas fa-project-diagram"></i></div>
+    <div class="empty-title">No flows yet</div>
+    <p class="empty-sub">Create automated multi-step journeys that guide customers through personalised WhatsApp conversations.</p>
+    <button class="btn btn-primary btn-sm px-4" onclick="openNewFlowModal()">
+      <i class="fas fa-plus me-2"></i>Create your first flow
+    </button>
+  </div>
+{% endif %}
+
+
+<!-- Enroll Customers Modal -->
+<div class="modal fade" id="enrollModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fas fa-user-plus me-2" style="color:#2563EB;"></i>
+          Enroll Customers
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1.25rem;">
+          Enrolling into <strong id="enrollFlowName" style="color:var(--text);"></strong>.
+          Customers already in this flow will be skipped.
+        </p>
+
+        <!-- Segment -->
+        <div class="mb-3">
+          <label class="form-label">By Segment <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
+          <select id="enrollSegment" class="form-select" onchange="previewEnrollCount()">
+            <option value="">— None (phone numbers only) —</option>
+            <optgroup label="Predefined">
+              <option value="has_phone">All customers with a phone number</option>
+              <option value="no_message_sent">Never messaged</option>
+              <option value="engaged_last_7_days">Engaged in last 7 days</option>
+              <option value="not_engaged_last_7_days">Not engaged in last 7 days</option>
+              <option value="high_value">High value (₹1000+ spent)</option>
+              <option value="has_orders">Has placed orders</option>
+              <option value="replied">Has replied to a message</option>
+            </optgroup>
+            {% if custom_segments %}
+            <optgroup label="Custom Segments">
+              {% for seg in custom_segments %}
+              <option value="custom_{{ seg.id }}">{{ seg.segment_name }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+          </select>
+        </div>
+
+        <!-- Divider -->
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <hr style="flex:1;margin:0;border-color:var(--border);">
+          <span style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">AND / OR</span>
+          <hr style="flex:1;margin:0;border-color:var(--border);">
+        </div>
+
+        <!-- Manual phone numbers -->
+        <div class="mb-3">
+          <label class="form-label">Specific Phone Numbers <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
+          <textarea id="enrollPhones" class="form-control" rows="4"
+            placeholder="+919876543210&#10;+918765432109&#10;9123456789&#10;One number per line"
+            oninput="previewEnrollCount()"
+            style="font-family:monospace;font-size:0.82rem;resize:vertical;"></textarea>
+          <div class="form-text">One number per line. +91 is added automatically for 10-digit numbers.</div>
+        </div>
+
+        <!-- Count preview -->
+        <div id="enrollPreview" class="p-3 rounded-3"
+             style="background:var(--surface2);border:1px solid var(--border);min-height:52px;">
+          <div id="enrollPreviewContent" style="color:var(--text-muted);font-size:0.84rem;">
+            Select a segment or enter phone numbers above.
+          </div>
+        </div>
+
+        <!-- Result (shown after enroll) -->
+        <div id="enrollResult" style="display:none;" class="mt-3"></div>
+
+        <div id="enrollError" class="alert alert-danger py-2 px-3 mt-3" style="display:none;font-size:0.84rem;"></div>
+      </div>
+      <div class="modal-footer" id="enrollFooter">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm px-3" id="btnEnroll"
+                style="background:#2563EB;color:#fff;border:none;border-radius:8px;font-weight:600;"
+                onclick="doEnroll()">
+          <i class="fas fa-user-plus me-1"></i> Enroll Customers
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Flow Modal -->
+<div class="modal fade" id="newFlowModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fas fa-project-diagram me-2" style="color:var(--gold);"></i>New Flow
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Flow Name</label>
+          <input type="text" id="newFlowName" class="form-control" placeholder="e.g. Post-Purchase Follow-up">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Trigger</label>
+          <select id="newFlowTrigger" class="form-select">
+            <option value="order_confirmation">Order Placed (Shopify)</option>
+            <option value="fulfillment">Order Dispatched (Shopify)</option>
+            <option value="abandoned_cart">Abandoned Cart</option>
+            <option value="manual">Manual Enrollment</option>
+          </select>
+          <div class="form-text">This is what starts the flow for a customer.</div>
+        </div>
+        <div id="newFlowError" class="alert alert-danger py-2 px-3 mt-2" style="display:none;font-size:0.84rem;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary btn-sm px-3" onclick="createFlow()">
+          <i class="fas fa-arrow-right me-1"></i>Create & Edit
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Enrollment ─────────────────────────────────────────────────────────────
+let _enrollFlowId = null;
+
+function openEnrollModal(flowId, flowName) {
+  _enrollFlowId = flowId;
+  document.getElementById('enrollFlowName').textContent = flowName;
+  document.getElementById('enrollSegment').value = '';
+  document.getElementById('enrollPhones').value = '';
+  document.getElementById('enrollResult').style.display = 'none';
+  document.getElementById('enrollError').style.display = 'none';
+  document.getElementById('enrollFooter').style.display = '';
+  document.getElementById('btnEnroll').disabled = false;
+  document.getElementById('btnEnroll').innerHTML = '<i class="fas fa-user-plus me-1"></i> Enroll Customers';
+  document.getElementById('enrollPreviewContent').textContent = 'Select a segment or enter phone numbers above.';
+  new bootstrap.Modal(document.getElementById('enrollModal')).show();
+}
+
+function _parsePhoneLines() {
+  const raw = document.getElementById('enrollPhones').value;
+  return raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+}
+
+let _previewTimer = null;
+function previewEnrollCount() {
+  clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(_doPreview, 350);
+}
+
+async function _doPreview() {
+  const segment = document.getElementById('enrollSegment').value;
+  const phones = _parsePhoneLines();
+  const preview = document.getElementById('enrollPreviewContent');
+
+  if (!segment && phones.length === 0) {
+    preview.textContent = 'Select a segment or enter phone numbers above.';
+    return;
+  }
+
+  let segCount = 0;
+  if (segment) {
+    preview.innerHTML = '<i class="fas fa-spinner fa-spin me-2" style="color:var(--text-dim);"></i>Counting…';
+    try {
+      const r = await fetch('/api/customers/' + segment);
+      const d = await r.json();
+      segCount = d.count || 0;
+    } catch(e) { segCount = 0; }
+  }
+
+  const phoneCount = phones.length;
+  const parts = [];
+  if (segCount > 0) parts.push('<strong style="color:#2563EB;">' + segCount + '</strong> from segment');
+  if (segCount === 0 && segment) parts.push('<span style="color:var(--text-dim);">0 from segment</span>');
+  if (phoneCount > 0) parts.push('<strong style="color:#2563EB;">' + phoneCount + '</strong> phone number' + (phoneCount > 1 ? 's' : '') + ' entered');
+
+  const total = segCount + phoneCount;
+  preview.innerHTML =
+    '<div style="display:flex;align-items:center;gap:0.85rem;">' +
+      '<div style="font-size:1.6rem;font-weight:800;color:#2563EB;font-family:var(--font-display);line-height:1;">' + total + '</div>' +
+      '<div style="font-size:0.82rem;color:var(--text-muted);line-height:1.5;">' +
+        'total to enroll<br>' +
+        '<span style="color:var(--text-dim);font-size:0.74rem;">' + parts.join(' + ') + ' · duplicates skipped automatically</span>' +
+      '</div>' +
+    '</div>';
+}
+
+async function doEnroll() {
+  if (!_enrollFlowId) return;
+  const segment = document.getElementById('enrollSegment').value;
+  const phones = _parsePhoneLines();
+  const errEl = document.getElementById('enrollError');
+
+  if (!segment && phones.length === 0) {
+    errEl.textContent = 'Select a segment or enter at least one phone number.';
+    errEl.style.display = '';
+    return;
+  }
+
+  errEl.style.display = 'none';
+  const btn = document.getElementById('btnEnroll');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Enrolling…';
+
+  try {
+    const r = await fetch('/api/flows/' + _enrollFlowId + '/enroll', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({segment_type: segment, phone_numbers: phones})
+    });
+    const data = await r.json();
+    if (data.success) {
+      document.getElementById('enrollFooter').style.display = 'none';
+      const resultEl = document.getElementById('enrollResult');
+      resultEl.style.display = '';
+      resultEl.innerHTML =
+        '<div class="p-3 rounded-3" style="background:rgba(37,211,102,0.06);border:1px solid rgba(37,211,102,0.2);">' +
+          '<div style="font-weight:700;color:#059669;margin-bottom:0.35rem;">' +
+            '<i class="fas fa-check-circle me-2"></i>Enrollment complete' +
+          '</div>' +
+          '<div style="font-size:0.84rem;color:var(--text-muted);">' +
+            '<strong style="color:var(--text);">' + data.enrolled + '</strong> enrolled &nbsp;·&nbsp; ' +
+            '<strong style="color:var(--text);">' + data.skipped + '</strong> skipped (no phone, already in flow, or invalid number)' +
+          '</div>' +
+        '</div>' +
+        '<div class="mt-2 text-end">' +
+          '<button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>' +
+        '</div>';
+      setTimeout(() => location.reload(), 2000);
+    } else {
+      errEl.textContent = data.error || 'Enrollment failed.';
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-user-plus me-1"></i> Enroll Customers';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error — please try again.';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-user-plus me-1"></i> Enroll Customers';
+  }
+}
+
+function openNewFlowModal() {
+  document.getElementById('newFlowName').value = '';
+  document.getElementById('newFlowError').style.display = 'none';
+  new bootstrap.Modal(document.getElementById('newFlowModal')).show();
+}
+
+async function createFlow() {
+  const name = document.getElementById('newFlowName').value.trim();
+  const trigger_type = document.getElementById('newFlowTrigger').value;
+  const errEl = document.getElementById('newFlowError');
+  if (!name) {
+    errEl.textContent = 'Please enter a flow name.';
+    errEl.style.display = '';
+    return;
+  }
+  errEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/flows', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, trigger_type})
+    });
+    const data = await resp.json();
+    if (data.success) {
+      window.location.href = '/flows/' + data.flow_id;
+    } else {
+      errEl.textContent = data.error || 'Failed to create flow.';
+      errEl.style.display = '';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error — please try again.';
+    errEl.style.display = '';
+  }
+}
+
+async function activateFlow(id) {
+  const resp = await fetch('/api/flows/' + id + '/activate', {method:'POST'});
+  const data = await resp.json();
+  if (data.success) location.reload();
+  else showToast(data.error || 'Failed to activate.', 'danger');
+}
+
+async function pauseFlow(id) {
+  const resp = await fetch('/api/flows/' + id + '/pause', {method:'POST'});
+  const data = await resp.json();
+  if (data.success) location.reload();
+  else showToast(data.error || 'Failed to pause.', 'danger');
+}
+
+async function deleteFlow(id, name) {
+  if (!confirm('Delete flow "' + name + '"? All participant data will also be removed.')) return;
+  const resp = await fetch('/api/flows/' + id, {method:'DELETE'});
+  const data = await resp.json();
+  if (data.success) {
+    const card = document.getElementById('flow-card-' + id);
+    if (card) card.remove();
+    if (!document.querySelector('.flow-card')) location.reload();
+  } else {
+    showToast(data.error || 'Failed to delete.', 'danger');
+  }
+}
+
+function showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'alert alert-' + type + ' position-fixed';
+  el.style.cssText = 'bottom:1.5rem;right:1.5rem;z-index:9999;min-width:260px;box-shadow:var(--shadow-lg);';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+</script>
+{% endblock %}
