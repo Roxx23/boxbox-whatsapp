@@ -187,46 +187,54 @@ def _process_participant(participant):
 
 
 def _resolve_header_media_id(participant, config, context):
-    """Resolve the WhatsApp media_id for an IMAGE-header template, or None.
+    """Resolve the WhatsApp media_id for an image/video/document-header
+    template, or None. header_media_type ('image'/'video'/'document') and
+    header_media_source ('auto'/'static') are set on the node by the editor
+    from template_info()'s detection.
 
-    'auto' fetches the first product image from the participant's order context
-    (line_items) via the same Shopify-Admin-API-backed helper the legacy
-    order_confirmation automation already uses. 'static' uploads the URL set on
-    the node. Either path re-uploads to WhatsApp fresh on every send rather than
-    caching a media_id — WhatsApp media IDs expire, same as the legacy path.
+    Only IMAGE has a real 'auto' data source — the participant's order context
+    (line_items), fetched via the same Shopify-Admin-API-backed helper the
+    legacy order_confirmation automation already uses. VIDEO/DOCUMENT headers
+    always use a static, node-configured URL: there's no equivalent 'product
+    video'/'product document' concept anywhere else in this codebase to
+    auto-fetch from, so offering a dead-end 'auto' option for those would just
+    be confusing UI. Either path re-uploads to WhatsApp fresh on every send
+    rather than caching a media_id — WhatsApp media IDs expire.
 
-    Non-fatal by design, matching _upload_image_from_url's own convention: if no
-    image can be resolved (no source configured, 'auto' with no line_items in
-    context — e.g. a manual flow with no order data — or a download/upload
-    failure), this returns None and the send proceeds without a header
-    component. WhatsApp itself will reject a send that omits a header a template
-    structurally requires; that failure is caught by the existing
-    'status_code not in (200, 201)' handling below, same as any other send
-    failure. Failing the step outright instead of attempting the send would need
-    a new error path for the same ultimate outcome (participant doesn't get this
-    message) with no extra information for the flow owner.
+    Non-fatal by design, matching _upload_media_from_url's own convention: if no
+    media can be resolved (no header_media_type on this template — including a
+    LOCATION header, which Flows doesn't support sending yet — 'auto' with no
+    line_items in context, or a download/upload failure), this returns None and
+    the send proceeds without a header component. WhatsApp itself will reject a
+    send that omits a header a template structurally requires; that failure is
+    caught by the existing 'status_code not in (200, 201)' handling below, same
+    as any other send failure. Failing the step outright instead of attempting
+    the send would need a new error path for the same ultimate outcome
+    (participant doesn't get this message) with no extra information for the
+    flow owner.
     """
-    source = config.get('header_image_source')
-    if not source:
+    media_type = config.get('header_media_type')
+    if not media_type:
         return None
 
-    from app import _get_product_image_url, _upload_image_from_url
+    from app import _get_product_image_url, _upload_media_from_url
 
-    if source == 'static':
-        return _upload_image_from_url(config.get('header_image_url'))
+    source = config.get('header_media_source') or ('auto' if media_type == 'image' else 'static')
 
     if source == 'auto':
+        if media_type != 'image':
+            return None
         line_items = context.get('line_items') or []
-        image_url = _get_product_image_url(line_items)
-        if not image_url:
+        media_url = _get_product_image_url(line_items)
+        if not media_url:
             logger.info(
-                f"Flow participant {participant['id']}: 'auto' header image has no "
+                f"Flow participant {participant['id']}: 'auto' header media has no "
                 f"line_items in context (trigger has no order data) — sending without header"
             )
             return None
-        return _upload_image_from_url(image_url)
+        return _upload_media_from_url(media_url, media_type)
 
-    return None
+    return _upload_media_from_url(config.get('header_media_url'), media_type)
 
 
 def _execute_send_message(participant, step, config):
@@ -270,6 +278,7 @@ def _execute_send_message(participant, step, config):
         lang=lang,
         header_param=header_param,
         header_media_id=header_media_id,
+        header_media_type=config.get('header_media_type') or 'image',
         button_params=button_params or None
     )
 
