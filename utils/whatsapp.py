@@ -224,7 +224,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         # Retry on rate limit
         if resp.status_code == 429:
             time.sleep(2)
-            return send_template(number, template_name, params, lang, header_media_id, button_params, header_param)
+            return send_template(number, template_name, params, lang, header_media_id, button_params, header_param, header_media_type)
         
         return resp.status_code, response_data
     except requests.exceptions.RequestException as e:
