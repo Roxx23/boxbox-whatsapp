@@ -71,6 +71,20 @@ def get_flow_first_step_key(db, flow_id):
     return None
 
 
+def _format_currency(value):
+    """'1299.00' -> '₹1299', '1299.50' -> '₹1299.50'. Matches the ₹-prefix
+    convention used by the legacy automation sends (app.py)."""
+    if not value:
+        return ''
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return f"₹{value}"
+    if amount == int(amount):
+        return f"₹{int(amount)}"
+    return f"₹{amount:.2f}"
+
+
 def build_trigger_context(trigger_type, data):
     """Build context dict from Shopify webhook payload for a given trigger type."""
     ctx = {}
@@ -80,7 +94,7 @@ def build_trigger_context(trigger_type, data):
         raw_num = str(data.get('order_number', ''))
         ctx['order_number'] = f"#F1{raw_num}"
         ctx['items'] = _format_items_from_line_items(data.get('line_items', []))
-        ctx['total'] = str(data.get('total_price', ''))
+        ctx['total'] = _format_currency(data.get('total_price', ''))
         if trigger_type == 'fulfillment':
             fulfillments = data.get('fulfillments', [])
             tracking = ''
@@ -91,7 +105,7 @@ def build_trigger_context(trigger_type, data):
         customer = data.get('customer') or {}
         ctx['first_name'] = customer.get('first_name') or (data.get('email', '').split('@')[0])
         ctx['items'] = _format_items_from_line_items(data.get('line_items', []))
-        ctx['total'] = str(data.get('total_price', ''))
+        ctx['total'] = _format_currency(data.get('total_price', ''))
     return ctx
 
 

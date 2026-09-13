@@ -348,6 +348,7 @@ class Database:
                 "ALTER TABLE automation_settings ADD COLUMN extra_data TEXT DEFAULT '{}'",
                 'ALTER TABLE shopify_orders ADD COLUMN tracking_url TEXT',
                 'ALTER TABLE abandoned_carts ADD COLUMN customer_name TEXT',
+                'ALTER TABLE flows ADD COLUMN allow_reenroll INTEGER DEFAULT 1',
             ]:
                 try:
                     cursor.execute(col)
@@ -1496,7 +1497,7 @@ class Database:
             )
             return [dict(r) for r in cursor.fetchall()]
 
-    def update_flow(self, flow_id, name=None, status=None, canvas_data=None):
+    def update_flow(self, flow_id, name=None, status=None, canvas_data=None, allow_reenroll=None):
         updates, params = [], []
         if name is not None:
             updates.append('name = ?'); params.append(name)
@@ -1504,6 +1505,8 @@ class Database:
             updates.append('status = ?'); params.append(status)
         if canvas_data is not None:
             updates.append('canvas_data = ?'); params.append(canvas_data)
+        if allow_reenroll is not None:
+            updates.append('allow_reenroll = ?'); params.append(1 if allow_reenroll else 0)
         if not updates:
             return
         updates.append('updated_at = ?'); params.append(datetime.now().isoformat())
@@ -1570,6 +1573,11 @@ class Database:
             existing = cursor.fetchone()
             if existing:
                 if existing['status'] in ('completed', 'exited', 'error'):
+                    cursor.execute('SELECT allow_reenroll FROM flows WHERE id = ?', (flow_id,))
+                    flow_row = cursor.fetchone()
+                    if flow_row is not None and flow_row['allow_reenroll'] == 0:
+                        # Flow owner disabled re-enrollment — leave participant as-is
+                        return None
                     # Re-enroll: reset to active with fresh context and step
                     cursor.execute(
                         '''UPDATE flow_participants
@@ -1710,6 +1718,82 @@ class Database:
                 (flow_id,)
             )
             return {r['status']: r['cnt'] for r in cursor.fetchall()}
+
+    def get_flow_step_stats(self, flow_id):
+        """Per-step analytics for the flow editor stats panel.
+
+        'currently_at' = active participants sitting at this step right now.
+        'passed_through' = participants whose current position is this step or any
+        step reachable from it (found via BFS over next_yes/next_no) — since a
+        participant can only reach a downstream step by having passed through this
+        one first. For send_message steps this is cross-checked against the exact
+        flow_messages log (sent/delivered/read/replied), which is the authoritative
+        source for those rates.
+        """
+        steps = self.get_flow_steps(flow_id)
+        step_by_key = {s['step_key']: s for s in steps}
+
+        def reachable_from(start_key):
+            seen = set()
+            stack = [start_key]
+            while stack:
+                k = stack.pop()
+                if k is None or k in seen or k not in step_by_key:
+                    continue
+                seen.add(k)
+                s = step_by_key[k]
+                stack.append(s.get('next_yes'))
+                stack.append(s.get('next_no'))
+            return seen
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT status, current_step_key FROM flow_participants WHERE flow_id = ?',
+                (flow_id,)
+            )
+            participants = cursor.fetchall()
+
+            cursor.execute(
+                '''SELECT step_key, COUNT(*) as sent,
+                          SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) as delivered,
+                          SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) as read_ct,
+                          SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) as replied
+                   FROM flow_messages WHERE flow_id = ? GROUP BY step_key''',
+                (flow_id,)
+            )
+            msg_stats = {r['step_key']: dict(r) for r in cursor.fetchall()}
+
+        position_counts = {}
+        active_counts = {}
+        for p in participants:
+            key = p['current_step_key']
+            position_counts[key] = position_counts.get(key, 0) + 1
+            if p['status'] == 'active':
+                active_counts[key] = active_counts.get(key, 0) + 1
+
+        result = []
+        for s in steps:
+            if s['step_type'] == 'trigger':
+                continue
+            key = s['step_key']
+            descendants = reachable_from(key)
+            passed_through = sum(cnt for pos, cnt in position_counts.items() if pos in descendants)
+            row = {
+                'step_key': key,
+                'step_type': s['step_type'],
+                'currently_at': active_counts.get(key, 0),
+                'passed_through': passed_through,
+            }
+            if s['step_type'] == 'send_message':
+                m = msg_stats.get(key, {'sent': 0, 'delivered': 0, 'read_ct': 0, 'replied': 0})
+                sent = m['sent'] or 0
+                row['sent'] = sent
+                row['delivered_rate'] = round(100 * (m['delivered'] or 0) / sent, 1) if sent else 0
+                row['read_rate'] = round(100 * (m['read_ct'] or 0) / sent, 1) if sent else 0
+                row['reply_rate'] = round(100 * (m['replied'] or 0) / sent, 1) if sent else 0
+            result.append(row)
+        return result
 
     def customer_placed_order_since(self, phone, since_iso):
         """since_iso is 'YYYY-MM-DDTHH:MM:SS' (from _now_utc). shopify_orders.created_at

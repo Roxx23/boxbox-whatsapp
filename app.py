@@ -1594,6 +1594,19 @@ def api_save_flow(flow_id):
     return jsonify({'success': True})
 
 
+@app.route("/api/flows/<int:flow_id>/settings", methods=["POST"])
+@login_required
+def api_flow_settings(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or str(flow['user_id']) != str(current_user.id):
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    data = request.json or {}
+    if 'allow_reenroll' not in data:
+        return jsonify({'success': False, 'error': 'allow_reenroll required'}), 400
+    db.update_flow(flow_id, allow_reenroll=bool(data.get('allow_reenroll')))
+    return jsonify({'success': True})
+
+
 @app.route("/api/flows/<int:flow_id>/activate", methods=["POST"])
 @login_required
 def api_activate_flow(flow_id):
@@ -1630,6 +1643,16 @@ def api_delete_flow(flow_id):
         return jsonify({'success': False, 'error': 'Not found'}), 404
     db.delete_flow(flow_id)
     return jsonify({'success': True})
+
+
+@app.route("/api/flows/<int:flow_id>/stats")
+@login_required
+def api_flow_stats(flow_id):
+    flow = db.get_flow(flow_id)
+    if not flow or str(flow['user_id']) != str(current_user.id):
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    steps = db.get_flow_step_stats(flow_id)
+    return jsonify({'success': True, 'steps': steps})
 
 
 @app.route("/api/flows/<int:flow_id>/participants")

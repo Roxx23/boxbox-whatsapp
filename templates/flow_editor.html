@@ -48,6 +48,14 @@
 .chip-draft  { background: var(--surface3); color: var(--text-muted); border: 1px solid var(--border); }
 .chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 
+.reenroll-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.75rem; color: var(--text-muted); cursor: pointer;
+  user-select: none;
+}
+.reenroll-toggle input { accent-color: var(--gold); cursor: pointer; width: 14px; height: 14px; }
+.reenroll-toggle:hover { color: var(--text); }
+
 .topbar-spacer { flex: 1; }
 .btn-topbar {
   display: inline-flex; align-items: center; gap: 0.35rem;
@@ -306,6 +314,32 @@
 }
 .btn-del-node:hover { background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.4); }
 
+/* ── Stats panel ──────────────────────────────────────── */
+.stats-empty { padding: 1.5rem 0.5rem; text-align: center; color: var(--text-dim); font-size: 0.82rem; }
+.stats-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.85rem; margin-bottom: 0.75rem; background: var(--surface2);
+}
+.stats-card-head {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.82rem; font-weight: 700; color: var(--text);
+  margin-bottom: 0.6rem;
+}
+.stats-card-head .step-type-tag {
+  font-size: 0.65rem; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.stats-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.35rem;
+}
+.stats-row .val { color: var(--text); font-weight: 600; }
+.stats-bar-track {
+  height: 5px; border-radius: 3px; background: var(--surface3);
+  overflow: hidden; margin: 0.15rem 0 0.5rem;
+}
+.stats-bar-fill { height: 100%; background: var(--gold); border-radius: 3px; }
+
 /* ── Toast ────────────────────────────────────────────── */
 .toast-pop {
   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
@@ -345,7 +379,16 @@
       <span class="chip-dot"></span>
       <span id="statusLabel">{{ flow.status.capitalize() }}</span>
     </span>
+    <label class="reenroll-toggle" title="When on, a customer who already completed/exited this flow is re-enrolled on their next matching order. When off, they're enrolled only once.">
+      <input type="checkbox" id="allowReenrollToggle"
+        {% if flow.allow_reenroll is none or flow.allow_reenroll %}checked{% endif %}
+        onchange="toggleReenroll(this.checked)">
+      Re-enroll returning customers
+    </label>
     <div class="topbar-spacer"></div>
+    <button class="btn-topbar btn-tb-back" id="btnStats" onclick="openStatsPanel()">
+      <i class="fas fa-chart-bar"></i> Stats
+    </button>
     <button class="btn-topbar btn-tb-save" id="btnSave" onclick="saveCanvas()">
       <i class="fas fa-save"></i> Save
     </button>
@@ -442,6 +485,22 @@
         <button class="btn-del-node" onclick="deleteSelectedNode()">
           <i class="fas fa-trash-alt me-1"></i> Delete Node
         </button>
+      </div>
+    </div>
+
+    <!-- Stats panel -->
+    <div class="config-panel" id="statsPanel">
+      <div class="config-panel-inner">
+        <div class="config-panel-title">
+          <div class="config-panel-name">
+            <span><i class="fas fa-chart-bar me-1" style="color:var(--text-dim);font-size:0.8rem;"></i></span>
+            <span>Step Stats</span>
+          </div>
+          <button class="config-panel-close" onclick="closeStatsPanel()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div id="statsBody"><div class="stats-empty">Loading…</div></div>
       </div>
     </div>
 
@@ -546,6 +605,7 @@ editor.on('nodeSelected', id => { _selId = id; openConfig(id); });
 function openConfig(id) {
   const node = editor.getNodeFromId(id);
   if (!node) return;
+  closeStatsPanel();
   const type = node.name;
   const data = node.data || {};
   const m = NODE_META[type] || {};
@@ -737,6 +797,78 @@ async function toggleActive() {
   const data = await r.json();
   if (data.success) { location.reload(); }
   else showToast(data.error || 'Action failed', 'err');
+}
+
+// ── Stats panel ───────────────────────────────────────────────────────────────
+async function openStatsPanel() {
+  closeConfigPanel();
+  document.getElementById('statsPanel').classList.add('open');
+  document.getElementById('statsBody').innerHTML = '<div class="stats-empty">Loading…</div>';
+  try {
+    const r = await fetch('/api/flows/' + FLOW_ID + '/stats');
+    const data = await r.json();
+    if (data.success) {
+      renderStats(data.steps);
+    } else {
+      document.getElementById('statsBody').innerHTML = '<div class="stats-empty">' + (data.error || 'Could not load stats') + '</div>';
+    }
+  } catch (e) {
+    document.getElementById('statsBody').innerHTML = '<div class="stats-empty">Network error</div>';
+  }
+}
+
+function closeStatsPanel() {
+  document.getElementById('statsPanel').classList.remove('open');
+}
+
+function renderStats(steps) {
+  const body = document.getElementById('statsBody');
+  if (!steps.length) {
+    body.innerHTML = '<div class="stats-empty">No steps yet — build and save the flow first.</div>';
+    return;
+  }
+  body.innerHTML = steps.map(s => {
+    const m = NODE_META[s.step_type] || {title: s.step_type, icon: 'fas fa-circle'};
+    let html = '<div class="stats-card">' +
+      '<div class="stats-card-head"><i class="' + m.icon + '" style="color:var(--text-dim);font-size:0.75rem;"></i>' +
+      '<span>' + m.title + '</span></div>' +
+      '<div class="stats-row"><span>Currently here</span><span class="val">' + s.currently_at + '</span></div>' +
+      '<div class="stats-row"><span>Reached this step</span><span class="val">' + s.passed_through + '</span></div>';
+    if (s.step_type === 'send_message') {
+      html += '<div class="stats-row"><span>Sent</span><span class="val">' + s.sent + '</span></div>' +
+        statBar('Delivered', s.delivered_rate) +
+        statBar('Read', s.read_rate) +
+        statBar('Replied', s.reply_rate);
+    }
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+function statBar(label, pct) {
+  return '<div class="stats-row"><span>' + label + '</span><span class="val">' + pct + '%</span></div>' +
+    '<div class="stats-bar-track"><div class="stats-bar-fill" style="width:' + pct + '%"></div></div>';
+}
+
+// ── Re-enroll toggle ─────────────────────────────────────────────────────────
+async function toggleReenroll(checked) {
+  try {
+    const r = await fetch('/api/flows/' + FLOW_ID + '/settings', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({allow_reenroll: checked})
+    });
+    const data = await r.json();
+    if (data.success) {
+      showToast(checked ? 'Re-enrollment on' : 'Re-enrollment off', 'ok');
+    } else {
+      showToast(data.error || 'Update failed', 'err');
+      document.getElementById('allowReenrollToggle').checked = !checked;
+    }
+  } catch(e) {
+    showToast('Network error', 'err');
+    document.getElementById('allowReenrollToggle').checked = !checked;
+  }
 }
 
 // ── Load saved canvas ─────────────────────────────────────────────────────────
