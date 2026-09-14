@@ -538,6 +538,7 @@ const CTX_KEYS_BY_TRIGGER = {
   fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number'],
   abandoned_cart:     ['first_name','items','total','cart_url'],
   order_cancelled:    ['first_name','order_number','items','total'],
+  order_refunded:     ['first_name','order_number','items','total'],
   customer_created:   ['first_name','email','phone'],
 };
 function _availableCtxKeys() {
@@ -563,7 +564,7 @@ const NODE_META = {
 
 function nodeDesc(type, data) {
   if (type === 'trigger') {
-    const m = {order_confirmation:'Order Placed',fulfillment:'Dispatched',abandoned_cart:'Abandoned Cart',order_cancelled:'Order Cancelled',customer_created:'New Customer',manual:'Manual'};
+    const m = {order_confirmation:'Order Placed',fulfillment:'Dispatched',abandoned_cart:'Abandoned Cart',order_cancelled:'Order Cancelled',order_refunded:'Order Refunded',customer_created:'New Customer',manual:'Manual'};
     return m[data.trigger_type || TRIG_TYPE] || 'Trigger';
   }
   if (type === 'send_message') return data.template_name ? data.template_name : '<em style="color:var(--text-dim)">No template set</em>';
@@ -651,7 +652,7 @@ function closeConfigPanel() {
 
 function buildConfigForm(type, data) {
   if (type === 'trigger') {
-    const labels = {order_confirmation:'Order Placed (Shopify)',fulfillment:'Order Dispatched (Shopify)',abandoned_cart:'Abandoned Cart',order_cancelled:'Order Cancelled (Shopify)',customer_created:'New Customer (Shopify)',manual:'Manual Enrollment'};
+    const labels = {order_confirmation:'Order Placed (Shopify)',fulfillment:'Order Dispatched (Shopify)',abandoned_cart:'Abandoned Cart',order_cancelled:'Order Cancelled (Shopify)',order_refunded:'Order Refunded (Shopify)',customer_created:'New Customer (Shopify)',manual:'Manual Enrollment'};
     return '<div class="config-field"><label class="form-label">Trigger</label>' +
       '<div style="padding:0.5rem 0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:0.84rem;color:var(--gold-dark);font-weight:500;">' +
       '<i class="fas fa-bolt me-2"></i>' + (labels[data.trigger_type] || data.trigger_type) + '</div>' +

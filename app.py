@@ -1757,6 +1757,35 @@ def api_create_flow():
     return jsonify({'success': True, 'flow_id': flow_id})
 
 
+@app.route("/api/flows/<int:flow_id>/upload-header-image", methods=["POST"])
+@login_required
+def api_flow_upload_header_image(flow_id):
+    """Store an image for a send_message step's 'upload' header source. The
+    raw bytes are kept in the DB (not just re-uploaded to WhatsApp once) --
+    see the flow_header_images comment in utils/database.py for why."""
+    flow = db.get_flow(flow_id)
+    if not flow or str(flow['user_id']) != str(current_user.id):
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+
+    image_file = request.files.get('image')
+    if not image_file or not image_file.filename:
+        return jsonify({'success': False, 'error': 'No image provided'}), 400
+
+    content_type = image_file.content_type or 'image/jpeg'
+    if content_type not in ('image/jpeg', 'image/png'):
+        return jsonify({'success': False, 'error': 'Only JPEG or PNG images are supported'}), 400
+
+    image_bytes = image_file.read()
+    # WhatsApp's Media API caps JPEG/PNG uploads at 5MB.
+    if len(image_bytes) > 5 * 1024 * 1024:
+        return jsonify({'success': False, 'error': 'Image too large -- max 5MB'}), 400
+    if not image_bytes:
+        return jsonify({'success': False, 'error': 'Empty file'}), 400
+
+    ref_id = db.save_flow_header_image(flow_id, image_bytes, content_type, image_file.filename)
+    return jsonify({'success': True, 'ref_id': ref_id, 'filename': image_file.filename})
+
+
 @app.route("/api/flows/<int:flow_id>/save", methods=["POST"])
 @login_required
 def api_save_flow(flow_id):
@@ -3361,10 +3390,89 @@ def shopify_order_cancelled():
             logger.warning("⚠️ Order cancellation webhook has no phone — skipping flow enrollment")
 
         return jsonify({"status": "ok"}), 200
-
     except Exception as e:
         logger.error(f"❌ Error processing order cancellation webhook: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shopify/webhook/order-refunded", methods=["POST"])
+def shopify_order_refunded():
+    """Handle Shopify refunds/create webhook (refund event).
+    Refunds webhook payload only contains refund object with order_id reference.
+    Must look up full order in DB to get customer phone/name for flow enrollment."""
+    try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        data = request.json
+        topic = request.headers.get('X-Shopify-Topic', '')
+        logger.info(f"💰 Refund webhook received (topic: {topic})")
+
+        user_id = _get_webhook_user_id()
+        if not user_id:
+            return jsonify({"status": "ok"}), 200
+
+        # Refunds/create payload has order_id reference, not full order object
+        order_id = data.get('order_id')
+        if not order_id:
+            logger.warning("⚠️ Refund webhook missing order_id — skipping enrollment")
+            return jsonify({"status": "ok"}), 200
+
+        # Look up the order in shopify_orders table
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM shopify_orders WHERE shopify_order_id = ?',
+                (str(order_id),)
+            )
+            order_record = cursor.fetchone()
+
+        if not order_record:
+            logger.warning(f"⚠️ Refund webhook references unknown order {order_id} — skipping enrollment")
+            return jsonify({"status": "ok"}), 200
+
+        order_record = dict(order_record)
+        phone = order_record.get('customer_phone')
+
+        if phone:
+            phone_e164 = _normalize_phone_webhook(phone)
+            if phone_e164:
+                # Enroll in any active flows for order_refunded trigger
+                active_flows = db.get_active_flows_by_trigger(user_id, 'order_refunded')
+                if active_flows:
+                    # Build context from the stored order record, enhanced with refund data
+                    ctx_data = {
+                        'customer': {
+                            'first_name': order_record.get('customer_email', '').split('@')[0] if order_record.get('customer_email') else '',
+                            'email': order_record.get('customer_email', ''),
+                            'phone': phone
+                        },
+                        'order_number': order_record.get('order_number', ''),
+                        'total_price': order_record.get('total_price', ''),
+                        'line_items': [],
+                        'refund': data
+                    }
+                    # Try to parse stored order_items
+                    try:
+                        if order_record.get('order_items'):
+                            ctx_data['line_items'] = json.loads(order_record['order_items'])
+                    except Exception:
+                        pass
+
+                    ctx = build_trigger_context('order_refunded', ctx_data)
+                    for flow in active_flows:
+                        first_step = get_flow_first_step_key(db, flow['id'])
+                        if first_step:
+                            flow_enroll_participant(db, flow['id'], phone_e164, ctx, first_step)
+                    logger.info(f"Enrolled {phone_e164} in {len(active_flows)} order_refunded flow(s)")
+        else:
+            logger.warning("⚠️ Refund webhook order has no phone — skipping flow enrollment")
+
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logger.error(f"Error handling refund webhook: {e}", exc_info=True)
+        return jsonify({"status": "ok"}), 200
 
 
 @app.route("/shopify/webhook/customer-created", methods=["POST"])

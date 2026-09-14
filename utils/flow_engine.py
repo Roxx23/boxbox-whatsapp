@@ -98,7 +98,7 @@ def _format_currency(value):
 def build_trigger_context(trigger_type, data):
     """Build context dict from Shopify webhook payload for a given trigger type."""
     ctx = {}
-    if trigger_type in ('order_confirmation', 'fulfillment', 'order_cancelled'):
+    if trigger_type in ('order_confirmation', 'fulfillment', 'order_cancelled', 'order_refunded'):
         customer = data.get('customer') or {}
         ctx['first_name'] = customer.get('first_name') or customer.get('email', '').split('@')[0]
         raw_num = str(data.get('order_number', ''))
