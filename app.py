@@ -1757,35 +1757,6 @@ def api_create_flow():
     return jsonify({'success': True, 'flow_id': flow_id})
 
 
-@app.route("/api/flows/<int:flow_id>/upload-header-image", methods=["POST"])
-@login_required
-def api_flow_upload_header_image(flow_id):
-    """Store an image for a send_message step's 'upload' header source. The
-    raw bytes are kept in the DB (not just re-uploaded to WhatsApp once) --
-    see the flow_header_images comment in utils/database.py for why."""
-    flow = db.get_flow(flow_id)
-    if not flow or str(flow['user_id']) != str(current_user.id):
-        return jsonify({'success': False, 'error': 'Not found'}), 404
-
-    image_file = request.files.get('image')
-    if not image_file or not image_file.filename:
-        return jsonify({'success': False, 'error': 'No image provided'}), 400
-
-    content_type = image_file.content_type or 'image/jpeg'
-    if content_type not in ('image/jpeg', 'image/png'):
-        return jsonify({'success': False, 'error': 'Only JPEG or PNG images are supported'}), 400
-
-    image_bytes = image_file.read()
-    # WhatsApp's Media API caps JPEG/PNG uploads at 5MB.
-    if len(image_bytes) > 5 * 1024 * 1024:
-        return jsonify({'success': False, 'error': 'Image too large -- max 5MB'}), 400
-    if not image_bytes:
-        return jsonify({'success': False, 'error': 'Empty file'}), 400
-
-    ref_id = db.save_flow_header_image(flow_id, image_bytes, content_type, image_file.filename)
-    return jsonify({'success': True, 'ref_id': ref_id, 'filename': image_file.filename})
-
-
 @app.route("/api/flows/<int:flow_id>/save", methods=["POST"])
 @login_required
 def api_save_flow(flow_id):
