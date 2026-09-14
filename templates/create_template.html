@@ -423,9 +423,23 @@ function updateButtonRowFields() {
     if (type === 'CATALOG') hasCatalog = true;
 
     const fields = BUTTON_TYPE_FIELDS[type] || BUTTON_TYPE_FIELDS[''];
+
+    // A still-untouched CATALOG auto-fill ("View catalog") shouldn't linger
+    // as if the user had typed it themselves when they switch to a
+    // different text-taking type -- clear it. The dataset marker is cleared
+    // on any real keystroke (see the input listener below), so a
+    // deliberately-typed "View catalog" on another type is left alone.
+    if (type !== 'CATALOG' && textInput.dataset.catalogDefault === '1') {
+      textInput.value = '';
+      delete textInput.dataset.catalogDefault;
+    }
+
     textInput.disabled = !fields.text;
     textInput.style.display = fields.text ? '' : 'none';
-    if (fields.textDefault && !textInput.value) textInput.value = fields.textDefault;
+    if (fields.textDefault && !textInput.value) {
+      textInput.value = fields.textDefault;
+      textInput.dataset.catalogDefault = '1';
+    }
     if (!fields.text) textInput.value = '';
 
     valueInput.disabled = !fields.value;
@@ -516,7 +530,10 @@ document.addEventListener('DOMContentLoaded', () => {
   updateButtonRowFields();
   updatePreview();
   const form = document.getElementById('templateForm');
-  form.addEventListener('input', updatePreview);
+  form.addEventListener('input', e => {
+    if (e.target.name && e.target.name.startsWith('button_text_')) delete e.target.dataset.catalogDefault;
+    updatePreview();
+  });
   form.addEventListener('change', e => {
     if (e.target.name && e.target.name.startsWith('button_type_')) updateButtonRowFields();
     updatePreview();
