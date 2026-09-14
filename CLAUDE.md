@@ -219,9 +219,10 @@ Settings page at `/automation`. Three event types, each with enable/disable togg
 | `orders/create` | `/shopify/webhook/order-create` | `shopify_order_create()` |
 | `orders/fulfilled` OR `fulfillments/create` | `/shopify/webhook/fulfillment` | `shopify_fulfillment()` |
 | `orders/cancelled` | `/shopify/webhook/order-cancelled` | `shopify_order_cancelled()` |
+| `refunds/create` | `/shopify/webhook/order-refunded` | `shopify_order_refunded()` |
 | `customers/create` | `/shopify/webhook/customer-created` | `shopify_customer_created()` |
 
-Register all five in Shopify Admin → Settings → Notifications → Webhooks, pointed at `internal.boxbox.in`. The first three are used by the **Automation System** (described below); the last two are used by **Flows** triggers (`order_cancelled`, `customer_created`).
+Register all six in Shopify Admin → Settings → Notifications → Webhooks, pointed at `internal.boxbox.in`. The first three are used by the **Automation System** (described below); the last three are used by **Flows** triggers (`order_cancelled`, `order_refunded`, `customer_created`).
 
 ### Automation Event Types
 
