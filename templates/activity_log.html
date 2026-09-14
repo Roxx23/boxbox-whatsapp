@@ -54,7 +54,7 @@
         <div class="timeline-details">{{ activity.details }}</div>
         {% endif %}
         <div class="timeline-meta">
-          <span><i class="fas fa-clock me-1"></i>{{ activity.timestamp }}</span>
+          <span><i class="fas fa-clock me-1"></i>{{ activity.timestamp | ist_time }}</span>
           {% if activity.ip_address %}
           <span><i class="fas fa-globe me-1"></i>{{ activity.ip_address }}</span>
           {% endif %}
