@@ -1342,14 +1342,40 @@ class Database:
 
     # Order Methods
     def add_order(self, user_id, order_data):
-        """Add or update order"""
+        """Add or update order.
+
+        A real upsert (ON CONFLICT DO UPDATE), not INSERT OR REPLACE -- REPLACE
+        deletes the old row and inserts a fresh one on a shopify_order_id
+        conflict, silently resetting every column NOT in the write list to its
+        default. order-create and fulfillment webhooks both call this for the
+        SAME order, so REPLACE was wiping confirmation_sent/confirmation_sent_at
+        (and fulfillment_sent/fulfillment_sent_at, tracking_url/tracking_number/
+        tracking_company/order_status_url, created_at) back to blank on every
+        re-save, and handing the row a brand new id. Explicitly list only the
+        fields a re-save should actually change; everything else -- including
+        the flags the flow condition step and confirmation/tracking lookups
+        depend on -- survives untouched.
+        """
+        now = datetime.now().isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT OR REPLACE INTO shopify_orders 
-                (user_id, shopify_order_id, order_number, customer_id, customer_email, 
-                 customer_phone, total_price, currency, financial_status, fulfillment_status, order_items)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO shopify_orders
+                (user_id, shopify_order_id, order_number, customer_id, customer_email,
+                 customer_phone, total_price, currency, financial_status, fulfillment_status,
+                 order_items, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(shopify_order_id) DO UPDATE SET
+                    order_number = excluded.order_number,
+                    customer_id = excluded.customer_id,
+                    customer_email = excluded.customer_email,
+                    customer_phone = excluded.customer_phone,
+                    total_price = excluded.total_price,
+                    currency = excluded.currency,
+                    financial_status = excluded.financial_status,
+                    fulfillment_status = excluded.fulfillment_status,
+                    order_items = excluded.order_items,
+                    updated_at = excluded.updated_at
             ''', (
                 user_id,
                 order_data.get('id'),
@@ -1361,9 +1387,19 @@ class Database:
                 order_data.get('currency'),
                 order_data.get('financial_status'),
                 order_data.get('fulfillment_status'),
-                json.dumps(order_data.get('line_items', []))
+                json.dumps(order_data.get('line_items', [])),
+                now
             ))
-            return cursor.lastrowid
+            # cursor.lastrowid is unreliable here -- SQLite only guarantees it
+            # reflects the most recent actual INSERT, and can return a stale
+            # rowid from an earlier statement when this upsert takes the
+            # DO UPDATE path (verified empirically). Look the id up explicitly.
+            cursor.execute(
+                'SELECT id FROM shopify_orders WHERE shopify_order_id = ?',
+                (order_data.get('id'),)
+            )
+            row = cursor.fetchone()
+            return row['id'] if row else None
     
     def get_unsent_order_confirmations(self, user_id):
         """Get orders that haven't received confirmation"""

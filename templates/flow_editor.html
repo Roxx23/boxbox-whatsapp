@@ -679,23 +679,41 @@ function buildConfigForm(type, data) {
       '<div class="config-hint">Wait this many hours before moving to the next step.</div></div>';
   }
   if (type === 'condition') {
-    const opts = [
+    // 'order data' triggers -- see build_trigger_context() in flow_engine.py --
+    // are the only ones that populate a shopify_order_id in participant context,
+    // which 'order_fulfilled' needs to look the order up. Gating it out of the
+    // dropdown for other trigger types (abandoned_cart, customer_created,
+    // manual) prevents a flow owner from configuring a condition that can
+    // structurally never resolve (no order id to look up, ever).
+    const orderTriggers = ['order_confirmation', 'fulfillment', 'order_cancelled', 'order_refunded'];
+    const allConditionOpts = [
       {v:'replied_within_X_hours',l:'Customer replied within N hours'},
       {v:'read_within_X_hours',   l:'Customer read message within N hours'},
       {v:'placed_order',          l:'Customer placed an order'},
-    ].map(o => '<option value="' + o.v + '"' + (data.condition_type===o.v?' selected':'') + '>' + o.l + '</option>').join('');
-    const hoursBlock = data.condition_type !== 'placed_order'
+      {v:'order_fulfilled',       l:'Order has shipped'},
+    ];
+    const opts = allConditionOpts
+      .filter(o => o.v !== 'order_fulfilled' || orderTriggers.includes(TRIG_TYPE))
+      .map(o => '<option value="' + o.v + '"' + (data.condition_type===o.v?' selected':'') + '>' + o.l + '</option>').join('');
+    // Both placed_order and order_fulfilled check once, the instant the flow
+    // reaches this step -- no time window to configure, unlike the other two.
+    const CHECK_ONCE_TYPES = ['placed_order', 'order_fulfilled'];
+    const isCheckOnce = CHECK_ONCE_TYPES.includes(data.condition_type);
+    const hoursBlock = !isCheckOnce
       ? '<div class="config-field"><label class="form-label">Time window (hours)</label>' +
         '<input id="cfg_hours" type="number" min="1" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
         '</div>' : '';
-    const placedOrderHint = '<div class="config-field" id="placedOrderHint" style="' +
-      (data.condition_type === 'placed_order' ? '' : 'display:none;') + '">' +
+    const checkOnceHintText = data.condition_type === 'order_fulfilled'
+      ? 'This checks once, the instant the flow reaches this step — it does not keep re-checking over a window. Pair it with a Wait step before it (e.g. Wait 4 days, then check) so there\'s been time for the order to actually ship.'
+      : 'This checks once, the instant the flow reaches this step — unlike the other two conditions, it does not keep re-checking over a window. Right after enrollment, the customer almost certainly hasn\'t placed a new order yet, so this will usually evaluate No unless a Wait step runs first.';
+    const checkOnceHint = '<div class="config-field" id="checkOnceHint" style="' +
+      (isCheckOnce ? '' : 'display:none;') + '">' +
       '<div style="padding:0.6rem 0.75rem;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;font-size:0.8rem;color:#B45309;">' +
-      '<i class="fas fa-triangle-exclamation me-1"></i>This checks once, the instant the flow reaches this step — unlike the other two conditions, it does not keep re-checking over a window. Right after enrollment, the customer almost certainly hasn\'t placed a new order yet, so this will usually evaluate No unless a Wait step runs first.</div></div>';
+      '<i class="fas fa-triangle-exclamation me-1"></i>' + checkOnceHintText + '</div></div>';
     return '<div class="config-field"><label class="form-label">Condition</label>' +
       '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this);applyConfig()">' + opts + '</select>' +
       '<div class="config-hint">Output <strong style="color:#059669;">Yes</strong> if condition is met, <strong style="color:#DC2626;">No</strong> otherwise.</div>' +
-      '</div>' + hoursBlock + placedOrderHint;
+      '</div>' + hoursBlock + checkOnceHint;
   }
   if (type === 'send_message') {
     const tplOpts = WA_TEMPLATES.map(t =>
@@ -730,13 +748,21 @@ function buildConfigForm(type, data) {
 }
 
 function onConditionChange(sel) {
+  const isCheckOnce = sel.value === 'placed_order' || sel.value === 'order_fulfilled';
   const hoursField = document.querySelector('#cfg_hours');
   if (hoursField) {
     const wrap = hoursField.closest('.config-field');
-    if (wrap) wrap.style.display = sel.value === 'placed_order' ? 'none' : '';
+    if (wrap) wrap.style.display = isCheckOnce ? 'none' : '';
   }
-  const hint = document.getElementById('placedOrderHint');
-  if (hint) hint.style.display = sel.value === 'placed_order' ? '' : 'none';
+  const hint = document.getElementById('checkOnceHint');
+  if (hint) hint.style.display = isCheckOnce ? '' : 'none';
+  // The hint's wording differs per type (placed_order vs order_fulfilled) --
+  // buildConfigForm() only sets it once at initial render, so re-derive the
+  // full panel HTML on a type switch rather than trying to patch just the text.
+  const node = editor.getNodeFromId(_selId);
+  if (node) {
+    document.getElementById('configBody').innerHTML = buildConfigForm('condition', {...node.data, condition_type: sel.value});
+  }
 }
 
 // Approved language variants for a given template name, from the server-provided
