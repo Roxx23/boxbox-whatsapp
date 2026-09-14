@@ -959,13 +959,23 @@ class Database:
     
     # Activity Log Methods
     def log_activity(self, user_id, username, action, details=None, ip_address=None):
-        """Log user activity"""
+        """Log user activity.
+
+        Writes an explicit datetime.now().isoformat() timestamp rather than
+        relying on the column's DEFAULT CURRENT_TIMESTAMP -- SQLite's
+        CURRENT_TIMESTAMP is hardcoded UTC regardless of the OS timezone
+        (verified: it doesn't shift even on a server whose OS clock is
+        genuinely IST), unlike every other server-local timestamp in this
+        app written via datetime.now(). Matches the write pattern already
+        used for inbox_messages/messages so the ist_time display filter
+        (reformat-only, no arithmetic) is safe to apply here too.
+        """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO activity_log (user_id, username, action, details, ip_address)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, username, action, details, ip_address))
+                INSERT INTO activity_log (user_id, username, action, details, ip_address, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, username, action, details, ip_address, datetime.now().isoformat()))
     
     def get_user_activity(self, user_id, limit=50):
         """Get user activity log"""
@@ -1733,16 +1743,20 @@ class Database:
                 ''')
             stats['scheduled_campaigns'] = cursor.fetchone()['count']
             
-            # Recent activity
+            # Recent activity. activity_log.timestamp is now written as
+            # server-local time (see log_activity()), so the comparison must
+            # use SQLite's 'localtime' modifier too -- plain datetime('now', ...)
+            # is UTC and would skew this by the server's UTC offset (was
+            # harmless before since both sides were UTC; not anymore).
             if user_id:
                 cursor.execute('''
-                    SELECT COUNT(*) as count FROM activity_log 
-                    WHERE user_id = ? AND timestamp > datetime('now', '-24 hours')
+                    SELECT COUNT(*) as count FROM activity_log
+                    WHERE user_id = ? AND timestamp > datetime('now', '-24 hours', 'localtime')
                 ''', (user_id,))
             else:
                 cursor.execute('''
-                    SELECT COUNT(*) as count FROM activity_log 
-                    WHERE timestamp > datetime('now', '-24 hours')
+                    SELECT COUNT(*) as count FROM activity_log
+                    WHERE timestamp > datetime('now', '-24 hours', 'localtime')
                 ''')
             stats['recent_activity'] = cursor.fetchone()['count']
             
