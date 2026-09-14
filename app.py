@@ -3324,6 +3324,91 @@ def shopify_fulfillment():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/shopify/webhook/order-cancelled", methods=["POST"])
+def shopify_order_cancelled():
+    """Handle Shopify order cancellation webhook (orders/cancelled topic).
+    Can also handle refunds/create, which indicates order was refunded/cancelled."""
+    try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        data = request.json
+        topic = request.headers.get('X-Shopify-Topic', '')
+        logger.info(f"❌ Order cancelled webhook received (topic: {topic})")
+
+        phone = (data.get('phone')
+                 or (data.get('customer') or {}).get('phone')
+                 or (data.get('billing_address') or {}).get('phone'))
+
+        user_id = _get_webhook_user_id()
+        if not user_id:
+            return jsonify({"status": "ok"}), 200
+
+        if phone:
+            phone_e164 = _normalize_phone_webhook(phone)
+            if phone_e164:
+                # Enroll in any active flows for order_cancelled trigger
+                active_flows = db.get_active_flows_by_trigger(user_id, 'order_cancelled')
+                if active_flows:
+                    ctx = build_trigger_context('order_cancelled', data)
+                    for flow in active_flows:
+                        first_step = get_flow_first_step_key(db, flow['id'])
+                        if first_step:
+                            flow_enroll_participant(db, flow['id'], phone_e164, ctx, first_step)
+                    logger.info(f"Enrolled {phone_e164} in {len(active_flows)} order_cancelled flow(s)")
+        else:
+            logger.warning("⚠️ Order cancellation webhook has no phone — skipping flow enrollment")
+
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error processing order cancellation webhook: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shopify/webhook/customer-created", methods=["POST"])
+def shopify_customer_created():
+    """Handle Shopify customer creation webhook (customers/create topic).
+    Enrolls customer in welcome/new customer flows."""
+    try:
+        raw_data = request.get_data()
+        if not _verify_shopify_hmac(raw_data, request.headers.get('X-Shopify-Hmac-Sha256', '')):
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        data = request.json
+        topic = request.headers.get('X-Shopify-Topic', '')
+        logger.info(f"👤 Customer created webhook received (topic: {topic})")
+
+        phone = data.get('phone')
+        email = data.get('email')
+
+        user_id = _get_webhook_user_id()
+        if not user_id:
+            return jsonify({"status": "ok"}), 200
+
+        if phone:
+            phone_e164 = _normalize_phone_webhook(phone)
+            if phone_e164:
+                # Enroll in any active flows for customer_created trigger
+                active_flows = db.get_active_flows_by_trigger(user_id, 'customer_created')
+                if active_flows:
+                    ctx = build_trigger_context('customer_created', data)
+                    for flow in active_flows:
+                        first_step = get_flow_first_step_key(db, flow['id'])
+                        if first_step:
+                            flow_enroll_participant(db, flow['id'], phone_e164, ctx, first_step)
+                    logger.info(f"Enrolled {phone_e164} in {len(active_flows)} customer_created flow(s)")
+        else:
+            logger.warning(f"⚠️ New customer {email} has no phone — skipping flow enrollment")
+
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error processing customer creation webhook: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 # ============================================================
 # AUTOMATED MESSAGE SENDING
 # ============================================================
