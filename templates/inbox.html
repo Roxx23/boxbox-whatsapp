@@ -30,6 +30,7 @@
   .inbox-row-top {
     display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
   }
+  .inbox-name-wrap { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .inbox-name { font-weight: 600; color: var(--text); font-size: 0.92rem; }
   .inbox-phone { font-family: monospace; font-size: 0.75rem; color: var(--text-dim); margin-left: 0.4rem; }
   .inbox-time { font-size: 0.72rem; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
@@ -78,7 +79,7 @@
       </div>
       <div class="inbox-row-main">
         <div class="inbox-row-top">
-          <div>
+          <div class="inbox-name-wrap">
             <span class="inbox-name">{{ c.customer_name or c.phone }}</span>
             {% if c.customer_name %}<span class="inbox-phone">{{ c.phone }}</span>{% endif %}
           </div>
