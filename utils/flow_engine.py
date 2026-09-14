@@ -258,7 +258,47 @@ def _resolve_header_media_id(participant, config, context):
             return None
         return _upload_media_from_url(media_url, media_type)
 
+    if source == 'upload':
+        # A flow stays active enrolling participants for months, but a WhatsApp
+        # media_id expires long before that -- so a fixed "upload once" image
+        # isn't uploaded to WhatsApp once, it's stored as raw bytes (see
+        # utils/database.py's flow_header_images) and re-uploaded fresh here on
+        # every send, same non-caching approach as the 'auto'/'static' URL paths.
+        ref_id = config.get('header_media_ref_id')
+        if not ref_id:
+            return None
+        image_row = _db.get_flow_header_image(ref_id)
+        if not image_row:
+            logger.warning(
+                f"Flow participant {participant['id']}: uploaded header image "
+                f"(ref {ref_id}) not found — sending without header"
+            )
+            return None
+        from utils.whatsapp import upload_media_from_bytes
+        return upload_media_from_bytes(
+            image_row['image_bytes'], image_row['content_type'], image_row['filename'] or 'header.jpg'
+        )
+
     return _upload_media_from_url(config.get('header_media_url'), media_type)
+
+
+def _resolve_button_param(entry, context):
+    """A button_params entry is either a plain string (the original format --
+    always a context key to look up) or the newer {'source':'context','key':..}
+    / {'source':'static','value':..} shape, which lets a button (currently only
+    COPY_CODE, from the flow editor) carry a fixed value instead of always
+    being mapped from participant context. Returns (resolved_value, ctx_key)
+    -- ctx_key is None for a static value, so callers can tell "this is a
+    context mapping that happened to resolve blank" apart from "this is just
+    a literal the flow owner typed".
+    """
+    if isinstance(entry, dict):
+        if entry.get('source') == 'static':
+            return entry.get('value', ''), None
+        ctx_key = entry.get('key', '')
+        return context.get(ctx_key, ''), ctx_key
+    # Legacy flat-string format: the entry itself is the context key.
+    return context.get(entry, ''), entry
 
 
 def _execute_send_message(participant, step, config):
@@ -277,8 +317,8 @@ def _execute_send_message(participant, step, config):
         params = []
 
     button_params = {}
-    for btn_key, ctx_key in config.get('button_params', {}).items():
-        button_params[btn_key] = context.get(ctx_key, '')
+    for btn_key, entry in config.get('button_params', {}).items():
+        button_params[btn_key], _ = _resolve_button_param(entry, context)
 
     header_param = None
     header_ctx_key = config.get('header_param')
@@ -306,8 +346,9 @@ def _execute_send_message(participant, step, config):
         ctx_key = param_map.get(str(i + 1), '')
         if ctx_key and not context.get(ctx_key):
             blank_mappings.append(f"body {{{{{i + 1}}}}}->'{ctx_key}'")
-    for btn_key, ctx_key in config.get('button_params', {}).items():
-        if ctx_key and not context.get(ctx_key):
+    for btn_key, entry in config.get('button_params', {}).items():
+        value, ctx_key = _resolve_button_param(entry, context)
+        if ctx_key and not value:
             blank_mappings.append(f"button '{btn_key}'->'{ctx_key}'")
     if header_ctx_key and not context.get(header_ctx_key):
         blank_mappings.append(f"header->'{header_ctx_key}'")

@@ -294,6 +294,15 @@
   color: var(--gold-dark); background: rgba(37,211,102,0.08);
   padding: 2px 6px; border-radius: 4px; white-space: nowrap;
 }
+.param-map-row-copycode {
+  flex-direction: column; align-items: stretch; gap: 0.35rem;
+}
+.btn-source-toggle {
+  display: flex; gap: 0.9rem; font-size: 0.75rem; color: var(--text-muted);
+}
+.btn-source-toggle label {
+  display: flex; align-items: center; gap: 0.3rem; cursor: pointer; margin: 0;
+}
 .btn-apply {
   width: 100%; padding: 0.5rem;
   background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
@@ -617,7 +626,7 @@ function defaultData(type) {
   if (type === 'trigger')      return {trigger_type: TRIG_TYPE};
   if (type === 'wait')         return {hours: 24};
   if (type === 'condition')    return {condition_type: 'replied_within_X_hours', hours: 24};
-  if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', header_media_type:'', header_media_source:'', header_media_url:'', param_map:{}, button_params:{}};
+  if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', header_media_type:'', header_media_source:'', header_media_url:'', header_media_ref_id:'', header_media_ref_name:'', param_map:{}, button_params:{}};
   return {};
 }
 
@@ -755,7 +764,7 @@ async function onTemplateChange(name) {
   if (!name) {
     rows.innerHTML = '';
     _rebuildHeaderRow({}, false);
-    _rebuildMediaHeaderRow('', '', null);
+    _rebuildMediaHeaderRow('', '', null, '', '');
     _rebuildLocationHeaderWarning(false);
     _rebuildButtonRows({}, []);
     _rebuildLangSelect('', 'en_US');
@@ -767,6 +776,8 @@ async function onTemplateChange(name) {
   const existingHeaderParam = (node&&node.data&&node.data.header_param)||'';
   const existingMediaSource = (node&&node.data&&node.data.header_media_source)||'';
   const existingMediaUrl = (node&&node.data&&node.data.header_media_url)||'';
+  const existingMediaRefId = (node&&node.data&&node.data.header_media_ref_id)||'';
+  const existingMediaRefName = (node&&node.data&&node.data.header_media_ref_name)||'';
   const existingLang = (node&&node.data&&node.data.template_language)||'en_US';
   _rebuildLangSelect(name, existingLang);
   try {
@@ -774,13 +785,13 @@ async function onTemplateChange(name) {
     const info = await r.json();
     _rebuildParamRows((node&&node.data&&node.data.param_map)||{}, name, info.count||0);
     _rebuildHeaderRow(existingHeaderParam, !!info.has_header_param);
-    _rebuildMediaHeaderRow(existingMediaSource, existingMediaUrl, info.header_media_type||null);
+    _rebuildMediaHeaderRow(existingMediaSource, existingMediaUrl, info.header_media_type||null, existingMediaRefId, existingMediaRefName);
     _rebuildLocationHeaderWarning(!!info.header_location);
     _rebuildButtonRows(existingButtonParams, info.buttons||[]);
   } catch(e) {
     _rebuildParamRows({}, name, 0);
     _rebuildHeaderRow(existingHeaderParam, false);
-    _rebuildMediaHeaderRow(existingMediaSource, existingMediaUrl, null);
+    _rebuildMediaHeaderRow(existingMediaSource, existingMediaUrl, null, existingMediaRefId, existingMediaRefName);
     _rebuildLocationHeaderWarning(false);
     _rebuildButtonRows(existingButtonParams, []);
   }
@@ -831,7 +842,7 @@ function _rebuildHeaderRow(existingHeaderParam, hasHeaderParam) {
 
 const MEDIA_TYPE_LABELS = {image: 'image', video: 'video', document: 'document (PDF)'};
 
-function _rebuildMediaHeaderRow(existingSource, existingUrl, mediaType) {
+function _rebuildMediaHeaderRow(existingSource, existingUrl, mediaType, existingRefId, existingRefName) {
   const section = document.getElementById('mediaHeaderSection');
   const label = document.getElementById('mediaHeaderLabel');
   const body = document.getElementById('mediaHeaderBody');
@@ -846,22 +857,30 @@ function _rebuildMediaHeaderRow(existingSource, existingUrl, mediaType) {
   const mediaLabel = MEDIA_TYPE_LABELS[mediaType] || mediaType;
   if (label) label.textContent = 'Header ' + mediaLabel;
 
-  // Only IMAGE has a real 'auto' source (the order's product image) — video and
-  // document headers always use a static URL, so there's no source picker for
-  // them, just the URL field.
+  // Only IMAGE has 'auto' (the order's product image) and 'upload' (one fixed
+  // image sent to every recipient) sources — video and document headers always
+  // use a static URL, so there's no source picker for them, just the URL field.
   if (mediaType === 'image') {
     const source = existingSource || 'auto';
     const hint = TRIG_TYPE === 'manual'
-      ? 'This flow has no order data, so Auto will find nothing to send — use Static for a marketing image.'
-      : 'Auto pulls the first product image from the order. Static always sends the URL you set here.';
+      ? 'This flow has no order data, so Auto will find nothing to send — use Static for a marketing image, or Upload to send one fixed image from your computer.'
+      : 'Auto pulls the first product image from the order. Static always sends the URL you set here. Upload sends one fixed image from your computer to every recipient.';
+    const refName = (existingRefName||'').replace(/"/g,'&quot;');
+    const refId = (existingRefId||'').toString().replace(/"/g,'&quot;');
     body.innerHTML =
       '<select id="cfg_header_media_source" class="form-select form-select-sm mb-2" onchange="onHeaderMediaSourceChange(this)">' +
         '<option value="auto"' + (source==='auto'?' selected':'') + '>Auto — product image from order</option>' +
         '<option value="static"' + (source==='static'?' selected':'') + '>Static image URL</option>' +
+        '<option value="upload"' + (source==='upload'?' selected':'') + '>Upload an image</option>' +
       '</select>' +
       '<input id="cfg_header_media_url" type="text" class="form-control form-control-sm" placeholder="https://…" ' +
         'value="' + (existingUrl||'').replace(/"/g,'&quot;') + '"' +
         (source==='static' ? '' : ' style="display:none;"') + '>' +
+      '<div id="cfg_header_upload_wrap" data-ref-id="' + refId + '" data-ref-name="' + refName + '"' +
+        (source==='upload' ? '' : ' style="display:none;"') + '>' +
+        '<input id="cfg_header_upload_file" type="file" accept="image/jpeg,image/png" class="form-control form-control-sm mb-1" onchange="onHeaderImageFileChange(this)">' +
+        '<div id="cfg_header_upload_status" class="config-hint">' + (refName ? ('Currently: ' + refName) : 'No image uploaded yet — pick a JPEG or PNG (max 5MB).') + '</div>' +
+      '</div>' +
       '<div class="config-hint">' + hint + '</div>';
   } else {
     body.innerHTML =
@@ -873,8 +892,38 @@ function _rebuildMediaHeaderRow(existingSource, existingUrl, mediaType) {
 
 function onHeaderMediaSourceChange(sel) {
   const urlInput = document.getElementById('cfg_header_media_url');
+  const uploadWrap = document.getElementById('cfg_header_upload_wrap');
   if (urlInput) urlInput.style.display = sel.value === 'static' ? '' : 'none';
+  if (uploadWrap) uploadWrap.style.display = sel.value === 'upload' ? '' : 'none';
   applyConfig();
+}
+
+async function onHeaderImageFileChange(input) {
+  const file = input.files[0];
+  const statusEl = document.getElementById('cfg_header_upload_status');
+  const wrap = document.getElementById('cfg_header_upload_wrap');
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    if (statusEl) statusEl.textContent = 'Image too large — max 5MB.';
+    input.value = '';
+    return;
+  }
+  if (statusEl) statusEl.textContent = 'Uploading…';
+  const formData = new FormData();
+  formData.append('image', file);
+  try {
+    const r = await fetch('/api/flows/' + FLOW_ID + '/upload-header-image', {method: 'POST', body: formData});
+    const data = await r.json();
+    if (data.success) {
+      if (wrap) { wrap.dataset.refId = data.ref_id; wrap.dataset.refName = data.filename || file.name; }
+      if (statusEl) statusEl.textContent = 'Currently: ' + (data.filename || file.name);
+      applyConfig();
+    } else {
+      if (statusEl) statusEl.textContent = data.error || 'Upload failed';
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Upload failed — network error';
+  }
 }
 
 function _rebuildLocationHeaderWarning(hasLocationHeader) {
@@ -898,16 +947,62 @@ function _rebuildButtonRows(existingButtonParams, buttons) {
   section.style.display = '';
   buttons.forEach(btn => {
     const btnKey = btn.type === 'COPY_CODE' ? 'copy_code' : 'url_index_' + btn.index;
-    const selOpts = _availableCtxKeys().map(k =>
-      '<option value="' + k.v + '"' + (existingButtonParams[btnKey]===k.v?' selected':'') + '>' + k.l + '</option>'
-    ).join('');
-    rows.insertAdjacentHTML('beforeend',
-      '<div class="param-map-row">' +
-      '<span class="param-map-label" title="' + (btn.text||'') + '">' + (btn.type === 'COPY_CODE' ? 'Coupon' : 'URL') + '</span>' +
-      '<select class="form-select form-select-sm" data-button-param="' + btnKey + '">' + selOpts + '</select>' +
-      '</div>'
-    );
+    const existing = existingButtonParams[btnKey];
+
+    if (btn.type === 'COPY_CODE') {
+      // existing is either a legacy plain string (a context key, from before
+      // this toggle existed) or the new {source:'context',key:..} /
+      // {source:'static',value:..} shape.
+      let mode = 'context', ctxVal = '', staticVal = '';
+      if (existing && typeof existing === 'object') {
+        mode = existing.source === 'static' ? 'static' : 'context';
+        ctxVal = existing.key || '';
+        staticVal = existing.value || '';
+      } else if (typeof existing === 'string') {
+        ctxVal = existing;
+      }
+      const selOpts = _availableCtxKeys().map(k =>
+        '<option value="' + k.v + '"' + (ctxVal===k.v?' selected':'') + '>' + k.l + '</option>'
+      ).join('');
+      rows.insertAdjacentHTML('beforeend',
+        '<div class="param-map-row param-map-row-copycode" data-button-key="' + btnKey + '">' +
+        '<span class="param-map-label" title="' + (btn.text||'') + '">Coupon</span>' +
+        '<div class="btn-source-toggle">' +
+          '<label><input type="radio" name="src_' + btnKey + '" value="context"' + (mode==='context'?' checked':'') +
+            ' onchange="onButtonSourceChange(this)"> Map from data</label>' +
+          '<label><input type="radio" name="src_' + btnKey + '" value="static"' + (mode==='static'?' checked':'') +
+            ' onchange="onButtonSourceChange(this)"> Type a fixed code</label>' +
+        '</div>' +
+        '<select class="form-select form-select-sm" data-button-param-context="' + btnKey + '" onchange="applyConfig()"' +
+          (mode==='static' ? ' style="display:none;"' : '') + '>' + selOpts + '</select>' +
+        '<input type="text" class="form-control form-control-sm" data-button-param-static="' + btnKey + '" ' +
+          'placeholder="e.g. SAVE10" value="' + staticVal.replace(/"/g,'&quot;') + '" onchange="applyConfig()"' +
+          (mode==='context' ? ' style="display:none;"' : '') + '>' +
+        '</div>'
+      );
+    } else {
+      const selOpts = _availableCtxKeys().map(k =>
+        '<option value="' + k.v + '"' + (existing===k.v?' selected':'') + '>' + k.l + '</option>'
+      ).join('');
+      rows.insertAdjacentHTML('beforeend',
+        '<div class="param-map-row">' +
+        '<span class="param-map-label" title="' + (btn.text||'') + '">URL</span>' +
+        '<select class="form-select form-select-sm" data-button-param="' + btnKey + '">' + selOpts + '</select>' +
+        '</div>'
+      );
+    }
   });
+}
+
+function onButtonSourceChange(radio) {
+  const row = radio.closest('.param-map-row');
+  if (!row) return;
+  const sel = row.querySelector('[data-button-param-context]');
+  const txt = row.querySelector('[data-button-param-static]');
+  const isStatic = radio.value === 'static';
+  if (sel) sel.style.display = isStatic ? 'none' : '';
+  if (txt) txt.style.display = isStatic ? '' : 'none';
+  applyConfig();
 }
 
 function applyConfig() {
@@ -934,9 +1029,28 @@ function applyConfig() {
     d.header_media_type = document.getElementById('mediaHeaderSection')?.dataset.mediaType || '';
     d.header_media_source = document.getElementById('cfg_header_media_source')?.value || '';
     d.header_media_url = document.getElementById('cfg_header_media_url')?.value || '';
+    const uploadWrap = document.getElementById('cfg_header_upload_wrap');
+    d.header_media_ref_id = uploadWrap ? (uploadWrap.dataset.refId || '') : '';
+    d.header_media_ref_name = uploadWrap ? (uploadWrap.dataset.refName || '') : '';
     d.button_params = {};
     document.querySelectorAll('#buttonParamRows [data-button-param]').forEach(s => {
       if (s.value) d.button_params[s.dataset.buttonParam] = s.value;
+    });
+    // COPY_CODE rows render as a source-toggle (map from context vs a typed
+    // fixed value) instead of a plain select -- serialized as an object so the
+    // backend can tell a literal value apart from a context-key reference. A
+    // plain string in button_params (old flows, or a URL row above) still
+    // means "context key" -- see flow_engine._resolve_button_param.
+    document.querySelectorAll('#buttonParamRows [data-button-key]').forEach(row => {
+      const btnKey = row.dataset.buttonKey;
+      const mode = row.querySelector('input[type=radio]:checked')?.value || 'context';
+      if (mode === 'static') {
+        const val = row.querySelector('[data-button-param-static]')?.value || '';
+        if (val) d.button_params[btnKey] = {source: 'static', value: val};
+      } else {
+        const val = row.querySelector('[data-button-param-context]')?.value || '';
+        if (val) d.button_params[btnKey] = {source: 'context', key: val};
+      }
     });
   }
 

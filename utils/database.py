@@ -359,6 +359,18 @@ class Database:
             ''')
 
             cursor.execute('''
+                CREATE TABLE IF NOT EXISTS flow_header_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flow_id INTEGER NOT NULL,
+                    filename TEXT,
+                    content_type TEXT NOT NULL,
+                    image_bytes BLOB NOT NULL,
+                    uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
+                )
+            ''')
+
+            cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_flow_messages_wamid
                 ON flow_messages(whatsapp_message_id)
             ''')
@@ -1992,6 +2004,33 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM flow_participants WHERE id = ?', (participant_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    # Flow Header Images
+    #
+    # WhatsApp media IDs from the /media upload endpoint expire, but a flow
+    # stays active enrolling new participants for months -- so a "send this
+    # exact image every time" header can't just upload once and cache the
+    # media_id. Instead the raw bytes are stored here (in the DB, so they're
+    # covered by the existing daily whatsapp_dashboard.db backup cron, unlike
+    # a bare uploads/ directory on disk) and re-uploaded fresh to WhatsApp's
+    # media API at send time (see flow_engine._resolve_header_media_id).
+
+    def save_flow_header_image(self, flow_id, image_bytes, content_type, filename):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO flow_header_images (flow_id, filename, content_type, image_bytes, uploaded_at)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (flow_id, filename, content_type, image_bytes, _now_utc())
+            )
+            return cursor.lastrowid
+
+    def get_flow_header_image(self, image_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM flow_header_images WHERE id = ?', (image_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
