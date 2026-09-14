@@ -24,7 +24,17 @@ def start_flow_engine(db, message_queue):
 
 
 def enroll_participant(db, flow_id, phone, context_dict, first_step_key):
-    participant_id = db.enroll_flow_participant(flow_id, phone, context_dict, first_step_key)
+    # A flow's first content step (the trigger's next_yes) can itself be a
+    # 'wait' step -- e.g. Trigger -> Wait 1h -> Send Message. Without this,
+    # enroll_flow_participant() stamped next_action_at as "now" regardless of
+    # step type, so the very first engine pass (fired immediately below, or
+    # the next 15s tick) saw the wait step as already due and skipped straight
+    # past it with zero delay. Compute the real due time the same way
+    # _advance_to_step() does for every later transition, so entering a wait
+    # step behaves identically whether it's the first step or a later one.
+    first_step = db.get_flow_step(flow_id, first_step_key) if first_step_key else None
+    next_action_at = _next_action_at_for_entering(first_step)
+    participant_id = db.enroll_flow_participant(flow_id, phone, context_dict, first_step_key, next_action_at)
     logger.info(f"Flow {flow_id}: enrolled {phone} (participant {participant_id})")
     if participant_id:
         # Fire immediately — don't wait for the 60s engine tick
@@ -177,6 +187,15 @@ def _process_participant(participant):
     if step_type == 'send_message':
         _execute_send_message(participant, step, config)
     elif step_type == 'wait':
+        # _process_participant() can run off the normal due-time cycle -- via
+        # enroll_participant()'s "fire immediately" thread when a flow's first
+        # content step is itself a wait, or via trigger_immediate_recheck().
+        # get_due_flow_participants() (the 15s poll) already filters by
+        # next_action_at, but those off-cycle callers don't, so re-check here:
+        # otherwise landing on a wait step off-cycle advances past it with zero
+        # delay, no matter how far in the future next_action_at is.
+        if participant.get('next_action_at') and participant['next_action_at'] > _now():
+            return
         _advance_to_step(participant, step['next_yes'])
     elif step_type == 'condition':
         _execute_condition(participant, step, config)
@@ -369,8 +388,29 @@ def _execute_condition(participant, step, config):
     else:
         _db.update_participant_next_action(
             participant['id'],
-            (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)).isoformat()
+            (datetime.now(timezone.utc) + timedelta(minutes=15)).strftime('%Y-%m-%dT%H:%M:%S')
         )
+
+
+def _next_action_at_for_entering(step):
+    """Due time for a participant that is about to be *entered onto* `step`
+    (whether via enrollment or by advancing from a prior step). A 'wait' step
+    needs its hours-delay computed now, at entry time -- not at the point it's
+    later found due, by which time the delay has already elapsed. Uses the
+    same no-microseconds format as _now() so every next_action_at value in the
+    DB compares consistently against SQLite's strftime('%Y-%m-%dT%H:%M:%S',
+    'now') in get_due_flow_participants(), regardless of which code path wrote
+    it (isoformat() includes microseconds and, unlike _now(), was previously
+    used here).
+    """
+    if step and step['step_type'] == 'wait':
+        try:
+            config = json.loads(step['config'] or '{}')
+        except Exception:
+            config = {}
+        hours = int(config.get('hours', 1))
+        return (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S')
+    return _now()
 
 
 def _advance_to_step(participant, next_step_key):
@@ -383,17 +423,7 @@ def _advance_to_step(participant, next_step_key):
         _db.complete_participant(participant['id'])
         return
 
-    try:
-        config = json.loads(next_step['config'] or '{}')
-    except Exception:
-        config = {}
-
-    if next_step['step_type'] == 'wait':
-        hours = int(config.get('hours', 1))
-        next_action_at = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=hours)).isoformat()
-    else:
-        next_action_at = _now()
-
+    next_action_at = _next_action_at_for_entering(next_step)
     _db.update_participant_step(participant['id'], next_step_key, next_action_at)
 
 
