@@ -1889,7 +1889,10 @@ class Database:
 
     # Flow Participants
 
-    def enroll_flow_participant(self, flow_id, phone, context_dict, first_step_key):
+    def enroll_flow_participant(self, flow_id, phone, context_dict, first_step_key, next_action_at):
+        """`next_action_at` is caller-computed (see flow_engine._next_action_at_for_entering)
+        so that landing directly on a 'wait' step at enrollment time delays correctly,
+        the same way advancing onto a 'wait' step mid-flow does."""
         now = _now_utc()
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -1911,7 +1914,7 @@ class Database:
                            SET status='active', current_step_key=?, next_action_at=?,
                                context=?, enrolled_at=?, completed_at=NULL, exit_reason=NULL
                            WHERE id=?''',
-                        (str(first_step_key), now, json.dumps(context_dict), now, existing['id'])
+                        (str(first_step_key), next_action_at, json.dumps(context_dict), now, existing['id'])
                     )
                     return existing['id']
                 else:
@@ -1921,7 +1924,7 @@ class Database:
                 '''INSERT INTO flow_participants
                    (flow_id, phone, current_step_key, next_action_at, context, enrolled_at)
                    VALUES (?, ?, ?, ?, ?, ?)''',
-                (flow_id, phone, str(first_step_key), now, json.dumps(context_dict), now)
+                (flow_id, phone, str(first_step_key), next_action_at, json.dumps(context_dict), now)
             )
             return cursor.lastrowid
 
