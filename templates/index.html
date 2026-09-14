@@ -770,7 +770,11 @@ document.getElementById('template_name').addEventListener('change', function() {
       const templates = {{ templates | tojson }};
       const tObj = templates.find(t => t.name === selected);
       let hasImg  = tObj?.components?.some(c => c.type === 'HEADER' && c.format === 'IMAGE');
-      let hasBtns = data.buttons?.length > 0;
+      // A CATALOG button has no `requires` (no per-recipient config needed) --
+      // exclude it here so it doesn't open an empty "Button Parameters"
+      // section below; it's still sent correctly by send_template()'s own
+      // auto-detection, no UI needed for it.
+      let hasBtns = data.buttons?.some(b => b.requires);
 
       if (hasImg || hasBtns) {
         req = '<div class="alert alert-info" style="font-size:0.82rem;"><strong>Template Requirements:</strong><ul class="mb-0 mt-1" style="padding-left:1.25rem;">';

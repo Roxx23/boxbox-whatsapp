@@ -787,6 +787,16 @@ def template_info():
                         "text": btn_text,
                         "requires": "url_parameter"
                     })
+                elif btn_type == "CATALOG":
+                    # No per-recipient data needed -- WhatsApp fills the catalog
+                    # itself. Reported so callers know it exists (e.g. to avoid
+                    # blocking the template), not because it needs a config row.
+                    buttons.append({
+                        "index": idx,
+                        "type": "CATALOG",
+                        "text": btn_text,
+                        "requires": None
+                    })
 
     return jsonify({"count": count, "buttons": buttons, "has_header_param": has_header_param,
                      "header_media_type": header_media_type, "header_location": header_location})

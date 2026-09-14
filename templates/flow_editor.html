@@ -884,7 +884,11 @@ function _rebuildButtonRows(existingButtonParams, buttons) {
   const rows = document.getElementById('buttonParamRows');
   if (!rows || !section) return;
   rows.innerHTML = '';
-  if (!buttons || !buttons.length) {
+  // CATALOG buttons need no per-recipient config (send_template() adds the
+  // required CATALOG component itself) -- exclude them so they don't fall
+  // through the ternary below and render as a bogus "URL" row.
+  buttons = (buttons || []).filter(btn => btn.requires);
+  if (!buttons.length) {
     section.style.display = 'none';
     return;
   }
