@@ -348,12 +348,38 @@ const MEDIA_HEADER_CONFIG = {
   DOCUMENT: { accept: 'application/pdf',                  maxMB: 100, hint: 'PDF — max 100 MB',            icon: '📄', label: 'Header Document' },
 };
 
+// Tracks which header_type the currently-selected file (if any) was chosen
+// under, so a type switch can clear it -- see clearMediaSelection() below.
+let _lastHeaderType = null;
+
+function clearMediaSelection() {
+  document.getElementById('headerImageFile').value = '';
+  document.getElementById('uploadPrompt').style.display = '';
+  document.getElementById('imagePreview').style.display = 'none';
+  const imgEl = document.getElementById('previewImage');
+  imgEl.src = '';
+  imgEl.style.display = 'none';
+  const iconEl = document.getElementById('previewFileIcon');
+  iconEl.style.display = 'none';
+  document.getElementById('fileName').textContent = '';
+  document.getElementById('imageUploadZone').classList.remove('has-file');
+}
+
 function updateHeaderSection() {
   const val = document.querySelector('input[name="header_type"]:checked').value;
   document.querySelectorAll('.header-type-option').forEach(o => o.classList.remove('active'));
   document.querySelector(`input[value="${val}"]`).closest('.header-type-option').classList.add('active');
   document.getElementById('header_text_section').style.display = val === 'TEXT' ? 'block' : 'none';
   document.getElementById('header_location_section').style.display = val === 'LOCATION' ? 'block' : 'none';
+
+  // A file selected under one media type (or its preview) must never survive
+  // a switch to a different header_type -- otherwise the stale File object
+  // (wrong MIME type, wrong size ceiling already validated against) still
+  // sits in the input and gets uploaded as if it belonged to the new type.
+  if (_lastHeaderType !== null && val !== _lastHeaderType) {
+    clearMediaSelection();
+  }
+  _lastHeaderType = val;
 
   const mediaConfig = MEDIA_HEADER_CONFIG[val];
   const mediaSection = document.getElementById('header_image_section');
