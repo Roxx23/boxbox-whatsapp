@@ -5,7 +5,7 @@
 A Flask web app for sending WhatsApp marketing campaigns to Shopify customers.
 Owner: Abhi (hello@boxbox.in) — single-user, registration is closed.
 
-Live URL: https://dashboard.boxbox.in
+Live URL: https://internal.boxbox.in
 
 ---
 
@@ -95,7 +95,7 @@ max_requests_jitter = 0
 ### Server details
 - **Provider**: AWS Lightsail
 - **IP**: has a static IP (check Lightsail console)
-- **Domain**: `dashboard.boxbox.in` (subdomain of boxbox.in, DNS A record points to static IP)
+- **Domain**: `internal.boxbox.in` (GCP cloud run, migrated from AWS Lightsail)
 - **SSH**: `ssh ubuntu@<static-ip>` with `.pem` key
 - **App dir**: `/home/ubuntu/whatsapp-dashboard`
 - **Service**: `whatsapp-dashboard` (systemd)
@@ -139,7 +139,7 @@ Daily cron job on the server backs up `whatsapp_dashboard.db`. Check with `cront
 ## WhatsApp Integration
 
 - **API**: WhatsApp Cloud API (Meta)
-- **Webhook URL**: `https://dashboard.boxbox.in/webhook`
+- **Webhook URL**: `https://internal.boxbox.in/webhook`
 - **Verify token**: `my_secret_webhook_token_2024` (in `.env` as `WEBHOOK_VERIFY_TOKEN`)
 - **Rate limit**: 1200ms between messages (configurable via `RATE_LIMIT_*` env vars)
 - **Queue status**: `GET /api/queue-status`
@@ -234,7 +234,7 @@ Register all three in Shopify Admin → Settings → Notifications → Webhooks.
 **2. `fulfillment`** — fires on `orders/fulfilled` or `fulfillments/create`
 - Sends immediately when order is marked fulfilled in Shopify
 - Template params: `{{1}}`=first name, `{{2}}`=order# (format: `#F1xxxx`), `{{3}}`=items with size/colour
-- Tracking link goes as a **URL button** (NOT body text): button URL = `https://dashboard.boxbox.in/track/{{1}}` (dynamic, suffix = order number)
+- Tracking link goes as a **URL button** (NOT body text): button URL = `https://internal.boxbox.in/track/{{1}}` (dynamic, suffix = order number)
 - The `/track/<order_ref>` public endpoint does a 302 redirect to the actual courier URL stored in DB
 - Fallback chain for tracking: courier URL from Shopify → `order_status_url` (Shopify order page) → `boxbox.in`
 - **CRITICAL**: Template button must be created as **Dynamic URL** type in WhatsApp Business Manager. If created as Static with literal `{{1}}`, WhatsApp appends the parameter instead of substituting it, causing URLs like `/track/{{1}}4525`

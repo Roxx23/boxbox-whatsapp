@@ -186,23 +186,23 @@
     <p>Go to <strong>Shopify Admin → Settings → Notifications → Webhooks</strong> and add these webhooks:</p>
 
     <div class="webhook-url">
-      <span>https://dashboard.boxbox.in/shopify/webhook/order-create</span>
+      <span>https://internal.boxbox.in/shopify/webhook/order-create</span>
       <span class="topic-badge">orders/create</span>
-      <button class="copy-btn" onclick="copyUrl(this, 'https://dashboard.boxbox.in/shopify/webhook/order-create')" title="Copy">
+      <button class="copy-btn" onclick="copyUrl(this, 'https://internal.boxbox.in/shopify/webhook/order-create')" title="Copy">
         <i class="fas fa-copy"></i>
       </button>
     </div>
     <div class="webhook-url">
-      <span>https://dashboard.boxbox.in/shopify/webhook/fulfillment</span>
+      <span>https://internal.boxbox.in/shopify/webhook/fulfillment</span>
       <span class="topic-badge">orders/fulfilled</span>
-      <button class="copy-btn" onclick="copyUrl(this, 'https://dashboard.boxbox.in/shopify/webhook/fulfillment')" title="Copy">
+      <button class="copy-btn" onclick="copyUrl(this, 'https://internal.boxbox.in/shopify/webhook/fulfillment')" title="Copy">
         <i class="fas fa-copy"></i>
       </button>
     </div>
     <div class="webhook-url">
-      <span>https://dashboard.boxbox.in/shopify/webhook/cart-create</span>
+      <span>https://internal.boxbox.in/shopify/webhook/cart-create</span>
       <span class="topic-badge">checkouts/create</span>
-      <button class="copy-btn" onclick="copyUrl(this, 'https://dashboard.boxbox.in/shopify/webhook/cart-create')" title="Copy">
+      <button class="copy-btn" onclick="copyUrl(this, 'https://internal.boxbox.in/shopify/webhook/cart-create')" title="Copy">
         <i class="fas fa-copy"></i>
       </button>
     </div>
@@ -312,7 +312,7 @@
         <code>{{"{{"}}1{{"}}"}}</code> = Customer first name &nbsp;·&nbsp;
         <code>{{"{{"}}2{{"}}"}}</code> = Order number (e.g. <em>#F14123</em>) &nbsp;·&nbsp;
         <code>{{"{{"}}3{{"}}"}}</code> = Items dispatched with size/colour<br>
-        Add a <strong>URL button</strong> with URL: <code>https://dashboard.boxbox.in/track/{{"{{"}}1{{"}}"}}</code>
+        Add a <strong>URL button</strong> with URL: <code>https://internal.boxbox.in/track/{{"{{"}}1{{"}}"}}</code>
         — this redirects to the actual Shopify courier URL (works for any courier).<br>
         <em>Example body: "Your order {{"{{"}}2{{"}}"}} is on its way, {{"{{"}}1{{"}}"}}! 🚀 Items: {{"{{"}}3{{"}}"}}. Tap to track 👇"</em>
       </div>
