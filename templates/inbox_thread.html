@@ -29,20 +29,27 @@
     color: var(--gold-dark); font-weight: 700; font-size: 0.85rem;
     display: inline-flex; align-items: center; justify-content: center;
   }
-  .thread-name { font-weight: 700; color: var(--text); font-size: 0.92rem; }
-  .thread-phone { font-family: monospace; font-size: 0.76rem; color: var(--text-dim); }
+  .thread-name-wrap { flex: 1; min-width: 0; }
+  .thread-name {
+    font-weight: 700; color: var(--text); font-size: 0.92rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .thread-phone {
+    font-family: monospace; font-size: 0.76rem; color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   .thread-body {
     flex: 1; overflow-y: auto;
     padding: 1.25rem; display: flex; flex-direction: column; gap: 0.6rem;
   }
-  .bubble-row { display: flex; }
+  .bubble-row { display: flex; min-width: 0; }
   .bubble-row.outbound { justify-content: flex-end; }
   .bubble-row.inbound { justify-content: flex-start; }
   .bubble {
-    max-width: 62%; padding: 0.55rem 0.8rem;
+    max-width: 62%; min-width: 0; padding: 0.55rem 0.8rem;
     border-radius: 12px; font-size: 0.86rem; line-height: 1.4;
-    word-wrap: break-word;
+    word-wrap: break-word; overflow-wrap: break-word;
   }
   .bubble.outbound {
     background: linear-gradient(180deg,#2FD96B,#25D366 60%,#1FC95C);
@@ -109,7 +116,7 @@
     <div class="thread-avatar">
       {% if customer and customer.first_name %}{{ customer.first_name[0]|upper }}{% else %}<i class="fas fa-user"></i>{% endif %}
     </div>
-    <div>
+    <div class="thread-name-wrap">
       <div class="thread-name">
         {% if customer %}{{ customer.first_name }} {{ customer.last_name }}{% else %}{{ phone }}{% endif %}
       </div>
