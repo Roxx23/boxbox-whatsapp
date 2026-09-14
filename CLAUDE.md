@@ -5,7 +5,7 @@
 A Flask web app for sending WhatsApp marketing campaigns to Shopify customers.
 Owner: Abhi (hello@boxbox.in) — single-user, registration is closed.
 
-Live URL: https://internal.boxbox.in
+Live URL: https://internal.boxbox.in (migrated from dashboard.boxbox.in -- see Deployment section)
 
 ---
 
@@ -15,7 +15,7 @@ Live URL: https://internal.boxbox.in
 - **Database**: SQLite (`whatsapp_dashboard.db`) — kept intentionally over PostgreSQL (single server, 1 gunicorn worker, no concurrent write issues)
 - **Queue**: In-memory `MessageQueue` (utils/rate_limiter.py) — messages are lost on restart
 - **Auth**: Flask-Login + bcrypt, users stored in `users.json`
-- **Server**: AWS Lightsail $5/month, Ubuntu 22.04, Mumbai region
+- **Server**: GCP (migrated from AWS Lightsail -- exact instance type/region/OS not yet confirmed in this doc; update once known)
 - **Process manager**: systemd (`whatsapp-dashboard.service`)
 - **Reverse proxy**: Nginx → gunicorn on 127.0.0.1:5000
 - **SSL**: Let's Encrypt via certbot
@@ -93,12 +93,11 @@ max_requests_jitter = 0
 ## Deployment
 
 ### Server details
-- **Provider**: AWS Lightsail
-- **IP**: has a static IP (check Lightsail console)
-- **Domain**: `internal.boxbox.in` (GCP cloud run, migrated from AWS Lightsail)
-- **SSH**: `ssh ubuntu@<static-ip>` with `.pem` key
-- **App dir**: `/home/ubuntu/whatsapp-dashboard`
-- **Service**: `whatsapp-dashboard` (systemd)
+- **Provider**: GCP (migrated from AWS Lightsail as of 2026-09-14)
+- **Domain**: `internal.boxbox.in` (subdomain of boxbox.in, replaces `dashboard.boxbox.in` -- publicly reachable HTTPS, confirmed by Abhi)
+- **IP / SSH / instance details**: not yet confirmed for the GCP host -- the AWS Lightsail static-IP SSH details below are stale, do not use them. Update this section once the GCP instance details are known.
+- **App dir**: `/home/ubuntu/whatsapp-dashboard` (unconfirmed on GCP -- verify actual path)
+- **Service**: `whatsapp-dashboard` (systemd -- unconfirmed whether GCP host still uses systemd/nginx/gunicorn or a different setup, e.g. Cloud Run)
 
 ### Deploy an update
 ```bash
@@ -139,7 +138,7 @@ Daily cron job on the server backs up `whatsapp_dashboard.db`. Check with `cront
 ## WhatsApp Integration
 
 - **API**: WhatsApp Cloud API (Meta)
-- **Webhook URL**: `https://internal.boxbox.in/webhook`
+- **Webhook URL**: `https://internal.boxbox.in/webhook` (updated in Meta Business Manager by Abhi after the GCP/domain migration)
 - **Verify token**: `my_secret_webhook_token_2024` (in `.env` as `WEBHOOK_VERIFY_TOKEN`)
 - **Rate limit**: 1200ms between messages (configurable via `RATE_LIMIT_*` env vars)
 - **Queue status**: `GET /api/queue-status`
@@ -219,8 +218,10 @@ Settings page at `/automation`. Three event types, each with enable/disable togg
 | `checkouts/create` | `/shopify/webhook/cart-create` | `shopify_cart_create()` |
 | `orders/create` | `/shopify/webhook/order-create` | `shopify_order_create()` |
 | `orders/fulfilled` OR `fulfillments/create` | `/shopify/webhook/fulfillment` | `shopify_fulfillment()` |
+| `orders/cancelled` | `/shopify/webhook/order-cancelled` | `shopify_order_cancelled()` |
+| `customers/create` | `/shopify/webhook/customer-created` | `shopify_customer_created()` |
 
-Register all three in Shopify Admin → Settings → Notifications → Webhooks.
+Register all five in Shopify Admin → Settings → Notifications → Webhooks, pointed at `internal.boxbox.in`. The first three are used by the **Automation System** (described below); the last two are used by **Flows** triggers (`order_cancelled`, `customer_created`).
 
 ### Automation Event Types
 
