@@ -242,6 +242,9 @@
                 <option value="">None</option>
                 <option value="URL">Visit Website</option>
                 <option value="PHONE_NUMBER">Call Phone</option>
+                <option value="QUICK_REPLY">Quick Reply</option>
+                <option value="COPY_CODE">Copy Offer Code</option>
+                <option value="CATALOG">Open Catalog</option>
               </select>
             </div>
             <div class="col-md-4">
@@ -260,6 +263,9 @@
                 <option value="">None</option>
                 <option value="URL">Visit Website</option>
                 <option value="PHONE_NUMBER">Call Phone</option>
+                <option value="QUICK_REPLY">Quick Reply</option>
+                <option value="COPY_CODE">Copy Offer Code</option>
+                <option value="CATALOG">Open Catalog</option>
               </select>
             </div>
             <div class="col-md-4">
@@ -278,6 +284,9 @@
                 <option value="">None</option>
                 <option value="URL">Visit Website</option>
                 <option value="PHONE_NUMBER">Call Phone</option>
+                <option value="QUICK_REPLY">Quick Reply</option>
+                <option value="COPY_CODE">Copy Offer Code</option>
+                <option value="CATALOG">Open Catalog</option>
               </select>
             </div>
             <div class="col-md-4">
@@ -287,6 +296,9 @@
               <input type="text" name="button_value_3" class="form-control" placeholder="URL or phone number">
             </div>
           </div>
+        </div>
+        <div class="form-text" id="catalogButtonHint" style="display:none;">
+          A Catalog button must be the template's only button, and the template can't have a header.
         </div>
       </div>
 
@@ -384,6 +396,61 @@ function updateVarWarning() {
 }
 document.getElementById('bodyTextInput').addEventListener('input', updateVarWarning);
 
+// ── Per-type button field visibility ──────────────────────────────────────
+// Field requirements vary by button type (mirrors utils/whatsapp.py's
+// create_template()): QUICK_REPLY needs only text, COPY_CODE needs only a
+// sample-code value (Meta fixes its button label), CATALOG needs only text
+// (defaults to "View catalog") and must be the template's sole button with
+// no header. Hides/disables the field a type doesn't use so a disabled
+// input is also excluded from form submission.
+const BUTTON_TYPE_FIELDS = {
+  '':             {text: true,  value: true,  valuePlaceholder: 'URL or phone number'},
+  URL:            {text: true,  value: true,  valuePlaceholder: 'URL or phone number'},
+  PHONE_NUMBER:   {text: true,  value: true,  valuePlaceholder: 'URL or phone number'},
+  QUICK_REPLY:    {text: true,  value: false, valuePlaceholder: ''},
+  COPY_CODE:      {text: false, value: true,  valuePlaceholder: 'Sample code, e.g. SAVE20'},
+  CATALOG:        {text: true,  value: false, valuePlaceholder: '', textDefault: 'View catalog'},
+};
+
+function updateButtonRowFields() {
+  let hasCatalog = false;
+  for (let i = 1; i <= 3; i++) {
+    const select = document.querySelector(`select[name="button_type_${i}"]`);
+    const textInput = document.querySelector(`input[name="button_text_${i}"]`);
+    const valueInput = document.querySelector(`input[name="button_value_${i}"]`);
+    if (!select || !textInput || !valueInput) continue;
+    const type = select.value;
+    if (type === 'CATALOG') hasCatalog = true;
+
+    const fields = BUTTON_TYPE_FIELDS[type] || BUTTON_TYPE_FIELDS[''];
+
+    // A still-untouched CATALOG auto-fill ("View catalog") shouldn't linger
+    // as if the user had typed it themselves when they switch to a
+    // different text-taking type -- clear it. The dataset marker is cleared
+    // on any real keystroke (see the input listener below), so a
+    // deliberately-typed "View catalog" on another type is left alone.
+    if (type !== 'CATALOG' && textInput.dataset.catalogDefault === '1') {
+      textInput.value = '';
+      delete textInput.dataset.catalogDefault;
+    }
+
+    textInput.disabled = !fields.text;
+    textInput.style.display = fields.text ? '' : 'none';
+    if (fields.textDefault && !textInput.value) {
+      textInput.value = fields.textDefault;
+      textInput.dataset.catalogDefault = '1';
+    }
+    if (!fields.text) textInput.value = '';
+
+    valueInput.disabled = !fields.value;
+    valueInput.style.display = fields.value ? '' : 'none';
+    valueInput.placeholder = fields.valuePlaceholder;
+    if (!fields.value) valueInput.value = '';
+  }
+  const hint = document.getElementById('catalogButtonHint');
+  if (hint) hint.style.display = hasCatalog ? '' : 'none';
+}
+
 // ── Live WhatsApp-style preview ──────────────────────────────────────────
 function _escapeHtml(s) {
   const d = document.createElement('div');
@@ -428,14 +495,19 @@ function updatePreview() {
 
   const footerHtml = footerText ? '<div class="wa-footer-text">' + _escapeHtml(footerText) + '</div>' : '';
 
+  const BUTTON_ICONS = {URL: 'fa-arrow-up-right-from-square', PHONE_NUMBER: 'fa-phone',
+    QUICK_REPLY: 'fa-reply', COPY_CODE: 'fa-copy', CATALOG: 'fa-book-open'};
+  const BUTTON_FIXED_LABELS = {COPY_CODE: 'Copy offer code', CATALOG: 'View catalog'};
   let buttonsHtml = '';
   const buttonRows = [];
   for (let i = 1; i <= 3; i++) {
     const type = document.querySelector(`select[name="button_type_${i}"]`)?.value;
+    if (!type) continue;
     const text = document.querySelector(`input[name="button_text_${i}"]`)?.value.trim();
-    if (!type || !text) continue;
-    const icon = type === 'URL' ? 'fa-arrow-up-right-from-square' : 'fa-phone';
-    buttonRows.push('<div class="wa-button-row"><i class="fas ' + icon + '" style="font-size:0.72rem;"></i>' + _escapeHtml(text) + '</div>');
+    const label = text || BUTTON_FIXED_LABELS[type];
+    if (!label) continue;
+    const icon = BUTTON_ICONS[type] || 'fa-circle';
+    buttonRows.push('<div class="wa-button-row"><i class="fas ' + icon + '" style="font-size:0.72rem;"></i>' + _escapeHtml(label) + '</div>');
   }
   if (buttonRows.length) {
     buttonsHtml = '<div class="wa-buttons">' + buttonRows.join('') + '</div>';
@@ -455,10 +527,17 @@ function updatePreview() {
 document.addEventListener('DOMContentLoaded', () => {
   updateHeaderSection();
   updateVarWarning();
+  updateButtonRowFields();
   updatePreview();
   const form = document.getElementById('templateForm');
-  form.addEventListener('input', updatePreview);
-  form.addEventListener('change', updatePreview);
+  form.addEventListener('input', e => {
+    if (e.target.name && e.target.name.startsWith('button_text_')) delete e.target.dataset.catalogDefault;
+    updatePreview();
+  });
+  form.addEventListener('change', e => {
+    if (e.target.name && e.target.name.startsWith('button_type_')) updateButtonRowFields();
+    updatePreview();
+  });
 });
 </script>
 {% endblock %}
