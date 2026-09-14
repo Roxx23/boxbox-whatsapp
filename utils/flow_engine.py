@@ -99,6 +99,13 @@ def build_trigger_context(trigger_type, data):
     """Build context dict from Shopify webhook payload for a given trigger type."""
     ctx = {}
     if trigger_type in ('order_confirmation', 'fulfillment', 'order_cancelled', 'order_refunded'):
+        # Plumbing, not a user-facing template variable -- deliberately left out
+        # of CTX_KEYS_BY_TRIGGER in flow_editor.html. shopify_orders.shopify_order_id
+        # stores this same raw Shopify order id, NOT the '#F1{order_number}'
+        # display format below -- the 'order fulfilled?' condition type looks
+        # orders up by this key, and a naive match against order_number would
+        # silently fail.
+        ctx['shopify_order_id'] = str(data.get('id', ''))
         customer = data.get('customer') or {}
         ctx['first_name'] = customer.get('first_name') or customer.get('email', '').split('@')[0]
         raw_num = str(data.get('order_number', ''))
@@ -426,6 +433,28 @@ def _execute_condition(participant, step, config):
 
     elif condition_type == 'placed_order':
         result = _db.customer_placed_order_since(participant['phone'], participant['enrolled_at'])
+
+    elif condition_type == 'order_fulfilled':
+        # Point-in-time check, same as placed_order -- no hours window. Abhi's
+        # use case (Order Placed -> Wait 4 days -> if NOT dispatched, remind)
+        # already does its waiting in the Wait step; this just asks "is it
+        # fulfilled right now?" once the flow reaches this step.
+        try:
+            context = json.loads(participant['context'] or '{}')
+        except Exception:
+            context = {}
+        shopify_order_id = context.get('shopify_order_id')
+        if shopify_order_id:
+            order = _db.get_order_by_shopify_id(shopify_order_id)
+            if order:
+                result = (order.get('fulfillment_status') == 'fulfilled')
+            # else: order row doesn't exist yet (webhook ordering/timing) --
+            # leave result None so the generic retry-in-15-min path below
+            # gives it a chance to show up, rather than assuming False forever.
+        # else: this flow's trigger type never populated shopify_order_id (not
+        # an order-bearing trigger) -- also leave as not-yet-determinable
+        # rather than crash; the flow owner shouldn't have used this condition
+        # here, but nothing about this state resolves it either way.
 
     if result is True:
         _advance_to_step(participant, step['next_yes'])
