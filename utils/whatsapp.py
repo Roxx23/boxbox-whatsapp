@@ -576,7 +576,14 @@ def create_template(waba_id, template_data, image_file=None):
         })
 
     # Buttons component (optional)
+    # Field requirements vary by type, unlike URL/PHONE_NUMBER which both need
+    # text+value: QUICK_REPLY needs only text (no value); COPY_CODE needs only
+    # a value (Meta fixes its button label to "Copy offer code" -- no text
+    # field at creation time); CATALOG needs only text (conventionally "View
+    # catalog") and, per WhatsApp's restriction, must be the template's ONLY
+    # button, with no HEADER component on the template at all.
     buttons = []
+    has_catalog_button = False
     for i in range(1, 4):
         button_type = template_data.get(f'button_type_{i}')
         button_text = template_data.get(f'button_text_{i}') or ''
@@ -586,10 +593,15 @@ def create_template(waba_id, template_data, image_file=None):
         button_text = button_text.strip() if button_text else ''
         button_value = button_value.strip() if button_value else ''
 
-        if not button_type or not button_text or not button_value:
+        if not button_type:
             continue
 
-        if len(button_text) > _BUTTON_TEXT_MAX:
+        needs_text = button_type in ('URL', 'PHONE_NUMBER', 'QUICK_REPLY', 'CATALOG')
+        needs_value = button_type in ('URL', 'PHONE_NUMBER', 'COPY_CODE')
+        if (needs_text and not button_text) or (needs_value and not button_value):
+            continue
+
+        if button_text and len(button_text) > _BUTTON_TEXT_MAX:
             return 400, {"error": {"message": f"Button {i} text must be {_BUTTON_TEXT_MAX} characters or fewer (got {len(button_text)})"}}
 
         if button_type == 'URL':
@@ -604,19 +616,40 @@ def create_template(waba_id, template_data, image_file=None):
         elif button_type == 'PHONE_NUMBER':
             if not button_value.startswith('+'):
                 return 400, {"error": {"message": f"Button {i} phone must start with + and country code"}}
-            
+
             buttons.append({
                 "type": "PHONE_NUMBER",
                 "text": button_text,
                 "phone_number": button_value
             })
-    
+        elif button_type == 'QUICK_REPLY':
+            buttons.append({
+                "type": "QUICK_REPLY",
+                "text": button_text
+            })
+        elif button_type == 'COPY_CODE':
+            buttons.append({
+                "type": "COPY_CODE",
+                "example": button_value
+            })
+        elif button_type == 'CATALOG':
+            buttons.append({
+                "type": "CATALOG",
+                "text": button_text
+            })
+            has_catalog_button = True
+
+    if has_catalog_button and len(buttons) > 1:
+        return 400, {"error": {"message": "A Catalog button can't be combined with any other button -- WhatsApp requires it to be the template's only button."}}
+    if has_catalog_button and any(c['type'] == 'HEADER' for c in components):
+        return 400, {"error": {"message": "A Catalog button template can't have a header -- remove the header or the Catalog button."}}
+
     if buttons:
         components.append({
             "type": "BUTTONS",
             "buttons": buttons
         })
-    
+
     payload = {
         "name": template_name,
         "language": template_data['language'],
