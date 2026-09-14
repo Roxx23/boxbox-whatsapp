@@ -4,7 +4,13 @@
 
 {% block head %}
 <style>
-  .create-form-wrap { max-width: 720px; margin: 0 auto; }
+  .template-builder-wrap { display: flex; gap: 2rem; align-items: flex-start; max-width: 1080px; margin: 0 auto; }
+  .form-col { flex: 1 1 480px; min-width: 280px; }
+  .preview-col { flex: 0 0 300px; position: sticky; top: 1rem; }
+  @media (max-width: 900px) {
+    .template-builder-wrap { flex-direction: column; }
+    .preview-col { position: static; width: 100%; }
+  }
 
   .section-divider {
     height: 1px;
@@ -44,11 +50,71 @@
   .btn-create:hover { background: var(--gold-light); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(37,211,102,0.35); color: #fff; }
 
   #header_image_section, #header_text_section { display: none; }
+
+  .char-count { font-size: 0.72rem; color: var(--text-dim); float: right; }
+  .char-count.warn { color: #f59e0b; }
+  .char-count.over { color: #f87171; font-weight: 600; }
+
+  .field-warning {
+    display: none; margin-top: 0.4rem; font-size: 0.78rem; color: #f59e0b;
+    background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
+    border-radius: 6px; padding: 0.45rem 0.6rem;
+  }
+
+  .button-row-block + .button-row-block { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); }
+
+  /* ── WhatsApp-style live preview ──────────────────────────────────────
+     Deliberately light-mode / hardcoded colors here, not the dashboard's
+     dark-theme tokens -- this widget's job is to look like the real
+     WhatsApp app (which is light), not to blend with the dashboard chrome. */
+  .wa-preview-shell {
+    background: #e5ddd5;
+    background-image: radial-gradient(rgba(0,0,0,0.02) 1px, transparent 1px);
+    background-size: 14px 14px;
+    border-radius: 16px;
+    padding: 1.25rem 0.85rem;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+  }
+  .wa-preview-label {
+    font-size: 0.72rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.6rem;
+  }
+  .wa-message-card {
+    background: #fff; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+    max-width: 260px; margin-left: auto; margin-right: 0;
+    border-top-right-radius: 2px;
+  }
+  .wa-header-img { width: 100%; max-height: 140px; object-fit: cover; display: block; }
+  .wa-header-img-placeholder {
+    width: 100%; height: 90px; display: flex; align-items: center; justify-content: center;
+    background: #f0f2f5; color: #8696a0; font-size: 1.5rem;
+  }
+  .wa-bubble-body { padding: 0.5rem 0.6rem 0.35rem; }
+  .wa-header-text { font-weight: 700; color: #111b21; font-size: 0.87rem; margin-bottom: 0.2rem; }
+  .wa-body-text { color: #111b21; font-size: 0.855rem; white-space: pre-wrap; word-break: break-word; line-height: 1.35; }
+  .wa-var-fill { background: rgba(37,150,190,0.13); color: #00778a; border-radius: 3px; padding: 0 3px; font-weight: 600; }
+  .wa-footer-text { color: #667781; font-size: 0.74rem; margin-top: 0.3rem; }
+  .wa-timestamp { text-align: right; color: #667781; font-size: 0.68rem; margin-top: 0.25rem; }
+  .wa-buttons { border-top: 1px solid #e9edef; }
+  .wa-button-row {
+    display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+    padding: 0.55rem; color: #00a5f4; font-weight: 500; font-size: 0.8rem;
+    border-top: 1px solid #e9edef;
+  }
+  .wa-button-row:first-child { border-top: none; }
+  .wa-empty-preview {
+    max-width: 260px; margin-left: auto; margin-right: 0;
+    background: rgba(255,255,255,0.6); border: 1px dashed rgba(0,0,0,0.15);
+    border-radius: 8px; padding: 1.5rem 0.75rem; text-align: center;
+    color: #667781; font-size: 0.8rem;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="create-form-wrap">
+<div class="template-builder-wrap">
+  <div class="form-col">
   <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
     <div>
       <div class="page-title"><i class="fas fa-plus-circle me-2" style="color:var(--gold);"></i>Create Template</div>
@@ -68,7 +134,7 @@
   {% endwith %}
 
   <div class="glass-card" style="padding:2rem;">
-    <form method="POST" action="/submit-template" enctype="multipart/form-data">
+    <form method="POST" action="/submit-template" enctype="multipart/form-data" id="templateForm">
 
       <div class="mb-4">
         <label class="form-label">Template Name</label>
@@ -86,6 +152,12 @@
             <option value="UTILITY">Utility</option>
             <option value="AUTHENTICATION">Authentication</option>
           </select>
+          <div class="form-text">
+            <strong>Marketing</strong>: promos, offers, announcements — subject to the most throttling.
+            <strong>Utility</strong>: order/account updates tied to a specific transaction (confirmations, shipping).
+            <strong>Authentication</strong>: OTPs/login codes only. Picking the wrong category is a common cause of
+            rejection or later throttling — match it to what the message actually is, not whichever seems least restrictive.
+          </div>
         </div>
         <div class="col-md-6">
           <label class="form-label">Language</label>
@@ -120,8 +192,8 @@
       </div>
 
       <div id="header_text_section" class="mb-4">
-        <label class="form-label">Header Text</label>
-        <input type="text" name="header_text" class="form-control" placeholder="Enter header text">
+        <label class="form-label">Header Text <span class="char-count" id="headerTextCount">0 / 60</span></label>
+        <input type="text" name="header_text" id="headerTextInput" class="form-control" placeholder="Enter header text" maxlength="60">
       </div>
 
       <div id="header_image_section" class="mb-4">
@@ -144,34 +216,76 @@
       <div class="section-divider"></div>
 
       <div class="mb-4">
-        <label class="form-label">Body Text <span style="color:#f87171;font-weight:400;font-size:0.78rem;">Required</span></label>
-        <textarea name="body_text" class="form-control" rows="4" required
+        <label class="form-label">Body Text <span style="color:#f87171;font-weight:400;font-size:0.78rem;">Required</span>
+          <span class="char-count" id="bodyTextCount">0 / 1024</span></label>
+        <textarea name="body_text" id="bodyTextInput" class="form-control" rows="4" required maxlength="1024"
                   placeholder="Hello {{1}}! Welcome to our service.&#10;&#10;Use {{1}}, {{2}}, etc. for dynamic values."></textarea>
         <div class="form-text">Use <code>{{1}}</code>, <code>{{2}}</code>, etc. as variable placeholders</div>
+        <div class="field-warning" id="varNumberingWarning"></div>
       </div>
 
       <div class="mb-4">
-        <label class="form-label">Footer Text <span style="color:var(--text-dim);font-weight:400;">(Optional)</span></label>
-        <input type="text" name="footer_text" class="form-control" placeholder="e.g., Powered by YourBrand">
+        <label class="form-label">Footer Text <span style="color:var(--text-dim);font-weight:400;">(Optional)</span>
+          <span class="char-count" id="footerTextCount">0 / 60</span></label>
+        <input type="text" name="footer_text" id="footerTextInput" class="form-control" placeholder="e.g., Powered by YourBrand" maxlength="60">
       </div>
 
       <div class="section-divider"></div>
 
       <div class="mb-4">
-        <label class="form-label">Call-to-Action Button <span style="color:var(--text-dim);font-weight:400;">(Optional)</span></label>
-        <div class="row g-3">
-          <div class="col-md-4">
-            <select name="button_type_1" class="form-select">
-              <option value="">None</option>
-              <option value="URL">Visit Website</option>
-              <option value="PHONE_NUMBER">Call Phone</option>
-            </select>
+        <label class="form-label">Buttons <span style="color:var(--text-dim);font-weight:400;">(Optional, up to 3)</span></label>
+
+        <div class="button-row-block">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <select name="button_type_1" class="form-select">
+                <option value="">None</option>
+                <option value="URL">Visit Website</option>
+                <option value="PHONE_NUMBER">Call Phone</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <input type="text" name="button_text_1" class="form-control" placeholder="Button label" maxlength="25">
+            </div>
+            <div class="col-md-4">
+              <input type="text" name="button_value_1" class="form-control" placeholder="URL or phone number">
+            </div>
           </div>
-          <div class="col-md-4">
-            <input type="text" name="button_text_1" class="form-control" placeholder="Button label">
+        </div>
+
+        <div class="button-row-block">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <select name="button_type_2" class="form-select">
+                <option value="">None</option>
+                <option value="URL">Visit Website</option>
+                <option value="PHONE_NUMBER">Call Phone</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <input type="text" name="button_text_2" class="form-control" placeholder="Button label" maxlength="25">
+            </div>
+            <div class="col-md-4">
+              <input type="text" name="button_value_2" class="form-control" placeholder="URL or phone number">
+            </div>
           </div>
-          <div class="col-md-4">
-            <input type="text" name="button_value_1" class="form-control" placeholder="URL or phone number">
+        </div>
+
+        <div class="button-row-block">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <select name="button_type_3" class="form-select">
+                <option value="">None</option>
+                <option value="URL">Visit Website</option>
+                <option value="PHONE_NUMBER">Call Phone</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <input type="text" name="button_text_3" class="form-control" placeholder="Button label" maxlength="25">
+            </div>
+            <div class="col-md-4">
+              <input type="text" name="button_value_3" class="form-control" placeholder="URL or phone number">
+            </div>
           </div>
         </div>
       </div>
@@ -180,6 +294,18 @@
         <i class="fas fa-paper-plane me-2"></i>Submit Template for Approval
       </button>
     </form>
+  </div>
+  </div><!-- /.form-col -->
+
+  <div class="preview-col">
+    <div class="wa-preview-label"><i class="fas fa-mobile-screen-button me-1"></i>Live preview</div>
+    <div class="wa-preview-shell">
+      <div id="waPreviewContent"></div>
+    </div>
+    <div class="form-text mt-2" style="font-size:0.72rem;">
+      Approximate — actual rendering varies by device. <code>{{n}}</code> placeholders show the sample values WhatsApp
+      will be sent for review, since no real customer data exists yet.
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -192,6 +318,7 @@ function updateHeaderSection() {
   document.querySelector(`input[value="${val}"]`).closest('.header-type-option').classList.add('active');
   document.getElementById('header_text_section').style.display  = val === 'TEXT'  ? 'block' : 'none';
   document.getElementById('header_image_section').style.display = val === 'IMAGE' ? 'block' : 'none';
+  updatePreview();
 }
 
 function previewImage(input) {
@@ -205,10 +332,133 @@ function previewImage(input) {
     document.getElementById('uploadPrompt').style.display = 'none';
     document.getElementById('imagePreview').style.display = 'block';
     document.getElementById('imageUploadZone').classList.add('has-file');
+    updatePreview();
   };
   reader.readAsDataURL(file);
 }
 
-document.addEventListener('DOMContentLoaded', updateHeaderSection);
+// ── Character counters ──────────────────────────────────────────────────
+function _wireCharCount(inputId, countId, max) {
+  const input = document.getElementById(inputId);
+  const count = document.getElementById(countId);
+  if (!input || !count) return;
+  const update = () => {
+    const len = input.value.length;
+    count.textContent = len + ' / ' + max;
+    count.classList.toggle('warn', len >= max * 0.85 && len < max);
+    count.classList.toggle('over', len >= max);
+  };
+  input.addEventListener('input', update);
+  update();
+}
+_wireCharCount('headerTextInput', 'headerTextCount', 60);
+_wireCharCount('bodyTextInput', 'bodyTextCount', 1024);
+_wireCharCount('footerTextInput', 'footerTextCount', 60);
+
+// ── Body {{n}} variable numbering check ──────────────────────────────────
+// Mirrors utils/whatsapp.py's _validate_body_variable_numbering() -- WhatsApp
+// requires placeholders to be sequential starting at {{1}} with no gaps.
+// This is a heads-up before submit; the server re-validates regardless since
+// this check (like all client-side checks here) is bypassable.
+function checkVarNumbering(bodyText) {
+  const found = [...new Set((bodyText.match(/\{\{(\d+)\}\}/g) || []).map(m => parseInt(m.slice(2, -2), 10)))].sort((a,b)=>a-b);
+  if (found.length === 0) return null;
+  const expected = Array.from({length: found.length}, (_, i) => i + 1);
+  const matches = found.length === expected.length && found.every((n, i) => n === expected[i]);
+  if (matches) return null;
+  return 'Variables should be sequential starting at {{1}} with no gaps (found ' +
+    found.map(n => '{{' + n + '}}').join(', ') + ', expected ' +
+    expected.map(n => '{{' + n + '}}').join(', ') + ').';
+}
+
+function updateVarWarning() {
+  const bodyText = document.getElementById('bodyTextInput').value;
+  const warning = document.getElementById('varNumberingWarning');
+  const msg = checkVarNumbering(bodyText);
+  if (msg) {
+    warning.textContent = '⚠️ ' + msg;
+    warning.style.display = 'block';
+  } else {
+    warning.style.display = 'none';
+  }
+}
+document.getElementById('bodyTextInput').addEventListener('input', updateVarWarning);
+
+// ── Live WhatsApp-style preview ──────────────────────────────────────────
+function _escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function _renderBodyWithVars(bodyText) {
+  const escaped = _escapeHtml(bodyText);
+  return escaped.replace(/\{\{(\d+)\}\}/g, (m, n) => '<span class="wa-var-fill">Sample' + n + '</span>');
+}
+
+function updatePreview() {
+  const headerType = document.querySelector('input[name="header_type"]:checked').value;
+  const headerText = document.getElementById('headerTextInput').value.trim();
+  const bodyText = document.getElementById('bodyTextInput').value;
+  const footerText = document.getElementById('footerTextInput').value.trim();
+  const previewImg = document.getElementById('previewImage');
+  const hasImage = headerType === 'IMAGE' && previewImg && previewImg.src && document.getElementById('imagePreview').style.display !== 'none';
+
+  const container = document.getElementById('waPreviewContent');
+
+  if (!bodyText.trim() && headerType === 'NONE') {
+    container.innerHTML = '<div class="wa-empty-preview">Your message will appear here as you fill in the form</div>';
+    return;
+  }
+
+  let headerHtml = '';
+  if (headerType === 'TEXT' && headerText) {
+    headerHtml = '<div class="wa-header-text">' + _escapeHtml(headerText) + '</div>';
+  }
+  let headerImgHtml = '';
+  if (headerType === 'IMAGE') {
+    headerImgHtml = hasImage
+      ? '<img class="wa-header-img" src="' + previewImg.src + '" alt="">'
+      : '<div class="wa-header-img-placeholder"><i class="fas fa-image"></i></div>';
+  }
+
+  const bodyHtml = bodyText.trim()
+    ? '<div class="wa-body-text">' + _renderBodyWithVars(bodyText) + '</div>'
+    : '<div class="wa-body-text" style="color:#8696a0;">Body text…</div>';
+
+  const footerHtml = footerText ? '<div class="wa-footer-text">' + _escapeHtml(footerText) + '</div>' : '';
+
+  let buttonsHtml = '';
+  const buttonRows = [];
+  for (let i = 1; i <= 3; i++) {
+    const type = document.querySelector(`select[name="button_type_${i}"]`)?.value;
+    const text = document.querySelector(`input[name="button_text_${i}"]`)?.value.trim();
+    if (!type || !text) continue;
+    const icon = type === 'URL' ? 'fa-arrow-up-right-from-square' : 'fa-phone';
+    buttonRows.push('<div class="wa-button-row"><i class="fas ' + icon + '" style="font-size:0.72rem;"></i>' + _escapeHtml(text) + '</div>');
+  }
+  if (buttonRows.length) {
+    buttonsHtml = '<div class="wa-buttons">' + buttonRows.join('') + '</div>';
+  }
+
+  container.innerHTML =
+    '<div class="wa-message-card">' +
+      headerImgHtml +
+      '<div class="wa-bubble-body">' +
+        headerHtml + bodyHtml + footerHtml +
+        '<div class="wa-timestamp">10:30 AM <i class="fas fa-check-double" style="color:#53bdeb;"></i></div>' +
+      '</div>' +
+      buttonsHtml +
+    '</div>';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateHeaderSection();
+  updateVarWarning();
+  updatePreview();
+  const form = document.getElementById('templateForm');
+  form.addEventListener('input', updatePreview);
+  form.addEventListener('change', updatePreview);
+});
 </script>
 {% endblock %}
