@@ -673,20 +673,21 @@ def submit_template():
             template_data[f'button_text_{i}'] = request.form.get(f'button_text_{i}')
             template_data[f'button_value_{i}'] = request.form.get(f'button_value_{i}')
         
-        # Get header image file if provided
-        header_image_file = request.files.get('header_image')
-        
-        if header_image_file and header_image_file.filename:
-            logger.info(f"📎 Received image file: {header_image_file.filename}")
+        # Get header media file if provided (image/video/document all share this
+        # one file input -- only one header type is active at a time in the form)
+        header_media_file = request.files.get('header_image')
+
+        if header_media_file and header_media_file.filename:
+            logger.info(f"📎 Received header media file: {header_media_file.filename}")
             # Get file size
-            header_image_file.seek(0, 2)
-            file_size = header_image_file.tell()
-            header_image_file.seek(0)
+            header_media_file.seek(0, 2)
+            file_size = header_media_file.tell()
+            header_media_file.seek(0)
             logger.info(f"📎 File size: {file_size} bytes")
-        
+
         from utils.whatsapp import create_template
-        
-        status, response = create_template(WABA_ID, template_data, header_image_file)
+
+        status, response = create_template(WABA_ID, template_data, header_media_file)
         
         if status in [200, 201]:
             flash(f"✅ Template '{template_data['template_name']}' submitted successfully! It will be reviewed by WhatsApp.", "success")
