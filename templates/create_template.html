@@ -49,7 +49,13 @@
   }
   .btn-create:hover { background: var(--gold-light); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(37,211,102,0.35); color: #fff; }
 
-  #header_image_section, #header_text_section { display: none; }
+  #header_image_section, #header_text_section, #header_location_section { display: none; }
+
+  .location-header-note {
+    padding: 0.6rem 0.75rem; background: rgba(37,211,102,0.06);
+    border: 1px solid rgba(37,211,102,0.2); border-radius: 8px;
+    font-size: 0.8rem; color: var(--text-muted);
+  }
 
   .char-count { font-size: 0.72rem; color: var(--text-dim); float: right; }
   .char-count.warn { color: #f59e0b; }
@@ -188,6 +194,18 @@
             <input type="radio" name="header_type" value="IMAGE" onchange="updateHeaderSection()">
             <div>🖼️ Image Header</div>
           </label>
+          <label class="header-type-option">
+            <input type="radio" name="header_type" value="VIDEO" onchange="updateHeaderSection()">
+            <div>🎥 Video Header</div>
+          </label>
+          <label class="header-type-option">
+            <input type="radio" name="header_type" value="DOCUMENT" onchange="updateHeaderSection()">
+            <div>📄 Document Header</div>
+          </label>
+          <label class="header-type-option">
+            <input type="radio" name="header_type" value="LOCATION" onchange="updateHeaderSection()">
+            <div>📍 Location Header</div>
+          </label>
         </div>
       </div>
 
@@ -197,20 +215,29 @@
       </div>
 
       <div id="header_image_section" class="mb-4">
-        <label class="form-label">Header Image</label>
+        <label class="form-label" id="headerMediaLabel">Header Image</label>
         <div class="image-upload-zone" id="imageUploadZone" onclick="document.getElementById('headerImageFile').click()">
           <div id="uploadPrompt">
-            <div style="font-size:1.75rem;">📁</div>
-            <div style="font-weight:600;margin-top:0.5rem;">Click to choose an image</div>
-            <div style="color:var(--text-dim);font-size:0.82rem;margin-top:0.25rem;">JPG, PNG, WebP — max 5 MB</div>
+            <div id="uploadPromptIcon" style="font-size:1.75rem;">📁</div>
+            <div id="uploadPromptText" style="font-weight:600;margin-top:0.5rem;">Click to choose a file</div>
+            <div id="uploadPromptHint" style="color:var(--text-dim);font-size:0.82rem;margin-top:0.25rem;"></div>
           </div>
           <div id="imagePreview" style="display:none;">
-            <img id="previewImage" class="image-preview" alt="Preview">
+            <img id="previewImage" class="image-preview" alt="Preview" style="display:none;">
+            <div id="previewFileIcon" style="font-size:2.5rem;display:none;">📄</div>
             <div id="fileName" style="margin-top:0.5rem;font-size:0.82rem;color:#34d399;"></div>
           </div>
         </div>
-        <input type="file" id="headerImageFile" name="header_image"
-               accept="image/jpeg,image/png,image/webp" style="display:none" onchange="previewImage(this)">
+        <input type="file" id="headerImageFile" name="header_image" style="display:none" onchange="previewMediaFile(this)">
+      </div>
+
+      <div id="header_location_section" class="mb-4">
+        <label class="form-label">Header Location</label>
+        <div class="location-header-note">
+          <i class="fas fa-circle-info me-1"></i>Nothing to configure here — the actual pin
+          (latitude/longitude/name/address) is supplied by whatever sends this template
+          (e.g. a Flow step), not at template-creation time.
+        </div>
       </div>
 
       <div class="section-divider"></div>
@@ -312,29 +339,75 @@
 
 {% block scripts %}
 <script>
+// Mirrors utils/whatsapp.py's _MEDIA_HEADER_MAX_BYTES / _MEDIA_HEADER_DEFAULT_MIME --
+// same three media header types, same size ceilings (the general WhatsApp Cloud API
+// media-message limits, since Meta's template docs don't state creation-specific ones).
+const MEDIA_HEADER_CONFIG = {
+  IMAGE:    { accept: 'image/jpeg,image/png,image/webp', maxMB: 5,   hint: 'JPG, PNG, WebP — max 5 MB',   icon: '📁', label: 'Header Image' },
+  VIDEO:    { accept: 'video/mp4,video/3gpp',             maxMB: 16,  hint: 'MP4, 3GP — max 16 MB',        icon: '🎥', label: 'Header Video' },
+  DOCUMENT: { accept: 'application/pdf',                  maxMB: 100, hint: 'PDF — max 100 MB',            icon: '📄', label: 'Header Document' },
+};
+
 function updateHeaderSection() {
   const val = document.querySelector('input[name="header_type"]:checked').value;
   document.querySelectorAll('.header-type-option').forEach(o => o.classList.remove('active'));
   document.querySelector(`input[value="${val}"]`).closest('.header-type-option').classList.add('active');
-  document.getElementById('header_text_section').style.display  = val === 'TEXT'  ? 'block' : 'none';
-  document.getElementById('header_image_section').style.display = val === 'IMAGE' ? 'block' : 'none';
+  document.getElementById('header_text_section').style.display = val === 'TEXT' ? 'block' : 'none';
+  document.getElementById('header_location_section').style.display = val === 'LOCATION' ? 'block' : 'none';
+
+  const mediaConfig = MEDIA_HEADER_CONFIG[val];
+  const mediaSection = document.getElementById('header_image_section');
+  mediaSection.style.display = mediaConfig ? 'block' : 'none';
+  if (mediaConfig) {
+    document.getElementById('headerMediaLabel').textContent = mediaConfig.label;
+    document.getElementById('headerImageFile').accept = mediaConfig.accept;
+    document.getElementById('uploadPromptIcon').textContent = mediaConfig.icon;
+    document.getElementById('uploadPromptText').textContent = 'Click to choose a file';
+    document.getElementById('uploadPromptHint').textContent = mediaConfig.hint;
+  }
   updatePreview();
 }
 
-function previewImage(input) {
+function previewMediaFile(input) {
   const file = input.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { alert('File too large! Maximum 5 MB.'); input.value = ''; return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    document.getElementById('previewImage').src = e.target.result;
+  const headerType = document.querySelector('input[name="header_type"]:checked').value;
+  const config = MEDIA_HEADER_CONFIG[headerType];
+  const maxBytes = (config ? config.maxMB : 5) * 1024 * 1024;
+  if (file.size > maxBytes) {
+    alert(`File too large! Maximum ${config ? config.maxMB : 5} MB.`);
+    input.value = '';
+    return;
+  }
+
+  const finish = (imgSrc) => {
+    const imgEl = document.getElementById('previewImage');
+    const iconEl = document.getElementById('previewFileIcon');
+    if (imgSrc) {
+      imgEl.src = imgSrc;
+      imgEl.style.display = 'block';
+      iconEl.style.display = 'none';
+    } else {
+      imgEl.style.display = 'none';
+      iconEl.textContent = config ? config.icon : '📄';
+      iconEl.style.display = 'block';
+    }
     document.getElementById('fileName').textContent = `✅ ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
     document.getElementById('uploadPrompt').style.display = 'none';
     document.getElementById('imagePreview').style.display = 'block';
     document.getElementById('imageUploadZone').classList.add('has-file');
     updatePreview();
   };
-  reader.readAsDataURL(file);
+
+  if (headerType === 'IMAGE') {
+    const reader = new FileReader();
+    reader.onload = e => finish(e.target.result);
+    reader.readAsDataURL(file);
+  } else {
+    // No thumbnail for video/document sample media -- same filename+size
+    // confirmation WhatsApp Business Manager itself shows for non-image samples.
+    finish(null);
+  }
 }
 
 // ── Character counters ──────────────────────────────────────────────────
@@ -402,7 +475,8 @@ function updatePreview() {
   const bodyText = document.getElementById('bodyTextInput').value;
   const footerText = document.getElementById('footerTextInput').value.trim();
   const previewImg = document.getElementById('previewImage');
-  const hasImage = headerType === 'IMAGE' && previewImg && previewImg.src && document.getElementById('imagePreview').style.display !== 'none';
+  const fileNameEl = document.getElementById('fileName');
+  const hasMediaFile = document.getElementById('imagePreview').style.display !== 'none';
 
   const container = document.getElementById('waPreviewContent');
 
@@ -417,9 +491,19 @@ function updatePreview() {
   }
   let headerImgHtml = '';
   if (headerType === 'IMAGE') {
-    headerImgHtml = hasImage
+    headerImgHtml = (hasMediaFile && previewImg.style.display !== 'none' && previewImg.src)
       ? '<img class="wa-header-img" src="' + previewImg.src + '" alt="">'
       : '<div class="wa-header-img-placeholder"><i class="fas fa-image"></i></div>';
+  } else if (headerType === 'VIDEO') {
+    headerImgHtml = '<div class="wa-header-img-placeholder"><i class="fas fa-circle-play"></i></div>';
+  } else if (headerType === 'DOCUMENT') {
+    const fname = hasMediaFile ? (fileNameEl.textContent || '').replace('✅ ', '').split(' (')[0] : '';
+    headerImgHtml = '<div class="wa-header-img-placeholder" style="flex-direction:column;gap:0.2rem;">' +
+      '<i class="fas fa-file-lines"></i>' +
+      (fname ? '<span style="font-size:0.68rem;color:#54656f;">' + _escapeHtml(fname) + '</span>' : '') +
+      '</div>';
+  } else if (headerType === 'LOCATION') {
+    headerImgHtml = '<div class="wa-header-img-placeholder"><i class="fas fa-location-dot"></i></div>';
   }
 
   const bodyHtml = bodyText.trim()

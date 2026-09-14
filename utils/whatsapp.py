@@ -392,17 +392,20 @@ def save_uploaded_image(image_file):
     return filepath
 
 
-def upload_image_for_template(image_file):
+def upload_media_for_template(media_file, default_mime_type='image/jpeg'):
     """
-    Upload an image for WhatsApp template header using the Resumable Upload API.
+    Upload a file (image, video, or document) for a WhatsApp template header
+    using the Resumable Upload API. The API itself is media-type-agnostic --
+    the same two-step session+upload flow handles all three, keyed only by the
+    mime_type/file_length passed at session-creation time.
     Returns (handle, error_message). Handle starts with 'h:' and is used in header_handle.
     """
-    image_file.seek(0, 2)
-    file_size = image_file.tell()
-    image_file.seek(0)
+    media_file.seek(0, 2)
+    file_size = media_file.tell()
+    media_file.seek(0)
 
-    file_name = image_file.filename
-    mime_type = image_file.content_type or 'image/jpeg'
+    file_name = media_file.filename
+    mime_type = media_file.content_type or default_mime_type
 
     # Step 1: Create upload session
     session_resp = requests.post(
@@ -423,7 +426,7 @@ def upload_image_for_template(image_file):
         return None, "No session ID returned from upload session"
 
     # Step 2: Upload the binary data
-    file_data = image_file.read()
+    file_data = media_file.read()
     upload_resp = requests.post(
         f"https://graph.facebook.com/v21.0/{session_id}",
         headers={
@@ -455,6 +458,22 @@ _FOOTER_TEXT_MAX = 60
 _BUTTON_TEXT_MAX = 25
 _TEMPLATE_NAME_RE = re.compile(r'^[a-z0-9_]+$')
 
+# Sample-media size ceilings for a media-header template at creation time.
+# Meta's template docs don't state a creation-specific limit separately from
+# the general WhatsApp Cloud API media-message limits, so those are what's
+# enforced here too: image 5MB (the pre-existing limit), video 16MB,
+# document 100MB.
+_MEDIA_HEADER_MAX_BYTES = {
+    'IMAGE': 5 * 1024 * 1024,
+    'VIDEO': 16 * 1024 * 1024,
+    'DOCUMENT': 100 * 1024 * 1024,
+}
+_MEDIA_HEADER_DEFAULT_MIME = {
+    'IMAGE': 'image/jpeg',
+    'VIDEO': 'video/mp4',
+    'DOCUMENT': 'application/pdf',
+}
+
 
 def _validate_body_variable_numbering(body_text):
     """WhatsApp requires {{n}} placeholders to be sequential starting at 1
@@ -476,7 +495,7 @@ def _validate_body_variable_numbering(body_text):
     return None
 
 
-def create_template(waba_id, template_data, image_file=None):
+def create_template(waba_id, template_data, media_file=None):
     """Create a new WhatsApp message template"""
 
     # Validate credentials
@@ -517,29 +536,43 @@ def create_template(waba_id, template_data, image_file=None):
                 header_component['example'] = {"header_text": ["Sample Value"]}
             components.append(header_component)
     
-    elif template_data.get('header_type') == 'IMAGE':
-        if not (image_file and image_file.filename):
-            return 400, {"error": {"message": "Please select an image file for the image header."}}
+    elif template_data.get('header_type') in _MEDIA_HEADER_MAX_BYTES:
+        media_type = template_data['header_type']
+        media_label = media_type.lower()
 
-        image_file.seek(0, 2)
-        file_size = image_file.tell()
-        image_file.seek(0)
+        if not (media_file and media_file.filename):
+            return 400, {"error": {"message": f"Please select a file for the {media_label} header."}}
+
+        media_file.seek(0, 2)
+        file_size = media_file.tell()
+        media_file.seek(0)
 
         if file_size == 0:
-            return 400, {"error": {"message": "Image file is empty."}}
-        if file_size > 5 * 1024 * 1024:
-            return 400, {"error": {"message": "Image too large. Maximum 5 MB."}}
+            return 400, {"error": {"message": f"{media_type.title()} file is empty."}}
+        max_bytes = _MEDIA_HEADER_MAX_BYTES[media_type]
+        if file_size > max_bytes:
+            return 400, {"error": {"message": f"{media_type.title()} too large. Maximum {max_bytes // (1024 * 1024)} MB."}}
 
-        handle, err = upload_image_for_template(image_file)
+        handle, err = upload_media_for_template(media_file, _MEDIA_HEADER_DEFAULT_MIME[media_type])
         if err:
-            return 400, {"error": {"message": f"Image upload failed: {err}"}}
+            return 400, {"error": {"message": f"{media_type.title()} upload failed: {err}"}}
 
         components.append({
             "type": "HEADER",
-            "format": "IMAGE",
+            "format": media_type,
             "example": {"header_handle": [handle]},
         })
-    
+
+    elif template_data.get('header_type') == 'LOCATION':
+        # LOCATION headers need nothing at creation time -- per Meta's docs,
+        # "Creation parameters: None". Unlike IMAGE/VIDEO/DOCUMENT there's no
+        # sample media to upload; the actual lat/lng/name/address are supplied
+        # per-send (same asymmetry already handled on the send side for Flows).
+        components.append({
+            "type": "HEADER",
+            "format": "LOCATION",
+        })
+
     # Body component (required)
     body_text = template_data.get('body_text') or ''
     body_text = body_text.strip() if body_text else ''
