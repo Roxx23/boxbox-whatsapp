@@ -1,6 +1,6 @@
 import requests
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ class ShopifyIntegration:
                     "value_type": "percentage",
                     "value": f"-{percentage}",
                     "usage_limit": 1,
-                    "starts_at": None,
+                    "starts_at": datetime.now(timezone.utc).isoformat(),
                     "ends_at": None
                 }
             }
