@@ -410,6 +410,7 @@ class Database:
                 'ALTER TABLE shopify_orders ADD COLUMN order_status_url TEXT',
                 'ALTER TABLE flows ADD COLUMN allow_reenroll INTEGER DEFAULT 1',
                 'ALTER TABLE inbox_messages ADD COLUMN read_at TEXT',
+                'ALTER TABLE abandoned_carts ADD COLUMN discount_code TEXT',
             ]:
                 try:
                     cursor.execute(col)

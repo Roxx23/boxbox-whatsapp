@@ -155,3 +155,69 @@ class ShopifyIntegration:
             'created_at': customer.get('created_at', ''),
             'updated_at': customer.get('updated_at', '')
         }
+
+    def create_price_rule_with_discount_code(self, discount_code, percentage=5):
+        """Create a Shopify price rule with a one-time-use discount code.
+
+        Args:
+            discount_code: The code string (e.g., 'BOXBOX5-abc123')
+            percentage: Discount percentage (default 5)
+
+        Returns:
+            (price_rule_id, generated_code) on success, (None, None) on failure
+        """
+        try:
+            # Step 1: Create Price Rule
+            price_rule_payload = {
+                "price_rule": {
+                    "title": f"Abandoned Cart Reminder - {discount_code}",
+                    "target_type": "line_item",
+                    "target_selection": "all",
+                    "allocation_method": "across",
+                    "value_type": "percentage",
+                    "value": f"-{percentage}",
+                    "usage_limit": 1,
+                    "starts_at": None,
+                    "ends_at": None
+                }
+            }
+
+            url = f"{self.base_url}/price_rules.json"
+            response = requests.post(url, headers=self.headers, json=price_rule_payload, timeout=30)
+
+            if response.status_code != 201:
+                logger.error(f"❌ Failed to create price rule: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return None, None
+
+            price_rule_data = response.json()
+            price_rule_id = price_rule_data['price_rule']['id']
+            logger.info(f"✅ Created price rule {price_rule_id}")
+
+            # Step 2: Create Discount Code
+            discount_code_payload = {
+                "discount_code": {
+                    "price_rule_id": price_rule_id,
+                    "code": discount_code
+                }
+            }
+
+            url = f"{self.base_url}/price_rules/{price_rule_id}/discount_codes.json"
+            response = requests.post(url, headers=self.headers, json=discount_code_payload, timeout=30)
+
+            if response.status_code != 201:
+                logger.error(f"❌ Failed to create discount code: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return price_rule_id, None
+
+            code_data = response.json()
+            generated_code = code_data['discount_code']['code']
+            logger.info(f"✅ Created discount code: {generated_code}")
+
+            return price_rule_id, generated_code
+
+        except Exception as e:
+            logger.error(f"❌ Error creating price rule/discount code: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None, None
