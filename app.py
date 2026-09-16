@@ -3647,8 +3647,15 @@ Complete your purchase now! 🛒✨"""
             
             # Send message
             status_code, response = send_text(phone, message)
-            
-            if status_code == 200:
+
+            # Every other send-result check in this file treats [200, 201] as
+            # success (see _send_automation_message); this one only checked
+            # 200. If send_text can ever return 201 for a successful send, a
+            # real success here was misclassified as failed --
+            # mark_cart_reminder_sent() never ran, so the same cart kept
+            # reappearing as "unsent" and got a duplicate reminder on every
+            # subsequent run.
+            if status_code in (200, 201):
                 db.mark_cart_reminder_sent(cart['id'])
                 sent_count += 1
                 logger.info(f"✅ Cart reminder sent to {phone}")
@@ -3712,8 +3719,10 @@ We'll send you updates on your order."""
             
             # Send message
             status_code, response = send_text(phone, message)
-            
-            if status_code == 200:
+
+            # Same fix as send_cart_reminders() above -- match the [200, 201]
+            # success check used everywhere else in this file.
+            if status_code in (200, 201):
                 db.mark_order_confirmation_sent(order['id'])
                 sent_count += 1
                 logger.info(f"✅ Order confirmation sent to {phone}")
