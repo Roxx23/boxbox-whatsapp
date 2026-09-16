@@ -156,12 +156,13 @@ class ShopifyIntegration:
             'updated_at': customer.get('updated_at', '')
         }
 
-    def create_price_rule_with_discount_code(self, discount_code, percentage=5):
+    def create_price_rule_with_discount_code(self, discount_code, percentage=5, ends_at=None):
         """Create a Shopify price rule with a one-time-use discount code.
 
         Args:
             discount_code: The code string (e.g., 'BOXBOX5-abc123')
             percentage: Discount percentage (default 5)
+            ends_at: ISO 8601 expiry timestamp, or None for no expiry (default None)
 
         Returns:
             (price_rule_id, generated_code) on success, (None, None) on failure
@@ -178,7 +179,7 @@ class ShopifyIntegration:
                     "value": f"-{percentage}",
                     "usage_limit": 1,
                     "starts_at": datetime.now(timezone.utc).isoformat(),
-                    "ends_at": None
+                    "ends_at": ends_at
                 }
             }
 

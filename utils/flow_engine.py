@@ -1,5 +1,8 @@
 import json
 import logging
+import random
+import re
+import string
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -211,6 +214,8 @@ def _process_participant(participant):
         _advance_to_step(participant, step['next_yes'])
     elif step_type == 'condition':
         _execute_condition(participant, step, config)
+    elif step_type == 'generate_discount':
+        _execute_generate_discount(participant, step, config)
     elif step_type == 'exit':
         _db.complete_participant(participant['id'])
     elif step_type == 'trigger':
@@ -465,6 +470,82 @@ def _execute_condition(participant, step, config):
             participant['id'],
             (datetime.now(timezone.utc) + timedelta(minutes=15)).strftime('%Y-%m-%dT%H:%M:%S')
         )
+
+
+def _execute_generate_discount(participant, step, config):
+    """Generates a unique one-time-use Shopify discount code and stores it on
+    the participant's context (key 'discount_code') for a later send_message
+    step to map into a template variable. Unlike order-derived context keys
+    (order_number, items, ...), this isn't tied to any particular trigger
+    type -- the code is created fresh right here, so it works the same way
+    regardless of what started the flow.
+    """
+    try:
+        context = json.loads(participant['context'] or '{}')
+    except Exception:
+        context = {}
+
+    percentage = int(config.get('percentage') or 10)
+    never_expire = config.get('never_expire', True)
+    expiry_date = config.get('expiry_date') or ''
+
+    ends_at = None
+    if not never_expire and expiry_date:
+        # expiry_date is a plain YYYY-MM-DD from the editor's <input type=date>;
+        # treat it as end-of-day UTC so the code stays valid through the whole
+        # day the flow owner picked, matching create_price_rule_with_discount_code's
+        # own starts_at convention (a UTC ISO 8601 timestamp).
+        ends_at = f"{expiry_date}T23:59:59+00:00"
+
+    first_name = (context.get('first_name') or '').strip()
+    if not first_name:
+        # Manual enrollment (and any trigger type that never populates
+        # first_name) doesn't have it in context -- look the customer up by
+        # phone the same way the legacy abandoned-cart checker does, before
+        # falling back to a generic placeholder rather than crashing or
+        # producing a malformed code.
+        try:
+            customer = _db.get_customer_by_phone(participant['phone'])
+            if customer and customer.get('first_name'):
+                first_name = customer['first_name'].strip()
+        except Exception:
+            pass
+    if not first_name:
+        first_name = 'CUSTOMER'
+
+    discount_code = _generate_flow_discount_code(percentage, first_name)
+
+    from app import _create_discount_code_in_shopify
+    price_rule_id, created_code = _create_discount_code_in_shopify(
+        discount_code, percentage=percentage, ends_at=ends_at
+    )
+
+    if created_code:
+        context['discount_code'] = created_code
+        _db.update_participant_context(participant['id'], context)
+        logger.info(f"Flow participant {participant['id']}: generated discount code {created_code}")
+    else:
+        # Non-fatal by design, matching every other Shopify-write-failure path
+        # in this codebase -- the flow keeps moving. 'discount_code' is simply
+        # left unset in context, so a downstream send_message step mapping it
+        # hits the existing blank-mapped-param warning at send time rather
+        # than silently sending a broken/missing code.
+        logger.warning(
+            f"Flow participant {participant['id']}: discount code creation failed in Shopify -- "
+            f"'discount_code' left unset in context"
+        )
+
+    _advance_to_step(participant, step['next_yes'])
+
+
+def _generate_flow_discount_code(percentage, first_name):
+    """SAVE<percentage>-<sanitized first name>-<random suffix>, e.g.
+    'SAVE20-JOHN-K3F9QZ'. The random suffix guards against two customers
+    sharing a first name colliding on the same code -- Shopify discount codes
+    must be unique across the whole store."""
+    name_part = re.sub(r'[^A-Za-z0-9]', '', first_name).upper()[:15] or 'CUSTOMER'
+    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"SAVE{percentage}-{name_part}-{suffix}"
 
 
 def _next_action_at_for_entering(step):

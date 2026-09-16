@@ -419,11 +419,13 @@ def _generate_discount_code(prefix='BOXBOX5', suffix_length=6):
     return f"{prefix}-{suffix}"
 
 
-def _create_discount_code_in_shopify(discount_code):
+def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None):
     """Create a price rule and discount code in Shopify.
 
     Args:
         discount_code: The code string to create
+        percentage: Discount percentage (default 5, matches abandoned-cart automation)
+        ends_at: ISO 8601 expiry timestamp, or None for no expiry (default None)
 
     Returns:
         (price_rule_id, generated_code) on success, (None, None) on failure
@@ -440,7 +442,7 @@ def _create_discount_code_in_shopify(discount_code):
 
         integration = ShopifyIntegration(shop_name, access_token)
         price_rule_id, generated_code = integration.create_price_rule_with_discount_code(
-            discount_code, percentage=5
+            discount_code, percentage=percentage, ends_at=ends_at
         )
 
         return price_rule_id, generated_code
