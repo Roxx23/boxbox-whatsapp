@@ -12,6 +12,8 @@ import hmac
 import hashlib
 import base64
 import time
+import random
+import string
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
@@ -403,6 +405,51 @@ def _send_automation_message(phone, event_type, template_name, template_language
         return False, None
 
 
+def _generate_discount_code(prefix='BOXBOX5', suffix_length=6):
+    """Generate a unique discount code: prefix-random suffix.
+
+    Args:
+        prefix: Base prefix (default 'BOXBOX5')
+        suffix_length: Length of random suffix (default 6)
+
+    Returns:
+        Code string like 'BOXBOX5-abc123'
+    """
+    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=suffix_length))
+    return f"{prefix}-{suffix}"
+
+
+def _create_discount_code_in_shopify(discount_code):
+    """Create a price rule and discount code in Shopify.
+
+    Args:
+        discount_code: The code string to create
+
+    Returns:
+        (price_rule_id, generated_code) on success, (None, None) on failure
+    """
+    try:
+        from utils.shopify_integration import ShopifyIntegration
+
+        shop_name = os.getenv('SHOPIFY_SHOP_NAME', '').strip()
+        access_token = os.getenv('SHOPIFY_ACCESS_TOKEN', '').strip()
+
+        if not shop_name or not access_token:
+            logger.warning("⚠️ SHOPIFY_SHOP_NAME or SHOPIFY_ACCESS_TOKEN not set, skipping discount code creation")
+            return None, None
+
+        integration = ShopifyIntegration(shop_name, access_token)
+        price_rule_id, generated_code = integration.create_price_rule_with_discount_code(
+            discount_code, percentage=5
+        )
+
+        return price_rule_id, generated_code
+
+    except Exception as e:
+        logger.error(f"❌ Error creating discount code in Shopify: {e}")
+        return None, None
+
+
 def _start_abandoned_cart_checker():
     """Start a daemon thread that sends abandoned-cart reminders every 15 minutes."""
 
@@ -473,22 +520,49 @@ def _start_abandoned_cart_checker():
                         if not first_name:
                             first_name = 'there'
 
+                        # Generate or retrieve discount code
+                        discount_code = cart.get('discount_code')
+                        if not discount_code:
+                            # Generate new code and create in Shopify
+                            discount_code = _generate_discount_code()
+                            price_rule_id, created_code = _create_discount_code_in_shopify(discount_code)
+                            if created_code:
+                                discount_code = created_code
+                                logger.info(f"✅ Generated discount code: {discount_code}")
+                            else:
+                                logger.warning(f"⚠️ Could not create discount code in Shopify, proceeding without")
+                                discount_code = None
+
                         # Template params: {{1}}=name, {{2}}=items, {{3}}=total
-                        # Discount code and website button are hardcoded in the template itself
+                        # {{4}}=discount code (once template is approved with this slot)
+                        # For now, only pass first 3 params; add {{4}} once new template is live
                         params = [first_name, items_str, f"₹{total}"]
 
                         success, _ = _send_automation_message(
                             phone, 'abandoned_cart', template_name, template_language, params
                         )
                         if success:
+                            # Store discount code on cart for tracking
+                            if discount_code:
+                                try:
+                                    with db.get_connection() as conn:
+                                        cursor = conn.cursor()
+                                        cursor.execute(
+                                            'UPDATE abandoned_carts SET discount_code = ? WHERE id = ?',
+                                            (discount_code, cart['id'])
+                                        )
+                                        conn.commit()
+                                except Exception as e:
+                                    logger.warning(f"Could not store discount code for cart {cart['id']}: {e}")
+
                             db.mark_cart_reminder_sent(cart['id'])
                             db.log_activity(
                                 user_id=user.id,
                                 username='System',
                                 action='Automation: Cart Reminder Sent',
-                                details=f"Cart #{cart.get('shopify_cart_id')} → {phone}"
+                                details=f"Cart #{cart.get('shopify_cart_id')} → {phone}" + (f" (code: {discount_code})" if discount_code else "")
                             )
-                            logger.info(f"✅ Cart reminder sent to {phone}")
+                            logger.info(f"✅ Cart reminder sent to {phone}" + (f" with code {discount_code}" if discount_code else ""))
                         else:
                             logger.warning(f"⚠️ Cart reminder failed for {phone}")
             except Exception as exc:
