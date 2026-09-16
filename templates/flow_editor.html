@@ -205,11 +205,13 @@
 .accent-send       { background: #2563EB; }
 .accent-wait       { background: #F59E0B; }
 .accent-condition  { background: #7C3AED; }
+.accent-discount   { background: #0D9488; }
 .accent-exit       { background: #EF4444; }
 .icon-trigger   { background: rgba(37,211,102,0.1); color: #059669; }
 .icon-send      { background: rgba(37,99,235,0.1);  color: #2563EB; }
 .icon-wait      { background: rgba(245,158,11,0.1); color: #B45309; }
 .icon-condition { background: rgba(124,58,237,0.1); color: #7C3AED; }
+.icon-discount  { background: rgba(13,148,136,0.1); color: #0D9488; }
 .icon-exit      { background: rgba(239,68,68,0.1);  color: #DC2626; }
 
 /* Ports */
@@ -443,6 +445,13 @@
           <div class="palette-desc">Pause before next step</div>
         </div>
       </div>
+      <div class="palette-node" draggable="true" ondragstart="drag(event,'generate_discount')">
+        <div class="palette-icon icon-discount"><i class="fas fa-tag"></i></div>
+        <div class="palette-info">
+          <div class="palette-name">Generate Discount</div>
+          <div class="palette-desc">One-time code for this customer</div>
+        </div>
+      </div>
 
       <div class="palette-section-label">Logic</div>
       <div class="palette-node" draggable="true" ondragstart="drag(event,'condition')">
@@ -534,6 +543,7 @@ const CTX_KEYS = [
   {v:'courier_name',l:'courier_name'},
   {v:'tracking_number',l:'tracking_number'},
   {v:'cart_url',   l:'cart_url'},
+  {v:'discount_code',l:'discount_code'},
 ];
 // Mirrors utils/flow_engine.py build_trigger_context(): which keys actually get
 // populated for a given trigger type. A key not in this list for the current
@@ -542,13 +552,18 @@ const CTX_KEYS = [
 // than offered and silently failing. 'manual' (or any future trigger type not
 // listed here) falls back to showing every key — build_trigger_context() itself
 // doesn't special-case it, so we don't guess either.
+// 'discount_code' is deliberately appended to EVERY trigger type here, unlike
+// every other key in this table -- it isn't derived from trigger payload data
+// at all, it's produced by a Generate Discount step (any flow can have one,
+// regardless of what triggers it), so there's no trigger type it's
+// structurally impossible for, unlike e.g. order_fulfilled's condition gating.
 const CTX_KEYS_BY_TRIGGER = {
-  order_confirmation: ['first_name','order_number','items','total'],
-  fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number'],
-  abandoned_cart:     ['first_name','items','total','cart_url'],
-  order_cancelled:    ['first_name','order_number','items','total'],
-  order_refunded:     ['first_name','order_number','items','total'],
-  customer_created:   ['first_name','email','phone'],
+  order_confirmation: ['first_name','order_number','items','total','discount_code'],
+  fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number','discount_code'],
+  abandoned_cart:     ['first_name','items','total','cart_url','discount_code'],
+  order_cancelled:    ['first_name','order_number','items','total','discount_code'],
+  order_refunded:     ['first_name','order_number','items','total','discount_code'],
+  customer_created:   ['first_name','email','phone','discount_code'],
 };
 function _availableCtxKeys() {
   const allowed = CTX_KEYS_BY_TRIGGER[TRIG_TYPE];
@@ -564,11 +579,12 @@ editor.start();
 
 // ── Node HTML factories ───────────────────────────────────────────────────────
 const NODE_META = {
-  trigger:      {title:'Trigger',       accent:'accent-trigger',   icon:'fas fa-bolt',           iconCls:'icon-trigger'},
-  send_message: {title:'Send Message',  accent:'accent-send',      icon:'fas fa-comment-alt',    iconCls:'icon-send'},
-  wait:         {title:'Wait / Delay',  accent:'accent-wait',      icon:'fas fa-clock',          iconCls:'icon-wait'},
-  condition:    {title:'Condition',     accent:'accent-condition',  icon:'fas fa-code-branch',    iconCls:'icon-condition'},
-  exit:         {title:'Exit Flow',     accent:'accent-exit',      icon:'fas fa-flag-checkered', iconCls:'icon-exit'},
+  trigger:      {title:'Trigger',           accent:'accent-trigger',   icon:'fas fa-bolt',           iconCls:'icon-trigger'},
+  send_message: {title:'Send Message',      accent:'accent-send',      icon:'fas fa-comment-alt',    iconCls:'icon-send'},
+  wait:         {title:'Wait / Delay',      accent:'accent-wait',      icon:'fas fa-clock',          iconCls:'icon-wait'},
+  condition:    {title:'Condition',         accent:'accent-condition', icon:'fas fa-code-branch',    iconCls:'icon-condition'},
+  generate_discount: {title:'Generate Discount', accent:'accent-discount', icon:'fas fa-tag',        iconCls:'icon-discount'},
+  exit:         {title:'Exit Flow',         accent:'accent-exit',      icon:'fas fa-flag-checkered', iconCls:'icon-exit'},
 };
 
 function nodeDesc(type, data) {
@@ -581,6 +597,11 @@ function nodeDesc(type, data) {
   if (type === 'condition') {
     const m = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?'};
     return data.condition_type ? (m[data.condition_type] || data.condition_type) : '<em style="color:var(--text-dim)">Set condition</em>';
+  }
+  if (type === 'generate_discount') {
+    if (!data.percentage) return '<em style="color:var(--text-dim)">Set percentage</em>';
+    const exp = data.never_expire === false && data.expiry_date ? ('until ' + data.expiry_date) : 'never expires';
+    return data.percentage + '% off · ' + exp;
   }
   if (type === 'exit') return 'End of journey';
   return type;
@@ -626,6 +647,7 @@ function defaultData(type) {
   if (type === 'trigger')      return {trigger_type: TRIG_TYPE};
   if (type === 'wait')         return {hours: 24};
   if (type === 'condition')    return {condition_type: 'replied_within_X_hours', hours: 24};
+  if (type === 'generate_discount') return {percentage: 10, never_expire: true, expiry_date: ''};
   if (type === 'send_message') return {template_name:'', template_language:'en_US', header_param:'', header_media_type:'', header_media_source:'', header_media_url:'', header_media_ref_id:'', header_media_ref_name:'', param_map:{}, button_params:{}};
   return {};
 }
@@ -677,6 +699,20 @@ function buildConfigForm(type, data) {
     return '<div class="config-field"><label class="form-label">Delay (hours)</label>' +
       '<input id="cfg_hours" type="number" min="1" max="720" class="form-control form-control-sm" value="' + (data.hours||24) + '" onchange="applyConfig()">' +
       '<div class="config-hint">Wait this many hours before moving to the next step.</div></div>';
+  }
+  if (type === 'generate_discount') {
+    const neverExpire = data.never_expire !== false;
+    return '<div class="config-field"><label class="form-label">Discount percentage</label>' +
+      '<input id="cfg_discount_percentage" type="number" min="1" max="100" class="form-control form-control-sm" value="' + (data.percentage||10) + '" onchange="applyConfig()">' +
+      '<div class="config-hint">Percentage off the order, e.g. 20 for 20% off.</div></div>' +
+      '<div class="config-field"><label class="form-label">Expiry</label>' +
+      '<div class="form-check" style="margin-bottom:0.5rem;">' +
+      '<input class="form-check-input" type="checkbox" id="cfg_never_expire" ' + (neverExpire ? 'checked' : '') + ' onchange="onNeverExpireChange(this)">' +
+      '<label class="form-check-label" for="cfg_never_expire" style="font-size:0.82rem;">Never expire</label>' +
+      '</div>' +
+      '<input id="cfg_expiry_date" type="date" class="form-control form-control-sm" value="' + (data.expiry_date||'') + '"' +
+      (neverExpire ? ' style="display:none;"' : '') + ' onchange="applyConfig()">' +
+      '<div class="config-hint">Generates a unique one-time-use code for this customer (e.g. SAVE20-JOHN-K3F9QZ) when the flow reaches this step. Map <code>discount_code</code> in a later Send Message step\'s template params to include it.</div></div>';
   }
   if (type === 'condition') {
     // 'order data' triggers -- see build_trigger_context() in flow_engine.py --
@@ -745,6 +781,12 @@ function buildConfigForm(type, data) {
       '<div class="config-hint">Map each dynamic button to a customer data field.</div></div>';
   }
   return '';
+}
+
+function onNeverExpireChange(cb) {
+  const dateField = document.getElementById('cfg_expiry_date');
+  if (dateField) dateField.style.display = cb.checked ? 'none' : '';
+  applyConfig();
 }
 
 function onConditionChange(sel) {
@@ -1040,6 +1082,10 @@ function applyConfig() {
 
   if (type === 'wait') {
     d.hours = parseInt(document.getElementById('cfg_hours')?.value||24);
+  } else if (type === 'generate_discount') {
+    d.percentage = parseInt(document.getElementById('cfg_discount_percentage')?.value||10);
+    d.never_expire = document.getElementById('cfg_never_expire')?.checked !== false;
+    d.expiry_date = document.getElementById('cfg_expiry_date')?.value||'';
   } else if (type === 'condition') {
     d.condition_type = document.getElementById('cfg_condition_type')?.value||'replied_within_X_hours';
     const h = document.getElementById('cfg_hours');

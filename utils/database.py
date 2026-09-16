@@ -2001,6 +2001,15 @@ class Database:
                 (next_action_at, participant_id)
             )
 
+    def update_participant_context(self, participant_id, context_dict):
+        """Merge new keys into a participant's context (e.g. a generate_discount
+        step adding 'discount_code' for a later send_message step to map)."""
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                'UPDATE flow_participants SET context = ? WHERE id = ?',
+                (json.dumps(context_dict), participant_id)
+            )
+
     def complete_participant(self, participant_id):
         with self.get_connection() as conn:
             conn.cursor().execute(
