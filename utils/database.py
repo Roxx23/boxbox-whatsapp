@@ -1987,6 +1987,34 @@ class Database:
             )
             return [dict(r) for r in cursor.fetchall()]
 
+    def claim_flow_participant(self, participant_id):
+        """Atomically move a due participant from 'active' to 'processing' so the
+        engine's 15s poll and an immediate off-cycle dispatch (enroll_participant's
+        fire-now thread, trigger_immediate_recheck's fast path) can never both
+        execute the same step for the same participant -- without this, both could
+        see the row as due at once and, e.g., double-send the same WhatsApp
+        template. Returns True only if this call won the claim (rowcount 1);
+        False means another caller already claimed it, or it's no longer active."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE flow_participants SET status = 'processing' WHERE id = ? AND status = 'active'",
+                (participant_id,)
+            )
+            return cursor.rowcount > 0
+
+    def release_flow_participant(self, participant_id):
+        """Release a claim taken by claim_flow_participant(), returning the
+        participant to 'active'. Guarded to only affect a row still in
+        'processing' -- a no-op if the claiming call already moved it to a
+        terminal status (completed/exited/error), so this is safe to call
+        unconditionally in a `finally` regardless of how processing ended."""
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                "UPDATE flow_participants SET status = 'active' WHERE id = ? AND status = 'processing'",
+                (participant_id,)
+            )
+
     def update_participant_step(self, participant_id, step_key, next_action_at):
         with self.get_connection() as conn:
             conn.cursor().execute(

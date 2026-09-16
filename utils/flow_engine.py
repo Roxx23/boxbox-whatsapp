@@ -180,6 +180,31 @@ def _process_due_participants():
 
 
 def _process_participant(participant):
+    # A participant can become "due" and be picked up by two different callers
+    # at once: the 15s engine tick (_process_due_participants) and an
+    # off-cycle immediate dispatch (enroll_participant's fire-now thread, or
+    # trigger_immediate_recheck's fast path making a condition step due right
+    # away). Neither path previously marked the row as claimed before doing
+    # the work, so if the immediate thread was still blocked on the WhatsApp
+    # API call when the next tick fired, both would see the same due
+    # send_message step and both would send it -- double-messaging the
+    # customer. Claim atomically first; if we lose the race, skip rather than
+    # risk executing the step twice.
+    if not _db.claim_flow_participant(participant['id']):
+        return
+    try:
+        _process_participant_claimed(participant)
+    finally:
+        # No-ops if a terminal transition (complete/exit/error) already moved
+        # the row out of 'processing'. Otherwise (an early return -- e.g. an
+        # off-cycle caller landing on a wait step that isn't due yet, per the
+        # comment below -- a condition step's "not yet determinable" retry
+        # path, or an unhandled exception) this returns the participant to
+        # 'active' so it isn't stuck forever and gets picked up again.
+        _db.release_flow_participant(participant['id'])
+
+
+def _process_participant_claimed(participant):
     flow = _db.get_flow(participant['flow_id'])
     if not flow or flow['status'] != 'active':
         _db.exit_participant(participant['id'], reason='flow_inactive')
