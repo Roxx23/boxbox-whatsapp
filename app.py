@@ -14,6 +14,7 @@ import base64
 import time
 import random
 import string
+from html import escape as escape_html
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
@@ -419,11 +420,13 @@ def _generate_discount_code(prefix='BOXBOX5', suffix_length=6):
     return f"{prefix}-{suffix}"
 
 
-def _create_discount_code_in_shopify(discount_code):
+def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None):
     """Create a price rule and discount code in Shopify.
 
     Args:
         discount_code: The code string to create
+        percentage: Discount percentage (default 5, matches abandoned-cart automation)
+        ends_at: ISO 8601 expiry timestamp, or None for no expiry (default None)
 
     Returns:
         (price_rule_id, generated_code) on success, (None, None) on failure
@@ -440,7 +443,7 @@ def _create_discount_code_in_shopify(discount_code):
 
         integration = ShopifyIntegration(shop_name, access_token)
         price_rule_id, generated_code = integration.create_price_rule_with_discount_code(
-            discount_code, percentage=5
+            discount_code, percentage=percentage, ends_at=ends_at
         )
 
         return price_rule_id, generated_code
@@ -2130,12 +2133,26 @@ def track_order(order_ref):
     # carries its own auth key). Orders predating this column have none stored — those
     # fall back to the copyable AWB rather than a courier link that may block.
     primary_url = status_url or ''
+    # Both order_ref (URL segment) and status_url (from the Shopify webhook payload,
+    # only HMAC-verified if SHOPIFY_WEBHOOK_SECRET is set) are attacker-controllable —
+    # only allow http(s) so a crafted javascript:/data: URL can't execute on click.
+    if primary_url and urlparse(primary_url).scheme not in ('http', 'https'):
+        primary_url = ''
     logger.info(f"🔗 Tracking page: /track/{order_ref} → "
                 f"{primary_url or '(no link, AWB only)'} (awb={tracking_number})")
 
     # Format order number for display
     order_number_str = str(order_number).lstrip('#')
-    display_order = f"#F1{order_number_str}"
+    display_order = f"#F1{escape_html(order_number_str)}"
+
+    # Everything below this point is interpolated into raw HTML (this response is
+    # returned as a plain string, not rendered via Jinja, so nothing is auto-escaped).
+    # order_ref/order_number come straight from the URL when no DB row matches, and
+    # tracking_number/tracking_company/status_url come from the Shopify webhook —
+    # both are attacker-controllable, so escape before interpolating.
+    courier_name_safe = escape_html(courier_name)
+    tracking_number_safe = escape_html(tracking_number) if tracking_number else ''
+    primary_url_safe = escape_html(primary_url) if primary_url else ''
 
     # Optional blocks — only rendered when we actually have the data
     awb_block = ""
@@ -2143,17 +2160,17 @@ def track_order(order_ref):
         awb_block = f"""
       <div class="awb-label">Tracking number</div>
       <div class="awb-row">
-        <span class="awb" id="awb">{tracking_number}</span>
+        <span class="awb" id="awb">{tracking_number_safe}</span>
         <button class="copy" onclick="copyAwb()" aria-label="Copy tracking number">Copy</button>
       </div>"""
 
     if primary_url:
         cta_block = f"""
-      <a class="btn" href="{primary_url}">Track My Order &rarr;</a>"""
+      <a class="btn" href="{primary_url_safe}">Track My Order &rarr;</a>"""
     elif tracking_number:
         cta_block = f"""
       <p class="hint">Use the tracking number above on
-        <span style="font-weight:600;">{courier_name}</span>'s website to see live status.</p>"""
+        <span style="font-weight:600;">{courier_name_safe}</span>'s website to see live status.</p>"""
     else:
         cta_block = """
       <a class="btn" href="https://boxbox.in">Visit boxbox.in &rarr;</a>"""
@@ -2316,10 +2333,10 @@ def track_order(order_ref):
       <div class="icon-wrap">🚚</div>
       <div class="order-tag">Order {display_order}</div>
       <h1>Your order is on its way!</h1>
-      <p class="sub">Your parcel has been picked up by <span style="font-weight:600;">{courier_name}</span>.</p>
+      <p class="sub">Your parcel has been picked up by <span style="font-weight:600;">{courier_name_safe}</span>.</p>
       {awb_block}
       {cta_block}
-      <div class="courier-tag">Shipped via <span>{courier_name}</span></div>
+      <div class="courier-tag">Shipped via <span>{courier_name_safe}</span></div>
     </div>
     <div class="footer">
       Questions? <a href="https://boxbox.in">Visit boxbox.in</a> or reply to your WhatsApp message.

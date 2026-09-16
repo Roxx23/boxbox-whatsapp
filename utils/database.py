@@ -420,18 +420,28 @@ class Database:
             conn.commit()
 
     # Campaign Methods
-    def create_campaign(self, user_id, username, campaign_name, campaign_type, 
+    def create_campaign(self, user_id, username, campaign_name, campaign_type,
                        template_name=None, recipient_count=0, scheduled_time=None):
         """Create a new campaign"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            # created_at is set explicitly (not left to the column's DEFAULT
+            # CURRENT_TIMESTAMP) because SQLite always stores that default in
+            # UTC, while every other timestamp in this app is deliberately
+            # hand-set via datetime.now().isoformat() to stay in local
+            # (IST) time -- templates display created_at raw with no UTC
+            # conversion, so leaving it to the default was silently showing
+            # campaign creation times 5.5 hours off (and skewing the
+            # analytics-by-date grouping, which buckets on this column).
+            now = datetime.now().isoformat()
             cursor.execute('''
-                INSERT INTO campaigns (user_id, username, campaign_name, campaign_type, 
-                                     template_name, recipient_count, scheduled_time, started_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, username, campaign_name, campaign_type, template_name, 
-                  recipient_count, scheduled_time, datetime.now().isoformat()))
-            
+                INSERT INTO campaigns (user_id, username, campaign_name, campaign_type,
+                                     template_name, recipient_count, scheduled_time, started_at,
+                                     created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, username, campaign_name, campaign_type, template_name,
+                  recipient_count, scheduled_time, now, now))
+
             return cursor.lastrowid
     
     def update_campaign_status(self, campaign_id, status, success_count=None, 
@@ -1255,14 +1265,37 @@ class Database:
     
     # Abandoned Cart Methods
     def add_abandoned_cart(self, user_id, cart_data):
-        """Add or update abandoned cart"""
+        """Add or update abandoned cart.
+
+        A real upsert (ON CONFLICT DO UPDATE), not INSERT OR REPLACE -- same
+        bug class as add_order() (see its docstring). Shopify redelivers
+        checkouts/create for the same shopify_cart_id (e.g. the customer
+        edits their cart before completing checkout, or a webhook retry), and
+        REPLACE was silently resetting reminder_sent/recovered/discount_code
+        back to their defaults on every re-save, which could re-send a
+        reminder to a customer who already got one, or flip a cart that had
+        already converted (recovered=1) back to "not recovered" so the
+        15-minute abandoned-cart checker nudges someone who already bought.
+        """
+        now = datetime.now().isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT OR REPLACE INTO abandoned_carts
+                INSERT INTO abandoned_carts
                 (user_id, shopify_cart_id, customer_id, customer_name, customer_email, customer_phone,
                  cart_token, cart_items, total_price, currency, abandoned_at, cart_url)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(shopify_cart_id) DO UPDATE SET
+                    customer_id = excluded.customer_id,
+                    customer_name = excluded.customer_name,
+                    customer_email = excluded.customer_email,
+                    customer_phone = excluded.customer_phone,
+                    cart_token = excluded.cart_token,
+                    cart_items = excluded.cart_items,
+                    total_price = excluded.total_price,
+                    currency = excluded.currency,
+                    abandoned_at = excluded.abandoned_at,
+                    cart_url = excluded.cart_url
             ''', (
                 user_id,
                 cart_data.get('id'),
@@ -1274,10 +1307,17 @@ class Database:
                 json.dumps(cart_data.get('line_items', [])),
                 cart_data.get('total_price'),
                 cart_data.get('currency'),
-                datetime.now().isoformat(),
+                now,
                 cart_data.get('abandoned_checkout_url')
             ))
-            return cursor.lastrowid
+            # cursor.lastrowid is unreliable after the DO UPDATE path (see
+            # add_order() for the empirically-verified reason) -- re-query.
+            cursor.execute(
+                'SELECT id FROM abandoned_carts WHERE shopify_cart_id = ?',
+                (cart_data.get('id'),)
+            )
+            row = cursor.fetchone()
+            return row['id'] if row else None
     
     def get_unsent_cart_reminders(self, user_id):
         """Get abandoned carts that haven't received reminders"""
@@ -1999,6 +2039,15 @@ class Database:
             conn.cursor().execute(
                 'UPDATE flow_participants SET next_action_at = ? WHERE id = ?',
                 (next_action_at, participant_id)
+            )
+
+    def update_participant_context(self, participant_id, context_dict):
+        """Merge new keys into a participant's context (e.g. a generate_discount
+        step adding 'discount_code' for a later send_message step to map)."""
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                'UPDATE flow_participants SET context = ? WHERE id = ?',
+                (json.dumps(context_dict), participant_id)
             )
 
     def complete_participant(self, participant_id):
