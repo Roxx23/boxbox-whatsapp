@@ -534,6 +534,8 @@ const CTX_KEYS = [
   {v:'courier_name',l:'courier_name'},
   {v:'tracking_number',l:'tracking_number'},
   {v:'cart_url',   l:'cart_url'},
+  {v:'refund_amount',l:'refund_amount'},
+  {v:'cancel_reason',l:'cancel_reason'},
 ];
 // Mirrors utils/flow_engine.py build_trigger_context(): which keys actually get
 // populated for a given trigger type. A key not in this list for the current
@@ -546,8 +548,8 @@ const CTX_KEYS_BY_TRIGGER = {
   order_confirmation: ['first_name','order_number','items','total'],
   fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number'],
   abandoned_cart:     ['first_name','items','total','cart_url'],
-  order_cancelled:    ['first_name','order_number','items','total'],
-  order_refunded:     ['first_name','order_number','items','total'],
+  order_cancelled:    ['first_name','order_number','items','total','cancel_reason'],
+  order_refunded:     ['first_name','order_number','items','total','refund_amount'],
   customer_created:   ['first_name','email','phone'],
 };
 function _availableCtxKeys() {
@@ -579,7 +581,7 @@ function nodeDesc(type, data) {
   if (type === 'send_message') return data.template_name ? data.template_name : '<em style="color:var(--text-dim)">No template set</em>';
   if (type === 'wait') return data.hours ? data.hours + 'h delay' : '<em style="color:var(--text-dim)">Set hours</em>';
   if (type === 'condition') {
-    const m = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?'};
+    const m = {replied_within_X_hours:'Replied within…',read_within_X_hours:'Read within…',placed_order:'Placed order?',order_fulfilled:'Order fulfilled?',cancel_reason_is:'Cancel reason is…'};
     return data.condition_type ? (m[data.condition_type] || data.condition_type) : '<em style="color:var(--text-dim)">Set condition</em>';
   }
   if (type === 'exit') return 'End of journey';
@@ -691,29 +693,53 @@ function buildConfigForm(type, data) {
       {v:'read_within_X_hours',   l:'Customer read message within N hours'},
       {v:'placed_order',          l:'Customer placed an order'},
       {v:'order_fulfilled',       l:'Order has shipped'},
+      {v:'cancel_reason_is',      l:'Cancellation reason is…'},
     ];
     const opts = allConditionOpts
       .filter(o => o.v !== 'order_fulfilled' || orderTriggers.includes(TRIG_TYPE))
+      // cancel_reason is only ever populated in context for order_cancelled
+      // (see build_trigger_context()) -- unlike order_fulfilled's broader
+      // orderTriggers gate, this can never resolve true/false meaningfully
+      // for any other trigger type, so it's gated tighter.
+      .filter(o => o.v !== 'cancel_reason_is' || TRIG_TYPE === 'order_cancelled')
       .map(o => '<option value="' + o.v + '"' + (data.condition_type===o.v?' selected':'') + '>' + o.l + '</option>').join('');
-    // Both placed_order and order_fulfilled check once, the instant the flow
-    // reaches this step -- no time window to configure, unlike the other two.
-    const CHECK_ONCE_TYPES = ['placed_order', 'order_fulfilled'];
-    const isCheckOnce = CHECK_ONCE_TYPES.includes(data.condition_type);
-    const hoursBlock = !isCheckOnce
+    // placed_order and order_fulfilled check once, the instant the flow
+    // reaches this step, but MAY need a later re-check (result can be
+    // "not yet true" -- see the 15-min retry path in _execute_condition) --
+    // cancel_reason_is is also a one-shot check but is always immediately
+    // resolvable (the value's already sitting in context from enrollment),
+    // so it shares "no hours field" with the other two but not their
+    // "you may need to wait" hint.
+    const NO_HOURS_TYPES = ['placed_order', 'order_fulfilled', 'cancel_reason_is'];
+    const RETRY_HINT_TYPES = ['placed_order', 'order_fulfilled'];
+    const hoursBlock = !NO_HOURS_TYPES.includes(data.condition_type)
       ? '<div class="config-field"><label class="form-label">Time window (hours)</label>' +
         '<input id="cfg_hours" type="number" min="1" class="form-control form-control-sm" value="' + (data.hours||24) + '">' +
         '</div>' : '';
+    const showRetryHint = RETRY_HINT_TYPES.includes(data.condition_type);
     const checkOnceHintText = data.condition_type === 'order_fulfilled'
       ? 'This checks once, the instant the flow reaches this step — it does not keep re-checking over a window. Pair it with a Wait step before it (e.g. Wait 4 days, then check) so there\'s been time for the order to actually ship.'
       : 'This checks once, the instant the flow reaches this step — unlike the other two conditions, it does not keep re-checking over a window. Right after enrollment, the customer almost certainly hasn\'t placed a new order yet, so this will usually evaluate No unless a Wait step runs first.';
     const checkOnceHint = '<div class="config-field" id="checkOnceHint" style="' +
-      (isCheckOnce ? '' : 'display:none;') + '">' +
+      (showRetryHint ? '' : 'display:none;') + '">' +
       '<div style="padding:0.6rem 0.75rem;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;font-size:0.8rem;color:#B45309;">' +
       '<i class="fas fa-triangle-exclamation me-1"></i>' + checkOnceHintText + '</div></div>';
+    const CANCEL_REASONS = [
+      {v:'customer',  l:'Customer changed their mind'},
+      {v:'inventory', l:'Item unavailable (inventory)'},
+      {v:'fraud',     l:'Fraudulent order'},
+      {v:'declined',  l:'Payment declined'},
+      {v:'other',     l:'Other'},
+    ];
+    const reasonBlock = data.condition_type === 'cancel_reason_is'
+      ? '<div class="config-field"><label class="form-label">Reason</label>' +
+        '<select id="cfg_cancel_reason" class="form-select form-select-sm" onchange="applyConfig()">' +
+        CANCEL_REASONS.map(r => '<option value="' + r.v + '"' + (data.reason===r.v?' selected':'') + '>' + r.l + '</option>').join('') +
+        '</select></div>' : '';
     return '<div class="config-field"><label class="form-label">Condition</label>' +
       '<select id="cfg_condition_type" class="form-select form-select-sm" onchange="onConditionChange(this);applyConfig()">' + opts + '</select>' +
       '<div class="config-hint">Output <strong style="color:#059669;">Yes</strong> if condition is met, <strong style="color:#DC2626;">No</strong> otherwise.</div>' +
-      '</div>' + hoursBlock + checkOnceHint;
+      '</div>' + hoursBlock + reasonBlock + checkOnceHint;
   }
   if (type === 'send_message') {
     const tplOpts = WA_TEMPLATES.map(t =>
@@ -748,17 +774,10 @@ function buildConfigForm(type, data) {
 }
 
 function onConditionChange(sel) {
-  const isCheckOnce = sel.value === 'placed_order' || sel.value === 'order_fulfilled';
-  const hoursField = document.querySelector('#cfg_hours');
-  if (hoursField) {
-    const wrap = hoursField.closest('.config-field');
-    if (wrap) wrap.style.display = isCheckOnce ? 'none' : '';
-  }
-  const hint = document.getElementById('checkOnceHint');
-  if (hint) hint.style.display = isCheckOnce ? '' : 'none';
-  // The hint's wording differs per type (placed_order vs order_fulfilled) --
-  // buildConfigForm() only sets it once at initial render, so re-derive the
-  // full panel HTML on a type switch rather than trying to patch just the text.
+  // The hint's wording, the hours field, and (for cancel_reason_is) the
+  // reason dropdown all differ per type -- buildConfigForm() only sets them
+  // once at initial render, so re-derive the full panel HTML on a type
+  // switch rather than trying to patch pieces of it in place.
   const node = editor.getNodeFromId(_selId);
   if (node) {
     document.getElementById('configBody').innerHTML = buildConfigForm('condition', {...node.data, condition_type: sel.value});
@@ -1044,6 +1063,8 @@ function applyConfig() {
     d.condition_type = document.getElementById('cfg_condition_type')?.value||'replied_within_X_hours';
     const h = document.getElementById('cfg_hours');
     if (h) d.hours = parseInt(h.value||24);
+    const r = document.getElementById('cfg_cancel_reason');
+    if (r) d.reason = r.value;
   } else if (type === 'send_message') {
     d.template_name     = document.getElementById('cfg_template_name')?.value||'';
     d.template_language = document.getElementById('cfg_lang')?.value||'en_US';

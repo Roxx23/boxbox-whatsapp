@@ -123,6 +123,28 @@ def build_trigger_context(trigger_type, data):
             ctx['tracking_url'] = tracking
             ctx['courier_name'] = data.get('courier_name', '')
             ctx['tracking_number'] = data.get('tracking_number', '')
+        elif trigger_type == 'order_cancelled':
+            # Shopify's orders/cancelled payload carries this directly (values:
+            # customer/inventory/fraud/declined/other) -- lets a cancellation
+            # win-back flow gate on it via the 'cancel_reason_is' condition,
+            # e.g. skip sending a save-the-sale discount for fraud/declined.
+            ctx['cancel_reason'] = data.get('cancel_reason') or ''
+        elif trigger_type == 'order_refunded':
+            # 'total' above is the ORDER's original total (from the stored
+            # shopify_orders row -- see shopify_order_refunded() in app.py),
+            # not what was actually refunded. refunds/create's payload carries
+            # the real amount across a transactions[] array (each with its own
+            # 'amount'), which correctly handles a partial refund -- summing
+            # them is the actual refunded total. shopify_order_refunded()
+            # stashes the raw refund payload as data['refund'] before calling
+            # this. _format_currency('') / a 0 sum both fall through to '' via
+            # its own falsy-value guard, so a refund with no transactions data
+            # (shouldn't happen, but don't assume) leaves this blank rather
+            # than claiming ₹0 was refunded.
+            refund = data.get('refund') or {}
+            transactions = refund.get('transactions') or []
+            total_refunded = sum(float(t.get('amount') or 0) for t in transactions)
+            ctx['refund_amount'] = _format_currency(total_refunded)
     elif trigger_type == 'abandoned_cart':
         customer = data.get('customer') or {}
         ctx['first_name'] = customer.get('first_name') or (data.get('email', '').split('@')[0])
@@ -455,6 +477,27 @@ def _execute_condition(participant, step, config):
         # an order-bearing trigger) -- also leave as not-yet-determinable
         # rather than crash; the flow owner shouldn't have used this condition
         # here, but nothing about this state resolves it either way.
+
+    elif condition_type == 'cancel_reason_is':
+        # Unlike placed_order/order_fulfilled, this never needs the
+        # retry-in-15-min path -- cancel_reason is already in participant
+        # context from enrollment (build_trigger_context() reads it straight
+        # off the orders/cancelled webhook payload, no later async event to
+        # wait for), so it's always immediately determinable one way or the
+        # other. A flow using this condition on a non-order_cancelled trigger
+        # (context never populated it) resolves False, same fail-safe
+        # rather than crash as order_fulfilled's missing-shopify_order_id case.
+        expected_reason = config.get('reason', '')
+        if expected_reason:
+            try:
+                context = json.loads(participant['context'] or '{}')
+            except Exception:
+                context = {}
+            result = (context.get('cancel_reason', '') == expected_reason)
+        else:
+            # Unconfigured (flow owner never picked a reason) -- resolve False
+            # rather than let two blank strings coincidentally "match".
+            result = False
 
     if result is True:
         _advance_to_step(participant, step['next_yes'])
