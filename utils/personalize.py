@@ -21,6 +21,13 @@ def personalize(template: str, row: dict, index: int):
     for key, value in replacements.items():
         # Match {key} with any case
         pattern = re.compile(r'\{' + re.escape(key) + r'\}', re.IGNORECASE)
-        msg = pattern.sub(str(value), msg)
+        # re.sub's replacement argument is itself a pattern string (\1, \g<...>,
+        # backslash-escapes) when passed as str -- a customer's own data (e.g. a
+        # name/note containing a backslash) would otherwise be interpreted as a
+        # regex escape instead of literal text, silently corrupting the message
+        # or raising re.error on an invalid escape. A callable replacement is
+        # always treated as literal.
+        replacement = str(value)
+        msg = pattern.sub(lambda m, r=replacement: r, msg)
     
     return msg
