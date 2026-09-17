@@ -142,14 +142,24 @@ class ShopifyIntegration:
                 phone = '+' + cleaned
             break
         
+        # .get(key, default) only falls back when the key is ABSENT -- Shopify
+        # can send "total_spent": null / "orders_count": null for some
+        # guest/incomplete customer records, and .get() then returns None
+        # rather than the default, so float(None) raised uncaught here and
+        # aborted the whole sync (see the call site in app.py for the
+        # per-record try/except that now also guards against this class of
+        # bug for any other field).
+        total_spent_raw = customer.get('total_spent')
+        orders_count_raw = customer.get('orders_count')
+
         return {
             'shopify_id': customer.get('id'),
             'first_name': customer.get('first_name', ''),
             'last_name': customer.get('last_name', ''),
             'email': customer.get('email', ''),
             'phone': phone,
-            'total_spent': float(customer.get('total_spent', 0)),
-            'orders_count': customer.get('orders_count', 0),
+            'total_spent': float(total_spent_raw) if total_spent_raw is not None else 0.0,
+            'orders_count': orders_count_raw if orders_count_raw is not None else 0,
             'state': customer.get('state', 'enabled'),
             'tags': customer.get('tags', ''),
             'created_at': customer.get('created_at', ''),

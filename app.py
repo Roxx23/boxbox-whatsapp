@@ -2543,8 +2543,22 @@ def sync_shopify():
         customers = shopify.fetch_customers(created_at_min=last_sync_date)
 
         logger.info(f"📊 Fetched {len(customers)} customers from Shopify")
-        
-        parsed = [shopify.parse_customer_data(c) for c in customers]
+
+        # One malformed record (e.g. a null field Shopify can legitimately send
+        # for a guest/incomplete customer) must not abort the sync for every
+        # other customer in the batch -- parse each individually and skip only
+        # the bad ones, rather than letting one exception kill the whole list
+        # comprehension.
+        parsed = []
+        parse_error_count = 0
+        for c in customers:
+            try:
+                parsed.append(shopify.parse_customer_data(c))
+            except Exception as e:
+                parse_error_count += 1
+                logger.warning(f"⚠️ Skipping Shopify customer {c.get('id')}: failed to parse ({e})")
+        if parse_error_count:
+            logger.warning(f"⚠️ Shopify sync: {parse_error_count} customer(s) skipped due to parse errors")
         to_sync = [c for c in parsed if c['phone']]
         skipped_count = len(parsed) - len(to_sync)
         synced_count = len(to_sync)
@@ -2567,6 +2581,8 @@ def sync_shopify():
             message = f'Full sync complete: {synced_count} customers synced'
         if skipped_count > 0:
             message += f' ({skipped_count} skipped - no phone number)'
+        if parse_error_count > 0:
+            message += f' ({parse_error_count} skipped - malformed Shopify record)'
 
         return jsonify({
             'success': True,
