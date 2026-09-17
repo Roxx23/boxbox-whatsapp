@@ -2840,7 +2840,13 @@ def process_message_status(status_data):
             trigger_immediate_recheck(db, message_id, 'read_at', timestamp or datetime.now().isoformat())
             logger.info(f"✅ Read status processed")
         elif status == "failed":
-            error = status_data.get("errors", [{}])[0]
+            # status_data.get("errors", [{}]) only falls back to [{}] when the
+            # "errors" key is ABSENT -- Meta can send "errors": [] (present but
+            # empty) for a failed status, in which case .get() returns [] and
+            # [][0] raised IndexError here, caught by the outer except below
+            # and just logged: fail_message_by_whatsapp_id() never ran, so the
+            # message stayed looking sent/delivered with no visible trace.
+            error = (status_data.get("errors") or [{}])[0]
             error_code = error.get("code", 0)
             error_message = error.get("message", "Unknown error")
             logger.error(f"❌ Message {message_id} failed: {error_message} (code: {error_code})")
@@ -3165,7 +3171,13 @@ def shopify_order_create():
 
         order_data = {
             'id': str(data.get('id')),
-            'order_number': str(data.get('order_number') or data.get('name', '')),
+            # .lstrip('#'): Shopify's 'order_number' field is a bare integer,
+            # but the 'name' fallback (used when 'order_number' is absent) is
+            # pre-formatted as "#1001" -- downstream this gets wrapped as
+            # f"#F1{order_number}" with no strip of its own, so an unstripped
+            # fallback would double up into "#F1#1001" in the customer-facing
+            # message. track_order() already strips for the same reason.
+            'order_number': str(data.get('order_number') or data.get('name', '')).lstrip('#'),
             'customer': data.get('customer', {}),
             'email': data.get('email'),
             'phone': phone,
@@ -3311,7 +3323,10 @@ def shopify_fulfillment():
         else:
             # orders/fulfilled payload — full order object
             shopify_order_id = str(data.get('id', ''))
-            order_number = str(data.get('order_number') or data.get('name', ''))
+            # See the order-create handler's identical fallback for why this
+            # strips '#' -- 'name' is Shopify's pre-formatted "#1001", and
+            # downstream builds f"#F1{order_number}" with no strip of its own.
+            order_number = str(data.get('order_number') or data.get('name', '')).lstrip('#')
             phone = (data.get('phone')
                      or (data.get('customer') or {}).get('phone')
                      or (data.get('billing_address') or {}).get('phone'))
