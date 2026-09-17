@@ -32,10 +32,18 @@ def format_phone_number(number: str) -> str:
     if not digits:
         return digits
     
-    # If starts with 0, assume local format - remove 0 and add country code
-    if digits.startswith('0'):
+    # If starts with 0 AND the rest is a bare 10-digit local number, assume
+    # local format - remove the 0 and add the country code. Length-gated
+    # (matches the same 0+10-digit check already used in
+    # shopify_integration.py's phone normalisation) so a number that
+    # already carries a country code but picked up a stray leading 0 isn't
+    # double-prefixed into a garbled, wrong-length number sent to nobody --
+    # e.g. "0919999999999" (14 digits) previously became "91919999999999"
+    # (15 digits, wrong recipient) instead of being left alone to fail
+    # visibly as a bad number.
+    if digits.startswith('0') and len(digits) == 11:
         digits = DEFAULT_COUNTRY_CODE + digits[1:]
-    
+
     # If number is too short (less than 10 digits), assume missing country code
     # This handles cases like "1234567890" -> add country code
     elif len(digits) == 10:
@@ -81,7 +89,7 @@ def delete_template(waba_id, template_name):
 
 
 def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None,
-                   header_param=None, header_media_type="image"):
+                   header_param=None, header_media_type="image", retry=True):
     """Send a WhatsApp template message
 
     Args:
@@ -137,35 +145,44 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
     # BUTTON PARAMETERS (for copy_code, dynamic URLs, CATALOG, etc.)
     button_components = []
 
+    # Both the CATALOG-button check below and the COPY_CODE auto-index-detect
+    # further down need the same template definition -- resolve it once and
+    # reuse it, rather than each independently calling get_templates() (which
+    # paginates the FULL template list). A 1000-message campaign was
+    # previously making up to 2000 extra full-list Graph API calls just to
+    # send 1000 messages, multiplying load on Meta's API and rate-limit
+    # exposure for no benefit.
+    template = None
+    if WABA_ID:
+        try:
+            templates = get_templates(WABA_ID)
+            template = next((t for t in templates if t["name"] == template_name), None)
+        except Exception as e:
+            logger.warning(f"Could not fetch templates for '{template_name}': {e}")
+
     # CATALOG buttons take no per-recipient data (no {{n}} in the template,
     # unlike URL/COPY_CODE), so this can't be gated behind `if button_params`
     # like the rest of this section -- it must run even when the caller
     # passed nothing. WhatsApp still requires an explicit components entry
     # (sub_type=CATALOG with an action object, thumbnail_product_retailer_id
     # optional) for the catalog to attach to the send at all.
-    if WABA_ID:
-        try:
-            templates = get_templates(WABA_ID)
-            template = next((t for t in templates if t["name"] == template_name), None)
-            if template:
-                buttons_comp = next((c for c in template["components"] if c["type"] == "BUTTONS"), None)
-                if buttons_comp and "buttons" in buttons_comp:
-                    for idx, btn in enumerate(buttons_comp["buttons"]):
-                        if btn.get("type") == "CATALOG":
-                            action = {}
-                            thumbnail_id = (button_params or {}).get("catalog_thumbnail_retailer_id")
-                            if thumbnail_id:
-                                action["thumbnail_product_retailer_id"] = str(thumbnail_id)
-                            button_components.append({
-                                "type": "button",
-                                "sub_type": "CATALOG",
-                                "index": str(idx),
-                                "parameters": [{"type": "action", "action": action}]
-                            })
-                            logger.debug(f"Adding CATALOG button at index {idx}")
-                            break
-        except Exception as e:
-            logger.warning(f"Could not check for CATALOG button: {e}")
+    if template:
+        buttons_comp = next((c for c in template["components"] if c["type"] == "BUTTONS"), None)
+        if buttons_comp and "buttons" in buttons_comp:
+            for idx, btn in enumerate(buttons_comp["buttons"]):
+                if btn.get("type") == "CATALOG":
+                    action = {}
+                    thumbnail_id = (button_params or {}).get("catalog_thumbnail_retailer_id")
+                    if thumbnail_id:
+                        action["thumbnail_product_retailer_id"] = str(thumbnail_id)
+                    button_components.append({
+                        "type": "button",
+                        "sub_type": "CATALOG",
+                        "index": str(idx),
+                        "parameters": [{"type": "action", "action": action}]
+                    })
+                    logger.debug(f"Adding CATALOG button at index {idx}")
+                    break
 
     if button_params:
         logger.debug(f"Button params: {button_params}")
@@ -176,27 +193,19 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             if "copy_code_index" in button_params:
                 index = str(button_params["copy_code_index"])
             else:
-                # Try to auto-detect button index from template
+                # Try to auto-detect button index from the template already
+                # fetched above (no second API round-trip).
                 index = "0"  # Default assumption
-                
-                # If we have WABA_ID, try to detect correct index
-                if WABA_ID:
-                    try:
-                        templates = get_templates(WABA_ID)
-                        template = next((t for t in templates if t["name"] == template_name), None)
-                        
-                        if template:
-                            buttons_comp = next((c for c in template["components"] if c["type"] == "BUTTONS"), None)
-                            if buttons_comp and "buttons" in buttons_comp:
-                                # Find COPY_CODE button index
-                                for idx, btn in enumerate(buttons_comp["buttons"]):
-                                    if btn.get("type") == "COPY_CODE":
-                                        index = str(idx)
-                                        logger.debug(f"Auto-detected COPY_CODE button at index {index}")
-                                        break
-                    except Exception as e:
-                        logger.warning(f"Could not auto-detect button index: {e}")
-            
+                if template:
+                    buttons_comp = next((c for c in template["components"] if c["type"] == "BUTTONS"), None)
+                    if buttons_comp and "buttons" in buttons_comp:
+                        # Find COPY_CODE button index
+                        for idx, btn in enumerate(buttons_comp["buttons"]):
+                            if btn.get("type") == "COPY_CODE":
+                                index = str(idx)
+                                logger.debug(f"Auto-detected COPY_CODE button at index {index}")
+                                break
+
             logger.debug(f"Adding COPY_CODE button: index={index}, code={button_params['copy_code']}")
             button_components.append({
                 "type": "button",
@@ -258,11 +267,17 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
             logger.warning(f"Template send returned {resp.status_code} for {formatted_number}: {response_data}")
         logger.debug(f"Response: {response_data}")
         
-        # Retry on rate limit
-        if resp.status_code == 429:
+        # Retry on rate limit -- capped to exactly one retry (matching
+        # send_text's retry=False-on-recursive-call pattern), not unbounded.
+        # A sustained 429 storm during a large campaign (e.g. amplified by
+        # the get_templates() calls above) previously recursed with no
+        # counter until Python's recursion limit raised RecursionError,
+        # crashing the single queue-worker thread mid-campaign.
+        if retry and resp.status_code == 429:
             time.sleep(2)
-            return send_template(number, template_name, params, lang, header_media_id, button_params, header_param, header_media_type)
-        
+            return send_template(number, template_name, params, lang, header_media_id, button_params,
+                                  header_param, header_media_type, retry=False)
+
         return resp.status_code, response_data
     except requests.exceptions.RequestException as e:
         logger.error(f"Template send request failed for {formatted_number}: {e}")
@@ -683,10 +698,21 @@ def create_template(waba_id, template_data, media_file=None):
             "buttons": buttons
         })
 
+    # Unlike template_name/body_text above, these were previously accessed
+    # with bare brackets -- a form submission missing either raised an
+    # unhandled KeyError (generic 500) instead of the same kind of clean 400
+    # this function gives for every other missing/invalid field.
+    language = (template_data.get('language') or '').strip()
+    if not language:
+        return 400, {"error": {"message": "Language is required"}}
+    category = (template_data.get('category') or '').strip()
+    if not category:
+        return 400, {"error": {"message": "Category is required"}}
+
     payload = {
         "name": template_name,
-        "language": template_data['language'],
-        "category": template_data['category'],
+        "language": language,
+        "category": category,
         "components": components
     }
     
