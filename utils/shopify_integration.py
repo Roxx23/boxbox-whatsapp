@@ -184,6 +184,7 @@ class ShopifyIntegration:
                     "title": f"Abandoned Cart Reminder - {discount_code}",
                     "target_type": "line_item",
                     "target_selection": "all",
+                    "customer_selection": "all",
                     "allocation_method": "across",
                     "value_type": "percentage",
                     "value": f"-{percentage}",
