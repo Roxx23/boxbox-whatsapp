@@ -6,6 +6,7 @@ import string
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from dateutil.relativedelta import relativedelta
 
 def _now():
     """Always return UTC time as naive ISO string to match SQLite's strftime('now')."""
@@ -540,6 +541,59 @@ def _execute_condition(participant, step, config):
         )
 
 
+def _resolve_generate_discount_expiry(config):
+    """Returns a Shopify-ready ends_at ISO 8601 string, or None for no expiry.
+
+    Three modes, config.expiry_mode:
+    - 'never': no expiry (None).
+    - 'fixed': a flow-owner-picked calendar date, config.expiry_date
+      ('YYYY-MM-DD' from the editor's <input type=date>). Same value every
+      time this step runs, however many participants reach it.
+    - 'relative': N days/months (config.expiry_relative_amount,
+      config.expiry_relative_unit) from RIGHT NOW -- computed fresh every
+      call, not once when the flow was built in the editor. This is the
+      whole point of 'relative': two participants reaching this step a month
+      apart (e.g. because of a Wait step before it) each get an expiry N
+      days/months from THEIR OWN generation time, not a shared fixed date.
+      Uses dateutil's relativedelta for month math so e.g. Jan 31 + 1 month
+      lands on Feb 28, not an invalid date / silent day rollover.
+
+    Backward compatible: flows saved before 'relative' existed only ever
+    wrote never_expire (bool) + expiry_date, no expiry_mode key at all. When
+    expiry_mode is missing, infer it from those two old fields rather than
+    picking a new default that could silently change an already-configured
+    flow's behavior (same backward-compat pattern as the abandoned-cart
+    automation's percentage/ends_at defaults in create_price_rule_with_discount_code()).
+    """
+    expiry_mode = config.get('expiry_mode')
+    if not expiry_mode:
+        never_expire = config.get('never_expire', True)
+        expiry_date = config.get('expiry_date') or ''
+        expiry_mode = 'fixed' if (not never_expire and expiry_date) else 'never'
+
+    if expiry_mode == 'fixed':
+        expiry_date = config.get('expiry_date') or ''
+        if not expiry_date:
+            return None
+        # End-of-day UTC so the code stays valid through the whole day the
+        # flow owner picked, matching create_price_rule_with_discount_code's
+        # own starts_at convention (a UTC ISO 8601 timestamp).
+        return f"{expiry_date}T23:59:59+00:00"
+
+    if expiry_mode == 'relative':
+        amount = int(config.get('expiry_relative_amount') or 0)
+        if amount <= 0:
+            return None
+        unit = config.get('expiry_relative_unit') or 'days'
+        now = datetime.now(timezone.utc)
+        expiry_dt = now + relativedelta(months=amount) if unit == 'months' else now + relativedelta(days=amount)
+        expiry_dt = expiry_dt.replace(hour=23, minute=59, second=59, microsecond=0)
+        return expiry_dt.isoformat()
+
+    # 'never', or an unrecognized mode -- fail safe to no-expiry rather than guess.
+    return None
+
+
 def _execute_generate_discount(participant, step, config):
     """Generates a unique one-time-use Shopify discount code and stores it on
     the participant's context (key 'discount_code') for a later send_message
@@ -554,16 +608,7 @@ def _execute_generate_discount(participant, step, config):
         context = {}
 
     percentage = int(config.get('percentage') or 10)
-    never_expire = config.get('never_expire', True)
-    expiry_date = config.get('expiry_date') or ''
-
-    ends_at = None
-    if not never_expire and expiry_date:
-        # expiry_date is a plain YYYY-MM-DD from the editor's <input type=date>;
-        # treat it as end-of-day UTC so the code stays valid through the whole
-        # day the flow owner picked, matching create_price_rule_with_discount_code's
-        # own starts_at convention (a UTC ISO 8601 timestamp).
-        ends_at = f"{expiry_date}T23:59:59+00:00"
+    ends_at = _resolve_generate_discount_expiry(config)
 
     first_name = (context.get('first_name') or '').strip()
     if not first_name:
