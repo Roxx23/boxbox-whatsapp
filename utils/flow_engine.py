@@ -628,6 +628,14 @@ def _execute_generate_discount(participant, step, config):
 
     discount_code = _generate_flow_discount_code(percentage, first_name)
 
+    # Unlike discount_code, the percentage doesn't depend on the Shopify API
+    # call succeeding -- it's known before that call is even made, so it's
+    # always written to context, plain number as a string (e.g. '15', not
+    # '15%') so a flow owner controls the exact phrasing ("15% off" / "flat
+    # 15 percent off" / etc.) in their approved template body rather than
+    # having a literal '%' baked into the dynamic parameter.
+    context['discount_percentage'] = str(percentage)
+
     from app import _create_discount_code_in_shopify
     price_rule_id, created_code = _create_discount_code_in_shopify(
         discount_code, percentage=percentage, ends_at=ends_at
@@ -635,18 +643,20 @@ def _execute_generate_discount(participant, step, config):
 
     if created_code:
         context['discount_code'] = created_code
-        _db.update_participant_context(participant['id'], context)
         logger.info(f"Flow participant {participant['id']}: generated discount code {created_code}")
     else:
         # Non-fatal by design, matching every other Shopify-write-failure path
         # in this codebase -- the flow keeps moving. 'discount_code' is simply
         # left unset in context, so a downstream send_message step mapping it
         # hits the existing blank-mapped-param warning at send time rather
-        # than silently sending a broken/missing code.
+        # than silently sending a broken/missing code. 'discount_percentage'
+        # was already set above regardless -- it isn't a Shopify write result.
         logger.warning(
             f"Flow participant {participant['id']}: discount code creation failed in Shopify -- "
             f"'discount_code' left unset in context"
         )
+
+    _db.update_participant_context(participant['id'], context)
 
     _advance_to_step(participant, step['next_yes'])
 

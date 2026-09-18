@@ -546,6 +546,7 @@ const CTX_KEYS = [
   {v:'refund_amount',l:'refund_amount'},
   {v:'cancel_reason',l:'cancel_reason'},
   {v:'discount_code',l:'discount_code'},
+  {v:'discount_percentage',l:'discount_percentage'},
 ];
 // Mirrors utils/flow_engine.py build_trigger_context(): which keys actually get
 // populated for a given trigger type. A key not in this list for the current
@@ -554,18 +555,19 @@ const CTX_KEYS = [
 // than offered and silently failing. 'manual' (or any future trigger type not
 // listed here) falls back to showing every key — build_trigger_context() itself
 // doesn't special-case it, so we don't guess either.
-// 'discount_code' is deliberately appended to EVERY trigger type here, unlike
-// every other key in this table -- it isn't derived from trigger payload data
-// at all, it's produced by a Generate Discount step (any flow can have one,
-// regardless of what triggers it), so there's no trigger type it's
-// structurally impossible for, unlike e.g. order_fulfilled's condition gating.
+// 'discount_code' and 'discount_percentage' are deliberately appended to EVERY
+// trigger type here, unlike every other key in this table -- neither is
+// derived from trigger payload data at all, both are produced by a Generate
+// Discount step (any flow can have one, regardless of what triggers it), so
+// there's no trigger type either is structurally impossible for, unlike e.g.
+// order_fulfilled's condition gating.
 const CTX_KEYS_BY_TRIGGER = {
-  order_confirmation: ['first_name','order_number','items','total','discount_code'],
-  fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number','discount_code'],
-  abandoned_cart:     ['first_name','items','total','cart_url','discount_code'],
-  order_cancelled:    ['first_name','order_number','items','total','discount_code','cancel_reason'],
-  order_refunded:     ['first_name','order_number','items','total','discount_code','refund_amount'],
-  customer_created:   ['first_name','email','phone','discount_code'],
+  order_confirmation: ['first_name','order_number','items','total','discount_code','discount_percentage'],
+  fulfillment:        ['first_name','order_number','items','total','tracking_url','courier_name','tracking_number','discount_code','discount_percentage'],
+  abandoned_cart:     ['first_name','items','total','cart_url','discount_code','discount_percentage'],
+  order_cancelled:    ['first_name','order_number','items','total','discount_code','discount_percentage','cancel_reason'],
+  order_refunded:     ['first_name','order_number','items','total','discount_code','discount_percentage','refund_amount'],
+  customer_created:   ['first_name','email','phone','discount_code','discount_percentage'],
 };
 function _availableCtxKeys() {
   const allowed = CTX_KEYS_BY_TRIGGER[TRIG_TYPE];
@@ -744,7 +746,7 @@ function buildConfigForm(type, data) {
       '<option value="months"' + (relUnit==='months'?' selected':'') + '>months</option>' +
       '</select>' +
       '</div>' +
-      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20-JOHN-K3F9QZ) when the flow reaches this step. Map <code>discount_code</code> in a later Send Message step\'s template params to include it.</div></div>';
+      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20-JOHN-K3F9QZ) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
   }
   if (type === 'condition') {
     // 'order data' triggers -- see build_trigger_context() in flow_engine.py --
