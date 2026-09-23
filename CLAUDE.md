@@ -93,30 +93,58 @@ max_requests_jitter = 0
 ## Deployment
 
 ### Server details
-- **Provider**: GCP (migrated from AWS Lightsail as of 2026-09-14)
-- **Domain**: `internal.boxbox.in` (subdomain of boxbox.in, replaces `dashboard.boxbox.in` -- publicly reachable HTTPS, confirmed by Abhi)
-- **IP / SSH / instance details**: not yet confirmed for the GCP host -- the AWS Lightsail static-IP SSH details below are stale, do not use them. Update this section once the GCP instance details are known.
-- **App dir**: `/home/ubuntu/whatsapp-dashboard` (unconfirmed on GCP -- verify actual path)
-- **Service**: `whatsapp-dashboard` (systemd -- unconfirmed whether GCP host still uses systemd/nginx/gunicorn or a different setup, e.g. Cloud Run)
+- **Provider**: GCP VM (migrated from AWS Lightsail as of 2026-09-14)
+- **Domain**: `internal.boxbox.in` (subdomain of boxbox.in, replaces `dashboard.boxbox.in` -- publicly reachable HTTPS)
+- **SSH**: user `sayboxbox` (verified 2026-09-18)
+- **App dir**: `/home/sayboxbox/boxbox-whatsapp` (verified 2026-09-18)
+- **Service**: `whatsapp-dashboard` (systemd, service name unconfirmed — see "Finding your service name" below)
+- **Logs**: `/home/sayboxbox/boxbox-whatsapp/logs/app.log`
 
-### Deploy an update
+### Auto-deploy: GitHub Actions
+
+Every push to `main` (including merged PRs) automatically deploys to production via GitHub Actions.
+
+The workflow:
+1. GitHub detects a push to `main`
+2. Runs `.github/workflows/deploy.yml`
+3. SSHes into the GCP server as `sayboxbox`
+4. Runs `deploy/deploy.sh` which:
+   - Pulls latest code from GitHub
+   - Installs dependencies
+   - Restarts the systemd service
+   - Verifies the service is active
+   - Health-checks localhost:5000 if accessible
+
+**To enable auto-deploy**, Abhi must complete the one-time setup (see "ONE-TIME SETUP" section below in the PR description when this is merged).
+
+### Deploy manually (if needed)
 ```bash
-# On the server:
-cd /home/ubuntu/whatsapp-dashboard && bash deploy/deploy.sh
+# On the GCP server, SSH as sayboxbox:
+cd /home/sayboxbox/boxbox-whatsapp && bash deploy/deploy.sh
 ```
-This does: `git pull` → `pip install -r requirements.txt` → `sudo systemctl restart whatsapp-dashboard`
+
+### Finding your service name
+On the GCP server:
+```bash
+# List all active services containing "whatsapp" or "boxbox"
+sudo systemctl list-units --type=service | grep -E 'whatsapp|boxbox'
+
+# Or check what the current systemd service is running:
+ps aux | grep gunicorn
+sudo systemctl cat whatsapp-dashboard  # if the name is known
+```
 
 ### Common server commands
 ```bash
 sudo systemctl status whatsapp-dashboard
 sudo systemctl restart whatsapp-dashboard
-tail -f /home/ubuntu/whatsapp-dashboard/logs/app.log
+tail -f /home/sayboxbox/boxbox-whatsapp/logs/app.log
 journalctl -u whatsapp-dashboard -n 50
 ```
 
 ### Logs
-- App log: `/home/ubuntu/whatsapp-dashboard/logs/app.log` (rotating, 5MB × 5 files)
-- Access log: `/home/ubuntu/whatsapp-dashboard/logs/access.log`
+- App log: `/home/sayboxbox/boxbox-whatsapp/logs/app.log` (rotating, 5MB × 5 files)
+- Access log: `/home/sayboxbox/boxbox-whatsapp/logs/access.log`
 - Systemd captures stderr → `app.log` via `StandardError=append:` in the service file
 
 **Do NOT add a StreamHandler (console) in `setup_logging()`** — systemd already captures stderr to `app.log`, adding a console handler causes every log line to appear twice.
