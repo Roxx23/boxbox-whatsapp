@@ -60,7 +60,10 @@ class Database:
     @contextmanager
     def get_connection(self):
         """Context manager for database connections"""
-        conn = sqlite3.connect(self.db_path)
+        # timeout: wait up to 30s for another writer (queue sender threads,
+        # webhooks, the send form) instead of failing with "database is locked"
+        # after the 5s default.
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -619,6 +622,117 @@ class Database:
             ''', (count, campaign_id))
             return count
     
+    # ---- Queue send-claim / resume helpers ---------------------------------
+    # A queued message is claimed ('queued' -> 'sending') right before the API
+    # call. The claim is one atomic UPDATE, so a row can only be sent once even
+    # if it ends up in the in-memory queue twice (restart resume, resend-unsent
+    # while still queued, dev reloader).
+
+    def claim_message_for_send(self, message_id):
+        """True if this caller now owns the send for message_id."""
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "UPDATE messages SET status = 'sending' WHERE id = ? "
+                "AND status = 'queued' AND whatsapp_message_id IS NULL",
+                (message_id,))
+            return cur.rowcount == 1
+
+    def release_message_claim(self, message_id):
+        """Put a claimed message back to 'queued' (before a retry)."""
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE messages SET status = 'queued' WHERE id = ? AND status = 'sending'",
+                (message_id,))
+
+    def record_campaign_result(self, campaign_id, failed):
+        """Atomically bump a campaign's success/failed count and complete it
+        when every recipient has a result. One UPDATE, so parallel sender
+        threads can't lose increments (the old read-modify-write could)."""
+        s_inc, f_inc = (0, 1) if failed else (1, 0)
+        with self.get_connection() as conn:
+            conn.execute('''
+                UPDATE campaigns SET
+                    success_count = COALESCE(success_count, 0) + ?,
+                    failed_count  = COALESCE(failed_count, 0) + ?,
+                    status = CASE
+                        WHEN recipient_count > 0 AND COALESCE(success_count, 0) + COALESCE(failed_count, 0) + 1 >= recipient_count
+                            THEN 'completed'
+                        WHEN status = 'pending' THEN 'running'
+                        ELSE status END,
+                    completed_at = CASE
+                        WHEN recipient_count > 0 AND COALESCE(success_count, 0) + COALESCE(failed_count, 0) + 1 >= recipient_count
+                            THEN ? ELSE completed_at END
+                WHERE id = ?
+            ''', (s_inc, f_inc, datetime.now().isoformat(), campaign_id))
+
+    def fail_interrupted_sends(self):
+        """Startup: rows left in 'sending' were mid-API-call when the process
+        died. We can't know whether Meta accepted them, so never auto-resend;
+        mark failed (Resend to Unsent stays a deliberate choice). Returns count."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, campaign_id FROM messages WHERE status = 'sending'").fetchall()
+            for r in rows:
+                conn.execute(
+                    "UPDATE messages SET status = 'failed', error_message = ? WHERE id = ?",
+                    ('Interrupted by an app restart mid-send; it may or may not have been delivered', r['id']))
+                if r['campaign_id']:
+                    conn.execute(
+                        "UPDATE campaigns SET failed_count = COALESCE(failed_count, 0) + 1 WHERE id = ?",
+                        (r['campaign_id'],))
+            return len(rows)
+
+    def get_resumable_messages(self, max_age_hours=24):
+        """Startup: 'queued' rows (never sent, no WhatsApp id) of campaigns that
+        are still pending/running, with what's needed to re-queue them. Rows
+        older than max_age_hours are left alone (a campaign shouldn't go out
+        days late); Resend to Unsent can still pick them up by hand."""
+        since = (datetime.now() - timedelta(hours=max_age_hours)).isoformat()
+        with self.get_connection() as conn:
+            rows = conn.execute('''
+                SELECT m.id, m.campaign_id, m.phone_number, m.template_name,
+                       m.message_content, m.template_params, m.template_language,
+                       m.button_params, m.header_media_id, c.user_id
+                FROM messages m JOIN campaigns c ON c.id = m.campaign_id
+                WHERE m.status = 'queued' AND m.whatsapp_message_id IS NULL
+                  AND c.status IN ('pending', 'running')
+                  AND m.created_at >= ?
+                ORDER BY m.id
+            ''', (since,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_campaign_progress(self, user_id):
+        """Pending/running campaigns with live per-status counts and recent
+        send rate, for the dashboard's In-progress panel."""
+        with self.get_connection() as conn:
+            camps = conn.execute('''
+                SELECT id, campaign_name, status, recipient_count, created_at
+                FROM campaigns WHERE user_id = ? AND status IN ('pending', 'running')
+                ORDER BY id DESC LIMIT 10
+            ''', (user_id,)).fetchall()
+            since = (datetime.now() - timedelta(minutes=2)).isoformat()
+            out = []
+            for c in camps:
+                counts = {r['status']: r['n'] for r in conn.execute(
+                    "SELECT status, COUNT(*) AS n FROM messages WHERE campaign_id = ? GROUP BY status",
+                    (c['id'],))}
+                recent = conn.execute(
+                    "SELECT COUNT(*) FROM messages WHERE campaign_id = ? AND sent_at >= ?",
+                    (c['id'], since)).fetchone()[0]
+                queued = counts.get('queued', 0) + counts.get('sending', 0) + counts.get('pending', 0)
+                failed = counts.get('failed', 0)
+                sent = sum(n for st, n in counts.items()
+                           if st not in ('queued', 'sending', 'pending', 'failed'))
+                rate = recent / 120.0  # msgs/sec over the last 2 minutes
+                out.append({
+                    'id': c['id'], 'name': c['campaign_name'] or f"Campaign #{c['id']}", 'status': c['status'],
+                    'recipient_count': c['recipient_count'],
+                    'sent': sent, 'failed': failed, 'queued': queued,
+                    'rate_per_min': round(rate * 60, 1),
+                    'eta_seconds': int(queued / rate) if rate > 0 and queued else None,
+                })
+            return out
+
     def update_message_status(self, message_id, status, error_message=None, sent_at=None, whatsapp_message_id=None):
         """Update message status"""
         with self.get_connection() as conn:

@@ -13,7 +13,7 @@ Live URL: https://internal.boxbox.in (migrated from dashboard.boxbox.in -- see D
 
 - **Backend**: Python 3 / Flask
 - **Database**: SQLite (`whatsapp_dashboard.db`) — kept intentionally over PostgreSQL (single server, 1 gunicorn worker, no concurrent write issues)
-- **Queue**: In-memory `MessageQueue` (utils/rate_limiter.py) — messages are lost on restart
+- **Queue**: In-memory `MessageQueue` (utils/rate_limiter.py). Unsent campaign messages are re-queued from the DB on startup (see Campaign System → Restart resume)
 - **Auth**: Flask-Login + bcrypt, users stored in `users.json`
 - **Server**: GCP (migrated from AWS Lightsail -- exact instance type/region/OS not yet confirmed in this doc; update once known)
 - **Process manager**: systemd (`whatsapp-dashboard.service`)
@@ -168,8 +168,9 @@ Daily cron job on the server backs up `whatsapp_dashboard.db`. Check with `cront
 - **API**: WhatsApp Cloud API (Meta)
 - **Webhook URL**: `https://internal.boxbox.in/webhook` (updated in Meta Business Manager by Abhi after the GCP/domain migration)
 - **Verify token**: `my_secret_webhook_token_2024` (in `.env` as `WEBHOOK_VERIFY_TOKEN`)
-- **Rate limit**: 1200ms between messages (configurable via `RATE_LIMIT_*` env vars)
-- **Queue status**: `GET /api/queue-status`
+- **Send rate**: `RATE_LIMIT_REQUESTS` per `RATE_LIMIT_WINDOW` seconds (default 8/1.0s) across `MESSAGE_QUEUE_WORKERS` sender threads (default 4). One thread manages only ~2 sends/s (each is an HTTPS round trip), so the cap needs several threads. These are threads inside the single gunicorn worker; gunicorn `workers` stays 1. Meta allows 80 msg/s per number. Prod `.env` overrides these (check it before assuming the defaults).
+- **Queue status**: `GET /queue-status` (in-memory queue, since app start). `GET /api/campaigns/progress`: per-campaign sent/failed/queued, rate and ETA from the DB. Used by the dashboard's "In progress" panel.
+- **Template definitions** used by `send_template` (button layout) are cached in memory for 10 min (`_get_template_definition` in utils/whatsapp.py). Never call `get_templates()` per send: it pages through Meta's whole template list, and that made campaigns crawl at ~0.5 msg/s.
 
 ### Webhook events handled
 - `delivered` → updates `delivered_at` on message, updates customer stats
@@ -185,8 +186,8 @@ Meta's "ecosystem health" throttle — message accepted by API (returns 200 + wa
 ## Campaign System
 
 ### Message flow
-1. User submits send form → messages added to `MessageQueue` (in-memory)
-2. Queue worker sends at rate-limited pace → marks each message `sent` in DB
+1. User submits send form → a `queued` row per message in DB + added to `MessageQueue` (in-memory)
+2. A sender thread claims the row (`queued` → `sending`, one atomic UPDATE; it skips the row if the claim fails, so nothing is double-sent), sends at the rate-limited pace, then marks it `sent`/`failed`. It retries only 429 and HTTP 5xx (backoff 2/4/8s). Other 4xx are permanent. A timeout isn't retried because it may have been delivered.
 3. WhatsApp webhooks update delivery/read/reply stats
 4. Campaign status: `pending` → `running` → `completed`/`failed`
 
@@ -196,13 +197,18 @@ On the campaign details page, "Resend to Unsent (N)" button calls `POST /api/cam
 ### Scheduled campaigns
 `background_scheduler.py` runs jobs in daemon threads. Scheduled time is in IST. Uses the same `MessageQueue` as immediate sends.
 
+### Restart resume
+A restart (including every auto-deploy) wipes the in-memory queue. On startup `_resume_interrupted_campaigns()` (app.py):
+- re-queues `queued` rows with no `whatsapp_message_id` for campaigns still `pending`/`running`, created within the last 24h (`QUEUE_RESUME_MAX_AGE_HOURS`), so a campaign never goes out days late;
+- marks rows left in `sending` (mid-API-call at shutdown) as `failed` with an "Interrupted by an app restart" error. They are never auto-resent, because they may have been delivered.
+Disable with `QUEUE_RESUME_ON_START=0`.
+
 ### If a campaign gets stuck at "running"
-The in-memory queue was wiped by a service restart. Fix:
+Normally the restart resume above picks it up. For rows older than 24h, or to stop a campaign for good:
 ```bash
-sqlite3 /home/ubuntu/whatsapp-dashboard/whatsapp_dashboard.db \
-  "UPDATE campaigns SET status='failed' WHERE status='running';"
+sqlite3 /home/sayboxbox/boxbox-whatsapp/whatsapp_dashboard.db   "UPDATE campaigns SET status='failed' WHERE status='running';"
 ```
-Then use "Resend to Unsent" on the campaign details page.
+Then use "Resend to Unsent" on the campaign details page if you still want it sent.
 
 ---
 

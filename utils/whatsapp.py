@@ -1,6 +1,7 @@
 import logging
 import requests
 import time
+import threading
 import re
 import os
 from dotenv import load_dotenv
@@ -75,6 +76,41 @@ def get_templates(waba_id):
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching templates: {e}")
     return all_templates
+
+
+# --- Template definition cache for send_template --------------------------
+# send_template only needs one template's button layout, but fetching it means
+# paging through Meta's whole template list. Doing that per send made every
+# campaign message cost two-plus Graph round trips (~2s/msg on prod). Cache the
+# list in memory; template definitions only change when Abhi edits a template,
+# and a name that isn't in the cache triggers a refresh (rate-limited).
+_TEMPLATE_CACHE_TTL = 600        # seconds before a full refresh
+_TEMPLATE_MISS_REFRESH = 60      # min seconds between refreshes caused by a miss
+_template_cache = {"by_name": {}, "fetched_at": 0.0, "attempted_at": 0.0}
+_template_cache_lock = threading.Lock()
+
+
+def _get_template_definition(waba_id, template_name):
+    """Return the template dict for template_name from a cached copy of
+    get_templates(). Thread-safe: sender threads wait on the lock while one
+    of them refetches. Refetches at most once a minute, even on failures."""
+    with _template_cache_lock:
+        now = time.time()
+        c = _template_cache
+        stale = now - c["fetched_at"] > _TEMPLATE_CACHE_TTL
+        missing = template_name not in c["by_name"]
+        if (stale or missing) and now - c["attempted_at"] > _TEMPLATE_MISS_REFRESH:
+            c["attempted_at"] = now
+            templates = get_templates(waba_id)
+            if templates:  # on a failed fetch, keep serving the old copy
+                by_name = {}
+                for t in templates:
+                    # Same name can exist per language; prefer an APPROVED one
+                    if t.get("name") not in by_name or t.get("status") == "APPROVED":
+                        by_name[t.get("name")] = t
+                c["by_name"] = by_name
+                c["fetched_at"] = now
+        return c["by_name"].get(template_name)
 
 
 def delete_template(waba_id, template_name):
@@ -155,8 +191,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
     template = None
     if WABA_ID:
         try:
-            templates = get_templates(WABA_ID)
-            template = next((t for t in templates if t["name"] == template_name), None)
+            template = _get_template_definition(WABA_ID, template_name)
         except Exception as e:
             logger.warning(f"Could not fetch templates for '{template_name}': {e}")
 

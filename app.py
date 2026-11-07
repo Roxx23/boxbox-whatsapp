@@ -45,10 +45,14 @@ if missing_vars:
 WABA_ID = os.getenv('WABA_ID')
 SECRET_KEY = os.getenv('SECRET_KEY')
 
-# Rate limiting configuration
-MAX_REQUESTS = int(os.getenv('RATE_LIMIT_REQUESTS', '20'))
+# Rate limiting configuration. The RateLimiter caps the overall send rate;
+# workers are sender threads inside the single gunicorn process (gunicorn
+# workers stay 1). One thread can only do about 2-3 sends/s (each is an HTTPS
+# round trip to Meta), so reaching the cap needs a few threads. Meta's Cloud
+# API allows 80 msg/s per number; 8/s leaves wide headroom.
+MAX_REQUESTS = int(os.getenv('RATE_LIMIT_REQUESTS', '8'))
 TIME_WINDOW = float(os.getenv('RATE_LIMIT_WINDOW', '1.0'))
-NUM_WORKERS = int(os.getenv('MESSAGE_QUEUE_WORKERS', '1'))
+NUM_WORKERS = int(os.getenv('MESSAGE_QUEUE_WORKERS', '4'))
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -107,6 +111,47 @@ message_queue.start()  # Start worker threads
 
 logger.info("✅ Message queue started successfully")
 logger.info(f"⚙️ Rate limit: {MAX_REQUESTS} requests per {TIME_WINDOW}s with {NUM_WORKERS} worker(s)")
+
+
+def _resume_interrupted_campaigns():
+    """The queue lives in memory, so a restart (every auto-deploy) used to wipe
+    any campaign mid-send. On startup, re-queue the still-'queued' rows of
+    pending/running campaigns from the DB. Safe against double sends: rows
+    with a WhatsApp id are excluded, and the worker's atomic claim skips any
+    row that isn't 'queued' by the time it's picked up."""
+    import json as _json
+    try:
+        interrupted = db.fail_interrupted_sends()
+        if interrupted:
+            logger.warning(f"♻️ Resume: {interrupted} message(s) were mid-send at shutdown; marked failed (not auto-resent)")
+        rows = db.get_resumable_messages(max_age_hours=float(os.getenv('QUEUE_RESUME_MAX_AGE_HOURS', '24')))
+        for m in rows:
+            common = dict(user_id=m['user_id'], username='System (resume)',
+                          campaign_id=m['campaign_id'], message_id=m['id'])
+            if m['template_name']:
+                try:
+                    params = _json.loads(m['template_params']) if m['template_params'] else []
+                except Exception:
+                    params = []
+                try:
+                    btn_p = _json.loads(m['button_params']) if m['button_params'] else None
+                except Exception:
+                    btn_p = None
+                message_queue.add_message(
+                    send_template, m['phone_number'], m['template_name'], params,
+                    m['template_language'] or 'en_US',
+                    header_media_id=m['header_media_id'] or None, button_params=btn_p, **common)
+            else:
+                message_queue.add_message(send_text, m['phone_number'], m['message_content'] or '', **common)
+        if rows:
+            camps = sorted({m['campaign_id'] for m in rows})
+            logger.warning(f"♻️ Resume: re-queued {len(rows)} unsent message(s) for campaign(s) {camps}")
+    except Exception as e:
+        logger.error(f"♻️ Resume after restart failed: {e}", exc_info=True)
+
+
+if os.getenv('QUEUE_RESUME_ON_START', '1') == '1':
+    _resume_interrupted_campaigns()
 
 # One-time tokens for the campaign send form. Kept server-side because the
 # Flask session is a client cookie: two concurrent POSTs from a double click
@@ -1402,7 +1447,7 @@ def index():
                     message_id=message_id
                 )
 
-            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
+            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Progress shows in the In progress panel.", "success")
             flash_skipped_summary()
             return redirect("/")
 
@@ -1440,7 +1485,7 @@ def index():
                     message_id=message_id
                 )
 
-            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
+            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Progress shows in the In progress panel.", "success")
             flash_skipped_summary()
             return redirect("/")
 
@@ -2829,6 +2874,18 @@ def worker_debug():
         'workers': [{'name': w.name, 'alive': w.is_alive()} for w in message_queue.workers],
         'thread_traces': traces
     })
+
+
+@app.route("/api/campaigns/progress")
+@login_required
+def api_campaign_progress():
+    """Live progress of pending/running campaigns, read from the DB (so it
+    survives restarts and isn't capped like the in-memory queue stats)."""
+    try:
+        return jsonify({'success': True, 'campaigns': db.get_campaign_progress(current_user.id)})
+    except Exception as e:
+        logger.error(f"Error getting campaign progress: {e}")
+        return jsonify({'success': False, 'campaigns': []}), 500
 
 
 @app.route("/queue-status")
