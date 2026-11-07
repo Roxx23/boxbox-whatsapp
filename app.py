@@ -13,6 +13,7 @@ import hashlib
 import base64
 import time
 import random
+import secrets
 import string
 from html import escape as escape_html
 from datetime import datetime, timedelta
@@ -105,6 +106,31 @@ message_queue.start()  # Start worker threads
 
 logger.info("✅ Message queue started successfully")
 logger.info(f"⚙️ Rate limit: {MAX_REQUESTS} requests per {TIME_WINDOW}s with {NUM_WORKERS} worker(s)")
+
+# One-time tokens for the campaign send form. Kept server-side because the
+# Flask session is a client cookie: two concurrent POSTs from a double click
+# carry the same cookie, so a session-stored token can't be consumed once.
+_send_tokens = {}
+_send_tokens_lock = threading.Lock()
+_SEND_TOKEN_TTL = 24 * 3600
+
+
+def _issue_send_token(user_id):
+    token = secrets.token_urlsafe(16)
+    now = time.time()
+    with _send_tokens_lock:
+        for t in [t for t, (_, ts) in _send_tokens.items() if now - ts > _SEND_TOKEN_TTL]:
+            del _send_tokens[t]
+        _send_tokens[token] = (str(user_id), now)
+    return token
+
+
+def _consume_send_token(token, user_id):
+    if not token:
+        return False
+    with _send_tokens_lock:
+        entry = _send_tokens.pop(token, None)
+    return bool(entry) and entry[0] == str(user_id) and time.time() - entry[1] <= _SEND_TOKEN_TTL
 
 # Connect message queue to scheduler
 from utils.background_scheduler import set_message_queue, set_waba_id
@@ -930,6 +956,11 @@ def index():
     csv_columns = []
 
     if request.method == "POST":
+        if not _consume_send_token(request.form.get("send_token"), current_user.id):
+            logger.warning(f"Rejected campaign POST with missing/used send_token from user {current_user.id}")
+            flash("⚠️ This send form was already submitted (or has expired). Nothing was sent again — check Campaigns, then reload this page to send a new one.", "error")
+            return redirect("/")
+
         source_type = request.form.get("source_type", "csv")
         csv_file = request.files.get("csv_file")
         selected_customers = request.form.get("selected_customers")
@@ -1238,7 +1269,8 @@ def index():
                     results=results,
                     templates=templates,
                     template_param_count=template_param_count,
-                    csv_columns=csv_columns
+                    csv_columns=csv_columns,
+                    send_token=_issue_send_token(current_user.id)
                 )
 
             # Add all template messages to queue
@@ -1352,7 +1384,8 @@ def index():
         template_param_count=template_param_count,
         csv_columns=csv_columns,
         current_date=datetime.now().strftime('%Y-%m-%d'),
-        recent_campaigns=recent_campaigns
+        recent_campaigns=recent_campaigns,
+        send_token=_issue_send_token(current_user.id)
     )
 
 
