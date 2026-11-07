@@ -714,6 +714,29 @@ def validate_phone_number(phone):
     return True
 
 
+def _phone_skip_reason(phone):
+    raw = '' if phone is None else str(phone).strip()
+    if raw.lower() in ('', 'nan', 'none'):
+        return 'empty'
+    digits = sum(c.isdigit() for c in raw)
+    if digits == 0:
+        return 'non-numeric'
+    if digits < 10:
+        return f'too short ({digits} digits)'
+    return f'too long ({digits} digits)'
+
+
+def _skipped_phone_flash_lines(skipped):
+    """skipped: list of (label, raw_phone, reason). Returns flash lines listing the first few."""
+    lines = []
+    for label, raw, reason in skipped[:10]:
+        shown = '' if str(raw).strip().lower() in ('nan', 'none') else str(raw).strip()
+        lines.append(f"• {label}: {repr(shown) if shown else '(blank)'} — {reason}")
+    if len(skipped) > 10:
+        lines.append(f"…and {len(skipped) - 10} more.")
+    return lines
+
+
 # ============================================================
 # TEMPLATE ROUTES
 # ============================================================
@@ -1008,13 +1031,16 @@ def index():
             # Read CSV with encoding fallback
             try:
                 import pandas as pd
-                df = pd.read_csv(csv_file, encoding='utf-8')
+                # Phone as text: one blank cell makes pandas read the column as
+                # float, turning 919876543210 into "919876543210.0" (a wrong but
+                # "valid" 13-digit number).
+                df = pd.read_csv(csv_file, encoding='utf-8', dtype={'Phone': str})
             except UnicodeDecodeError:
                 logger.warning("UTF-8 decode failed, trying latin-1 encoding")
                 csv_file.seek(0)
                 try:
                     import pandas as pd
-                    df = pd.read_csv(csv_file, encoding='latin-1')
+                    df = pd.read_csv(csv_file, encoding='latin-1', dtype={'Phone': str})
                 except Exception as e:
                     flash(f"❌ Error reading CSV: {str(e)}", "error")
                     return redirect("/")
@@ -1037,19 +1063,39 @@ def index():
             flash("CSV must contain a 'Phone' column.", "error")
             return redirect("/")
 
-        # Validate phone numbers
-        invalid_phones = []
+        # Drop rows with invalid phones and send to the rest
+        skipped_phones = []
+        valid_rows = []
         for idx, row in df.iterrows():
-            phone = str(row.get("Phone", ""))
-            if not validate_phone_number(phone):
-                invalid_phones.append(f"Row {idx + 2}: {phone}")  # +2 for header + 0-indexed
-        
-        if invalid_phones:
-            if len(invalid_phones) <= 5:
-                flash(f"❌ Invalid phone numbers found:\n" + "\n".join(invalid_phones[:5]), "error")
+            raw_phone = row.get("Phone", "")
+            if validate_phone_number(str(raw_phone)):
+                valid_rows.append(idx)
+                continue
+            name = str(row.get("Name", "") or "").strip()
+            if name.lower() == 'nan':
+                name = ''
+            if source_type == "csv":
+                label = f"Row {idx + 2}" + (f" ({name})" if name else "")  # +2 for header + 0-indexed
             else:
-                flash(f"❌ Found {len(invalid_phones)} invalid phone numbers. First 5:\n" + "\n".join(invalid_phones[:5]), "error")
+                label = name or f"Customer {idx + 1}"
+            skipped_phones.append((label, raw_phone, _phone_skip_reason(raw_phone)))
+
+        if not valid_rows:
+            flash(f"❌ No valid phone numbers found ({len(skipped_phones)} invalid). Nothing was sent.", "error")
+            for line in _skipped_phone_flash_lines(skipped_phones):
+                flash(line, "error")
             return redirect("/")
+
+        if skipped_phones:
+            logger.info(f"Skipping {len(skipped_phones)} invalid phone(s), sending to {len(valid_rows)}")
+            df = df.loc[valid_rows].reset_index(drop=True)
+
+        def flash_skipped_summary():
+            if not skipped_phones:
+                return
+            flash(f"⚠️ {len(skipped_phones)} skipped: invalid phone number.", "error")
+            for line in _skipped_phone_flash_lines(skipped_phones):
+                flash(line, "error")
 
         # Limit number of recipients
         if len(df) > 10000:
@@ -1210,6 +1256,7 @@ def index():
             
             if success:
                 flash(f"✅ Messages scheduled for {scheduled_dt.strftime('%Y-%m-%d %H:%M')} ({time_msg} from now). They will be sent automatically even when you're logged out.", "success")
+                flash_skipped_summary()
             else:
                 flash(f"❌ {message}", "error")
             
@@ -1337,6 +1384,7 @@ def index():
                 )
 
             flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
+            flash_skipped_summary()
             return redirect("/")
 
         else:
@@ -1374,6 +1422,7 @@ def index():
                 )
 
             flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
+            flash_skipped_summary()
             return redirect("/")
 
     recent_campaigns = db.get_user_campaigns(current_user.id, limit=15)
