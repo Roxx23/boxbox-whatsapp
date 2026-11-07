@@ -21,6 +21,7 @@ from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, send_template, upload_media, upload_media_from_bytes
+from utils.image_compress import compress_image_upload, compress_image_bytes, ImageCompressError
 from utils.logger import log_message, setup_logging
 from utils.rate_limiter import RateLimiter, MessageQueue
 from utils.background_scheduler import schedule_message_job, get_scheduled_jobs, cancel_job
@@ -811,6 +812,16 @@ def submit_template():
             header_media_file.seek(0)
             logger.info(f"📎 File size: {file_size} bytes")
 
+            # Shrink IMAGE headers over WhatsApp's 5MB limit (video/doc untouched)
+            if template_data['header_type'] == 'IMAGE':
+                try:
+                    header_media_file, note = compress_image_upload(header_media_file)
+                except ImageCompressError as e:
+                    flash(f"❌ {e}", "error")
+                    return redirect("/create-template")
+                if note:
+                    flash(f"🗜️ {note}", "info")
+
         from utils.whatsapp import create_template
 
         status, response = create_template(WABA_ID, template_data, header_media_file)
@@ -1158,7 +1169,15 @@ def index():
             if not image_file or image_file.filename == "":
                 flash("This template requires an IMAGE header. Please upload a header image.", "error")
                 return redirect("/")
-        
+
+            try:
+                image_file, compress_note = compress_image_upload(image_file)
+            except ImageCompressError as e:
+                flash(f"Header image: {e}", "error")
+                return redirect("/")
+            if compress_note:
+                flash(f"🗜️ {compress_note}", "info")
+
             header_media_id = upload_media(image_file)
         
             if not header_media_id:
@@ -1935,14 +1954,17 @@ def api_flow_upload_header_image(flow_id):
         return jsonify({'success': False, 'error': 'Only JPEG or PNG images are supported'}), 400
 
     image_bytes = image_file.read()
-    # WhatsApp's Media API caps JPEG/PNG uploads at 5MB.
-    if len(image_bytes) > 5 * 1024 * 1024:
-        return jsonify({'success': False, 'error': 'Image too large -- max 5MB'}), 400
     if not image_bytes:
         return jsonify({'success': False, 'error': 'Empty file'}), 400
+    # WhatsApp's Media API caps JPEG/PNG uploads at 5MB -- shrink larger ones.
+    try:
+        image_bytes, content_type, filename, note = compress_image_bytes(
+            image_bytes, content_type, image_file.filename)
+    except ImageCompressError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
-    ref_id = db.save_flow_header_image(flow_id, image_bytes, content_type, image_file.filename)
-    return jsonify({'success': True, 'ref_id': ref_id, 'filename': image_file.filename})
+    ref_id = db.save_flow_header_image(flow_id, image_bytes, content_type, filename)
+    return jsonify({'success': True, 'ref_id': ref_id, 'filename': filename, 'compressed': note})
 
 
 @app.route("/api/flows/<int:flow_id>/save", methods=["POST"])

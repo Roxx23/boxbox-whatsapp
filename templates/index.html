@@ -542,8 +542,8 @@
               Header Image
               <span style="color:var(--text-dim);font-weight:400;"> — for IMAGE header templates</span>
             </label>
-            <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*">
-            <div class="form-text">Same image sent to all recipients in this run</div>
+            <input type="file" name="header_image" id="header_image" class="form-control" accept="image/*" onchange="checkHeaderImageSize(this)">
+            <div class="form-text" id="header_image_hint">Same image sent to all recipients in this run. Over 5 MB is auto-compressed (max 19 MB).</div>
           </div>
 
           <div id="template_requirements" style="display:none; margin-bottom:0.875rem;"></div>
@@ -648,6 +648,19 @@
 
 {% block scripts %}
 <script>
+// Over 5MB is compressed server-side; nginx rejects request bodies over 20MB
+// with a bare 413 page, so stop oversize files here with a clear message.
+function checkHeaderImageSize(input) {
+  const file = input.files[0];
+  const hint = document.getElementById('header_image_hint');
+  if (!file) return;
+  if (file.size > 19 * 1024 * 1024) {
+    alert('Header image is ' + (file.size / 1048576).toFixed(1) + ' MB. Max is 19 MB (server upload limit). Resize or export a smaller copy first.');
+    input.value = '';
+  } else if (hint && file.size > 5 * 1024 * 1024) {
+    hint.textContent = 'This image is ' + (file.size / 1048576).toFixed(1) + ' MB. It will be compressed to under 5 MB when you send.';
+  }
+}
 let csvColumns = [];
 
 window.addEventListener('DOMContentLoaded', function() {
