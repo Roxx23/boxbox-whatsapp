@@ -41,7 +41,7 @@ def compress_image_bytes(data, content_type=None, filename=None):
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
-    except (UnidentifiedImageError, OSError) as e:
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as e:
         logger.warning(f"Unreadable image {filename!r}: {e}")
         raise ImageCompressError("Image is over 5MB and could not be read for compression. Use a JPEG or PNG.")
 
