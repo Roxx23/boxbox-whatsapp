@@ -424,7 +424,8 @@
       {% endif %}
     {% endwith %}
 
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data" id="campaignSendForm">
+      <input type="hidden" name="send_token" value="{{ send_token }}">
       <div class="form-card">
 
         <!-- ① Campaign -->
@@ -596,8 +597,8 @@
 
         <!-- Submit -->
         <div class="form-card-section">
-          <button type="submit" class="btn-submit" onclick="showQueueMonitor()">
-            <span>Send Campaign</span>
+          <button type="submit" class="btn-submit" id="campaignSendBtn" onclick="showQueueMonitor()">
+            <span id="campaignSendBtnLabel">Send Campaign</span>
             <span class="btn-submit-arrow"><i class="fas fa-arrow-right"></i></span>
           </button>
         </div>
@@ -723,6 +724,31 @@ function updateCustomerSelection(customers) {
   document.getElementById('selected_customers').value = JSON.stringify(customers);
   csvColumns = ['Name', 'Phone'];
 }
+
+(function() {
+  const form = document.getElementById('campaignSendForm');
+  const btn = document.getElementById('campaignSendBtn');
+  const label = document.getElementById('campaignSendBtnLabel');
+  let submitting = false;
+  form.addEventListener('submit', function(e) {
+    if (submitting) { e.preventDefault(); return; }
+    submitting = true;
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.style.cursor = 'wait';
+    label.textContent = 'Sending…';
+  });
+  // Back/forward cache restores the disabled state; re-arm the button.
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) {
+      submitting = false;
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.style.cursor = '';
+      label.textContent = 'Send Campaign';
+    }
+  });
+})();
 
 function showQueueMonitor() {
   setTimeout(() => {
