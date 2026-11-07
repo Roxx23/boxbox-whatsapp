@@ -45,10 +45,14 @@ if missing_vars:
 WABA_ID = os.getenv('WABA_ID')
 SECRET_KEY = os.getenv('SECRET_KEY')
 
-# Rate limiting configuration
-MAX_REQUESTS = int(os.getenv('RATE_LIMIT_REQUESTS', '20'))
+# Rate limiting configuration. The RateLimiter caps the overall send rate;
+# workers are sender threads inside the single gunicorn process (gunicorn
+# workers stay 1). One thread can only do about 2-3 sends/s (each is an HTTPS
+# round trip to Meta), so reaching the cap needs a few threads. Meta's Cloud
+# API allows 80 msg/s per number; 8/s leaves wide headroom.
+MAX_REQUESTS = int(os.getenv('RATE_LIMIT_REQUESTS', '8'))
 TIME_WINDOW = float(os.getenv('RATE_LIMIT_WINDOW', '1.0'))
-NUM_WORKERS = int(os.getenv('MESSAGE_QUEUE_WORKERS', '1'))
+NUM_WORKERS = int(os.getenv('MESSAGE_QUEUE_WORKERS', '4'))
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -107,6 +111,46 @@ message_queue.start()  # Start worker threads
 
 logger.info("✅ Message queue started successfully")
 logger.info(f"⚙️ Rate limit: {MAX_REQUESTS} requests per {TIME_WINDOW}s with {NUM_WORKERS} worker(s)")
+
+
+def _resume_interrupted_campaigns():
+    """The queue lives in memory, so a restart (every auto-deploy) used to wipe
+    any campaign mid-send. On startup, re-queue the still-'queued' rows of
+    running campaigns from the DB. Safe against double sends: rows
+    with a WhatsApp id are excluded, and the worker's atomic claim skips any
+    row that isn't 'queued' by the time it's picked up."""
+    import json as _json
+    try:
+        interrupted = db.fail_interrupted_sends()
+        if interrupted:
+            logger.warning(f"♻️ Resume: {interrupted} message(s) were mid-send at shutdown; marked failed (not auto-resent)")
+        rows = db.get_resumable_messages(max_age_hours=float(os.getenv('QUEUE_RESUME_MAX_AGE_HOURS', '24')))
+        for m in rows:
+            common = dict(user_id=m['user_id'], username='System (resume)',
+                          campaign_id=m['campaign_id'], message_id=m['id'])
+            if m['template_name']:
+                try:
+                    params = _json.loads(m['template_params']) if m['template_params'] else []
+                except Exception:
+                    params = []
+                try:
+                    btn_p = _json.loads(m['button_params']) if m['button_params'] else None
+                except Exception:
+                    btn_p = None
+                message_queue.add_message(
+                    send_template, m['phone_number'], m['template_name'], params,
+                    m['template_language'] or 'en_US',
+                    header_media_id=m['header_media_id'] or None, button_params=btn_p, **common)
+            else:
+                message_queue.add_message(send_text, m['phone_number'], m['message_content'] or '', **common)
+        camps = sorted({m['campaign_id'] for m in rows})
+        logger.warning(f"♻️ Resume: re-queued {len(rows)} unsent message(s) for running campaign(s) {camps}")
+    except Exception as e:
+        logger.error(f"♻️ Resume after restart failed: {e}", exc_info=True)
+
+
+if os.getenv('QUEUE_RESUME_ON_START', '1') == '1':
+    _resume_interrupted_campaigns()
 
 # One-time tokens for the campaign send form. Kept server-side because the
 # Flask session is a client cookie: two concurrent POSTs from a double click
@@ -1340,6 +1384,7 @@ def index():
                 )
 
             # Add all template messages to queue
+            _rows, _sends = [], []
             for idx, row in df.iterrows():
                 row_dict = row.to_dict()
                 name = row_dict.get("Name", "")
@@ -1373,8 +1418,8 @@ def index():
                             if url_value:
                                 button_params[f"url_index_{btn['index']}"] = str(url_value)
 
-                # Add message record to database
-                message_id = db.add_message(
+                # Collected here, inserted in one transaction after the loop
+                _rows.append(dict(
                     campaign_id=campaign_id,
                     user_id=current_user.id,
                     phone_number=phone,
@@ -1385,24 +1430,14 @@ def index():
                     template_language=template_language,
                     button_params=button_params if button_params else None,
                     header_media_id=header_media_id
-                )
+                ))
+                _sends.append(((send_template, phone, template_name, params, template_language),
+                               dict(header_media_id=header_media_id,
+                                    button_params=button_params if button_params else None)))
 
-                # Add to queue instead of sending immediately
-                message_queue.add_message(
-                    send_template,
-                    phone,
-                    template_name,
-                    params,
-                    template_language,
-                    header_media_id=header_media_id,
-                    button_params=button_params if button_params else None,
-                    user_id=current_user.id,
-                    username=current_user.username,
-                    campaign_id=campaign_id,
-                    message_id=message_id
-                )
+            _insert_and_enqueue(_rows, _sends, campaign_id)
 
-            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
+            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Progress shows in the In progress panel.", "success")
             flash_skipped_summary()
             return redirect("/")
 
@@ -1412,6 +1447,7 @@ def index():
                 flash("Please enter a message template.", "error")
                 return redirect("/")
 
+            _rows, _sends = [], []
             for idx, row in df.iterrows():
                 row_dict = row.to_dict()
                 name = row_dict.get("Name", "")
@@ -1419,28 +1455,19 @@ def index():
 
                 personalized_msg = personalize(message_template, row_dict, idx + 1)
                 
-                # Add message record to database
-                message_id = db.add_message(
+                _rows.append(dict(
                     campaign_id=campaign_id,
                     user_id=current_user.id,
                     phone_number=phone,
                     recipient_name=name,
                     message_content=personalized_msg,
                     status='queued'
-                )
+                ))
+                _sends.append(((send_text, phone, personalized_msg), {}))
 
-                # Add to queue
-                message_queue.add_message(
-                    send_text,
-                    phone,
-                    personalized_msg,
-                    user_id=current_user.id,
-                    username=current_user.username,
-                    campaign_id=campaign_id,
-                    message_id=message_id
-                )
+            _insert_and_enqueue(_rows, _sends, campaign_id)
 
-            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Monitor progress at /queue-status", "success")
+            flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Progress shows in the In progress panel.", "success")
             flash_skipped_summary()
             return redirect("/")
 
@@ -2829,6 +2856,28 @@ def worker_debug():
         'workers': [{'name': w.name, 'alive': w.is_alive()} for w in message_queue.workers],
         'thread_traces': traces
     })
+
+
+def _insert_and_enqueue(rows, sends, campaign_id):
+    """Insert a send form's message rows in ONE transaction, then queue them.
+    Row-by-row commits took 200s+ for 3000 recipients once 4 sender threads
+    and webhooks were also writing, past the 120s gunicorn/nginx timeout."""
+    ids = db.add_messages_bulk(rows)
+    for ((args, kwargs), message_id) in zip(sends, ids):
+        message_queue.add_message(*args, user_id=current_user.id, username=current_user.username,
+                                  campaign_id=campaign_id, message_id=message_id, **kwargs)
+
+
+@app.route("/api/campaigns/progress")
+@login_required
+def api_campaign_progress():
+    """Live progress of pending/running campaigns, read from the DB (so it
+    survives restarts and isn't capped like the in-memory queue stats)."""
+    try:
+        return jsonify({'success': True, 'campaigns': db.get_campaign_progress(current_user.id)})
+    except Exception as e:
+        logger.error(f"Error getting campaign progress: {e}")
+        return jsonify({'success': False, 'campaigns': []}), 500
 
 
 @app.route("/queue-status")

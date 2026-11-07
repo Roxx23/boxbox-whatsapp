@@ -357,6 +357,13 @@
   .queue-tile { padding: 0.6rem 0.7rem; border-radius: 8px; text-align: center; border: 1px solid transparent; }
   .queue-tile-label { font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
   .queue-tile-val   { font-size: 1.15rem; font-weight: 700; font-family: var(--font-display); letter-spacing: -0.03em; }
+  .prog-item { padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; }
+  .prog-item:last-child { margin-bottom: 0; }
+  .prog-name { font-size: 0.8rem; font-weight: 600; color: var(--text); display: flex; justify-content: space-between; gap: 0.5rem; }
+  .prog-name a { color: inherit; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prog-bar { height: 6px; border-radius: 3px; background: var(--border); margin: 0.45rem 0 0.35rem; overflow: hidden; display: flex; }
+  .prog-bar span { display: block; height: 100%; }
+  .prog-meta { font-size: 0.7rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
   .queue-eta { margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 0.4rem 0.75rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; }
 
   #param_box { animation: fadeUp 0.25s ease; }
@@ -610,6 +617,19 @@
   <!-- ── RIGHT: Monitor + Jobs ── -->
   <div class="side-col">
 
+    <!-- Campaigns in progress (from the DB: survives restarts, shown on every load) -->
+    <div class="side-card" id="progressSection" style="display:none;">
+      <div class="side-card-header">
+        <div class="side-card-title">
+          <i class="fas fa-paper-plane"></i> In progress
+          <span class="side-card-count" id="progressCount">0</span>
+        </div>
+      </div>
+      <div class="side-card-body">
+        <div id="progressList"></div>
+      </div>
+    </div>
+
     <!-- Queue monitor (hidden until send) -->
     <div class="side-card" id="queueMonitorSection" style="display:none;">
       <div class="side-card-header">
@@ -689,8 +709,10 @@ window.addEventListener('DOMContentLoaded', function() {
   loadScheduledJobs();
   loadDashboardStats();
   loadQueueStatus();
+  loadCampaignProgress();
   setInterval(loadScheduledJobs, 5000);
   setInterval(loadQueueStatus, 3000);
+  setInterval(loadCampaignProgress, 5000);
 });
 
 function selectCampaignMode(mode) {
@@ -929,6 +951,9 @@ function loadQueueStatus() {
     .then(data => {
       const el = document.getElementById('queueStatus');
       document.getElementById('queueCount').textContent = data.queue_size || 0;
+      // Show the panel whenever there's work, not only right after clicking Send
+      // (the send form redirects and reloads the page, which used to hide it).
+      if (data.queue_size > 0) document.getElementById('queueMonitorSection').style.display = 'block';
 
       if (!data.queue_size && !data.total_processed) {
         el.innerHTML = '<div class="no-jobs">Queue is empty</div>'; return;
@@ -948,20 +973,51 @@ function loadQueueStatus() {
           <div class="queue-tile-val" style="color:#DC2626;">${data.failed||0}</div>
         </div>
         <div class="queue-tile" style="background:#FFFBEB;border-color:#FDE68A;">
-          <div class="queue-tile-label">Rate</div>
-          <div class="queue-tile-val" style="color:#92400E;">${data.rate_limit||15}/m</div>
+          <div class="queue-tile-label">Max rate</div>
+          <div class="queue-tile-val" style="color:#92400E;">${data.rate_limit||0}/m</div>
         </div>
       </div>
-      ${data.queue_size > 0 ? `<div class="queue-eta">
-        Est. <strong style="color:#92400E;">${calcEst(data.queue_size, data.rate_limit||15)}</strong> remaining
-      </div>` : ''}`;
+      <div class="queue-eta">Since app start · ${data.workers_alive||0}/${data.workers_total||0} senders running</div>`;
     })
     .catch(() => {});
 }
 
-function calcEst(q, rate) {
-  const m = Math.ceil(q / rate);
-  return m < 60 ? m + ' min' : Math.floor(m/60) + 'h ' + (m%60) + 'm';
+function _esc(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+function _fmtDuration(sec) {
+  if (sec == null) return '—';
+  const m = Math.ceil(sec / 60);
+  return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+}
+
+function loadCampaignProgress() {
+  fetch('/api/campaigns/progress')
+    .then(r => r.json())
+    .then(data => {
+      const section = document.getElementById('progressSection');
+      const list = data.campaigns || [];
+      document.getElementById('progressCount').textContent = list.length;
+      if (!list.length) { section.style.display = 'none'; return; }
+      section.style.display = 'block';
+      document.getElementById('progressList').innerHTML = list.map(c => {
+        const total = Math.max(c.recipient_count || 0, c.sent + c.failed + c.queued, 1);
+        const pctS = (c.sent / total * 100).toFixed(1), pctF = (c.failed / total * 100).toFixed(1);
+        const done = Math.round((c.sent + c.failed) / total * 100);
+        const stalled = c.queued > 0 && !c.rate_per_min;
+        return `<div class="prog-item">
+          <div class="prog-name"><a href="/campaign/${c.id}" title="${_esc(c.name)}">${_esc(c.name)}</a><span>${done}%</span></div>
+          <div class="prog-bar"><span style="width:${pctS}%;background:#22c55e"></span><span style="width:${pctF}%;background:#ef4444"></span></div>
+          <div class="prog-meta">
+            <span>✓ ${c.sent} sent</span><span>✕ ${c.failed} failed</span><span>⏳ ${c.queued} queued</span>
+            <span>${stalled ? 'waiting to start…' : c.rate_per_min + '/min · ETA ' + _fmtDuration(c.eta_seconds)}</span>
+          </div>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => {});
+}
+
 </script>
 {% endblock %}
