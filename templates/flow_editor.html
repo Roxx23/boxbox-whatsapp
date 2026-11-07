@@ -682,7 +682,7 @@ editor.on('connectionCreated', c => {
   const conns = (node && node.outputs[c.output_class]) ? node.outputs[c.output_class].connections : [];
   if (conns.length > 1) {
     editor.removeSingleConnection(c.output_id, c.input_id, c.output_class, c.input_class);
-    showToast('Each output can connect to only one next step. Chain steps one after another.', 'err');
+    showToast('Each output can connect to only one next step. Chain steps one after another, or add a Condition step to branch into Yes/No paths.', 'err');
   }
 });
 
@@ -1296,6 +1296,7 @@ function renderStats(steps) {
     if (s.step_type === 'send_message') {
       html += '<div class="stats-row"><span>Sent</span><span class="val">' + s.sent + '</span></div>' +
         (s.failed ? '<div class="stats-row"><span>Failed (rejected by WhatsApp)</span><span class="val" style="color:#f87171;">' + s.failed + '</span></div>' : '') +
+        (s.skipped ? '<div class="stats-row"><span>Skipped (no discount code)</span><span class="val" style="color:#fbbf24;">' + s.skipped + '</span></div>' : '') +
         statBar('Delivered', s.delivered_rate) +
         statBar('Read', s.read_rate) +
         statBar('Replied', s.reply_rate);

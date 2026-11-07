@@ -447,13 +447,14 @@ def _generate_discount_code(prefix='BOXBOX5', suffix_length=6):
     return f"{prefix}-{suffix}"
 
 
-def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None):
+def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None, errors=None):
     """Create a price rule and discount code in Shopify.
 
     Args:
         discount_code: The code string to create
         percentage: Discount percentage (default 5, matches abandoned-cart automation)
         ends_at: ISO 8601 expiry timestamp, or None for no expiry (default None)
+        errors: optional list; on failure a human-readable reason is appended
 
     Returns:
         (price_rule_id, generated_code) on success, (None, None) on failure
@@ -466,17 +467,23 @@ def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None):
 
         if not shop_name or not access_token:
             logger.warning("⚠️ SHOPIFY_SHOP_NAME or SHOPIFY_ACCESS_TOKEN not set, skipping discount code creation")
+            if errors is not None:
+                errors.append("SHOPIFY_SHOP_NAME or SHOPIFY_ACCESS_TOKEN not set")
             return None, None
 
         integration = ShopifyIntegration(shop_name, access_token)
         price_rule_id, generated_code = integration.create_price_rule_with_discount_code(
             discount_code, percentage=percentage, ends_at=ends_at
         )
+        if not generated_code and errors is not None:
+            errors.append(getattr(integration, 'last_error', None) or "Shopify discount creation failed")
 
         return price_rule_id, generated_code
 
     except Exception as e:
         logger.error(f"❌ Error creating discount code in Shopify: {e}")
+        if errors is not None:
+            errors.append(f"Error creating discount code in Shopify: {e}")
         return None, None
 
 
@@ -1693,7 +1700,8 @@ def _parse_drawflow_canvas(canvas_data_str):
                 raise ValueError(
                     f"The {_label(node_id)} step's{branch} output has {len(conns)} arrows "
                     f"(to {targets}). A customer follows one path, so each output can connect "
-                    f"to only one next step. Chain the steps one after another instead."
+                    f"to only one next step. Chain the steps one after another, or add a Condition "
+                    f"step to branch into Yes/No paths."
                 )
 
     steps = []

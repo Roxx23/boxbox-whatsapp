@@ -412,6 +412,28 @@ def _execute_send_message(participant, step, config):
             blank_mappings.append(f"button '{btn_key}'->'{ctx_key}'")
     if header_ctx_key and not context.get(header_ctx_key):
         blank_mappings.append(f"header->'{header_ctx_key}'")
+    # A COPY_CODE button with no coupon is always rejected by WhatsApp
+    # ("Parameter 'coupon_code' is mandatory"), so don't send at all: record the
+    # step as skipped with the reason (usually a failed Generate Discount step)
+    # and move on, rather than logging a misleading send attempt.
+    for btn_key, value in button_params.items():
+        if btn_key == 'copy_code' and not str(value or '').strip():
+            reason = context.get('discount_error') or 'coupon code is empty'
+            logger.error(
+                f"Flow participant {participant['id']}: skipped send of '{template_name}' -- "
+                f"its copy-code button needs a coupon code but none is available ({reason})"
+            )
+            _db.add_flow_message(
+                flow_id=participant['flow_id'],
+                participant_id=participant['id'],
+                step_key=step['step_key'],
+                phone=participant['phone'],
+                wamid=None,
+                status='skipped'
+            )
+            _advance_to_step(participant, step['next_yes'])
+            return
+
     if blank_mappings:
         logger.warning(
             f"Flow participant {participant['id']}: sending template '{template_name}' with "
@@ -639,14 +661,22 @@ def _execute_generate_discount(participant, step, config):
     context['discount_percentage'] = str(percentage)
 
     from app import _create_discount_code_in_shopify
+    errors = []
     price_rule_id, created_code = _create_discount_code_in_shopify(
-        discount_code, percentage=percentage, ends_at=ends_at
+        discount_code, percentage=percentage, ends_at=ends_at, errors=errors
     )
 
     if created_code:
         context['discount_code'] = created_code
+        context.pop('discount_error', None)
         logger.info(f"Flow participant {participant['id']}: generated discount code {created_code}")
     else:
+        # Remembered so a later copy-code send can be skipped with this reason
+        # instead of being sent with an empty coupon (which WhatsApp rejects).
+        context['discount_error'] = errors[0] if errors else 'Shopify discount creation failed'
+        logger.error(
+            f"Flow participant {participant['id']}: no discount code -- {context['discount_error']}"
+        )
         # Non-fatal by design, matching every other Shopify-write-failure path
         # in this codebase -- the flow keeps moving. 'discount_code' is simply
         # left unset in context, so a downstream send_message step mapping it

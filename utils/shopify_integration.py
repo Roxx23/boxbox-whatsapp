@@ -177,6 +177,7 @@ class ShopifyIntegration:
         Returns:
             (price_rule_id, generated_code) on success, (None, None) on failure
         """
+        self.last_error = None
         try:
             # Step 1: Create Price Rule
             price_rule_payload = {
@@ -200,6 +201,15 @@ class ShopifyIntegration:
             if response.status_code != 201:
                 logger.error(f"❌ Failed to create price rule: {response.status_code}")
                 logger.error(f"Response: {response.text}")
+                if response.status_code in (401, 403):
+                    self.last_error = (
+                        f"Shopify refused discount creation ({response.status_code}: "
+                        f"{response.text[:120]}). The store has blocked this app's API access or the "
+                        f"token lacks the write_price_rules/write_discounts scope; re-enable it in Shopify admin."
+                    )
+                    logger.error(f"🚫 {self.last_error}")
+                else:
+                    self.last_error = f"Shopify price rule creation failed ({response.status_code})"
                 return None, None
 
             price_rule_data = response.json()
@@ -220,6 +230,7 @@ class ShopifyIntegration:
             if response.status_code != 201:
                 logger.error(f"❌ Failed to create discount code: {response.status_code}")
                 logger.error(f"Response: {response.text}")
+                self.last_error = f"Shopify discount code creation failed ({response.status_code})"
                 return price_rule_id, None
 
             code_data = response.json()
@@ -230,6 +241,7 @@ class ShopifyIntegration:
 
         except Exception as e:
             logger.error(f"❌ Error creating price rule/discount code: {e}")
+            self.last_error = f"Error creating Shopify discount: {e}"
             import traceback
             logger.error(traceback.format_exc())
             return None, None

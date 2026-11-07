@@ -2242,8 +2242,9 @@ class Database:
 
             cursor.execute(
                 '''SELECT step_key,
-                          SUM(CASE WHEN status = 'failed' THEN 0 ELSE 1 END) as sent,
+                          SUM(CASE WHEN status IN ('failed', 'skipped') THEN 0 ELSE 1 END) as sent,
                           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                          SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) as skipped,
                           SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) as delivered,
                           SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) as read_ct,
                           SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) as replied
@@ -2274,10 +2275,11 @@ class Database:
                 'passed_through': passed_through,
             }
             if s['step_type'] == 'send_message':
-                m = msg_stats.get(key, {'sent': 0, 'failed': 0, 'delivered': 0, 'read_ct': 0, 'replied': 0})
+                m = msg_stats.get(key, {'sent': 0, 'failed': 0, 'skipped': 0, 'delivered': 0, 'read_ct': 0, 'replied': 0})
                 sent = m['sent'] or 0
                 row['sent'] = sent
                 row['failed'] = m['failed'] or 0
+                row['skipped'] = m['skipped'] or 0
                 row['delivered_rate'] = round(100 * (m['delivered'] or 0) / sent, 1) if sent else 0
                 row['read_rate'] = round(100 * (m['read_ct'] or 0) / sent, 1) if sent else 0
                 row['reply_rate'] = round(100 * (m['replied'] or 0) / sent, 1) if sent else 0
