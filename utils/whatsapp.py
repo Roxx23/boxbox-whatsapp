@@ -1,5 +1,7 @@
 import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import time
 import threading
 import re
@@ -14,6 +16,39 @@ ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 WABA_ID = os.getenv("WABA_ID")
 DEFAULT_COUNTRY_CODE = os.getenv("DEFAULT_COUNTRY_CODE", "91")
+
+
+# --- Shared HTTP connections to the Graph API --------------------------------
+# A bare requests.post() opens a new TCP+TLS connection on every call. On the
+# 2-vCPU prod VM that costs ~1.5s and ~0.5s of CPU per send (measured
+# 2026-11-07), and Python threads take turns doing that CPU work, so 4 sender
+# threads topped out near 1.4 msg/s. Keeping the connection open drops a send
+# to ~0.25s. requests.Session isn't documented as thread-safe, so each thread
+# gets its own (threading.local); queue senders and gunicorn request threads
+# are long-lived, so each keeps one warm connection.
+CONNECT_TIMEOUT = 5          # seconds to open the connection; read timeouts are per call
+_SESSION_MAX_IDLE = 50       # rebuild a session idle this long, before the server drops it
+_thread_http = threading.local()
+
+
+def _http():
+    """Return this thread's requests.Session for graph.facebook.com."""
+    now = time.monotonic()
+    sess = getattr(_thread_http, "session", None)
+    if sess is not None and now - _thread_http.last_used > _SESSION_MAX_IDLE:
+        sess.close()
+        sess = None
+    if sess is None:
+        sess = requests.Session()
+        # Retry only failures that happen before the request is sent (connect
+        # errors). Never retry a read: a POST that reached Meta may have sent.
+        retry = Retry(total=1, connect=1, read=0, status=0, other=0,
+                      redirect=0, allowed_methods=None, raise_on_status=False)
+        adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1, max_retries=retry)
+        sess.mount("https://", adapter)
+        _thread_http.session = sess
+    _thread_http.last_used = now
+    return sess
 
 
 def format_phone_number(number: str) -> str:
@@ -67,7 +102,7 @@ def get_templates(waba_id):
     all_templates = []
     try:
         while url:
-            resp = requests.get(url, params=params, timeout=10)
+            resp = _http().get(url, params=params, timeout=(CONNECT_TIMEOUT, 10))
             resp.raise_for_status()
             data = resp.json()
             all_templates.extend(data.get("data", []))
@@ -154,7 +189,7 @@ def delete_template(waba_id, template_name):
     url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     try:
-        resp = requests.delete(url, headers=headers, params={"name": template_name}, timeout=10)
+        resp = _http().delete(url, headers=headers, params={"name": template_name}, timeout=(CONNECT_TIMEOUT, 10))
         return resp.status_code, resp.json()
     except requests.exceptions.RequestException as e:
         return 500, {"error": {"message": str(e)}}
@@ -329,7 +364,7 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
     }
 
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        resp = _http().post(url, json=payload, headers=headers, timeout=(CONNECT_TIMEOUT, 15))
         response_data = resp.json()
         
         if resp.status_code in [200, 201]:
@@ -384,7 +419,7 @@ def send_text(number: str, message: str, retry=True):
     }
 
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        resp = _http().post(url, json=payload, headers=headers, timeout=(CONNECT_TIMEOUT, 15))
         
         if retry and resp.status_code == 429:
             time.sleep(2)
@@ -428,7 +463,7 @@ def upload_media(image_file):
     }
 
     try:
-        resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+        resp = _http().post(url, headers=headers, files=files, data=data, timeout=(CONNECT_TIMEOUT, 30))
 
         if resp.status_code in [200, 201]:
             media_id = resp.json().get('id')
@@ -450,7 +485,7 @@ def upload_media_from_bytes(image_bytes, content_type='image/jpeg', filename='pr
     files = {'file': (filename, image_bytes, content_type)}
     data = {'messaging_product': 'whatsapp'}
     try:
-        resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+        resp = _http().post(url, headers=headers, files=files, data=data, timeout=(CONNECT_TIMEOUT, 30))
         if resp.status_code in [200, 201]:
             media_id = resp.json().get('id')
             logger.info(f"Media (bytes) uploaded OK, ID: {media_id}")
@@ -504,7 +539,7 @@ def upload_media_for_template(media_file, default_mime_type='image/jpeg'):
     mime_type = media_file.content_type or default_mime_type
 
     # Step 1: Create upload session
-    session_resp = requests.post(
+    session_resp = _http().post(
         "https://graph.facebook.com/v21.0/app/uploads",
         params={
             "file_name": file_name,
@@ -512,7 +547,7 @@ def upload_media_for_template(media_file, default_mime_type='image/jpeg'):
             "file_type": mime_type,
             "access_token": ACCESS_TOKEN,
         },
-        timeout=15,
+        timeout=(CONNECT_TIMEOUT, 15),
     )
     if session_resp.status_code not in [200, 201]:
         return None, f"Failed to create upload session: {session_resp.text}"
@@ -523,7 +558,7 @@ def upload_media_for_template(media_file, default_mime_type='image/jpeg'):
 
     # Step 2: Upload the binary data
     file_data = media_file.read()
-    upload_resp = requests.post(
+    upload_resp = _http().post(
         f"https://graph.facebook.com/v21.0/{session_id}",
         headers={
             "Authorization": f"OAuth {ACCESS_TOKEN}",
@@ -531,7 +566,7 @@ def upload_media_for_template(media_file, default_mime_type='image/jpeg'):
             "Content-Type": mime_type,
         },
         data=file_data,
-        timeout=60,
+        timeout=(CONNECT_TIMEOUT, 60),
     )
     if upload_resp.status_code not in [200, 201]:
         return None, f"Upload failed: {upload_resp.text}"
@@ -801,7 +836,7 @@ def create_template(waba_id, template_data, media_file=None):
     logger.debug(f"Create template payload: {payload}")
 
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        resp = _http().post(url, json=payload, headers=headers, timeout=(CONNECT_TIMEOUT, 15))
         response_json = resp.json()
 
         if resp.status_code in [200, 201]:
