@@ -672,6 +672,20 @@ function defaultData(type) {
 let _selId = null;
 editor.on('nodeSelected', id => { _selId = id; openConfig(id); });
 
+// A customer follows one path through a flow, so each output may lead to only
+// one next step. Drawflow allows drawing several arrows from one output; the
+// server used to keep just the first and silently drop the rest (whole
+// branches, e.g. a wait + follow-up, never ran). Refuse the extra arrow here;
+// the save endpoint rejects it too.
+editor.on('connectionCreated', c => {
+  const node = editor.getNodeFromId(c.output_id);
+  const conns = (node && node.outputs[c.output_class]) ? node.outputs[c.output_class].connections : [];
+  if (conns.length > 1) {
+    editor.removeSingleConnection(c.output_id, c.input_id, c.output_class, c.input_class);
+    showToast('Each output can connect to only one next step. Chain steps one after another.', 'err');
+  }
+});
+
 function openConfig(id) {
   const node = editor.getNodeFromId(id);
   if (!node) return;
@@ -746,7 +760,7 @@ function buildConfigForm(type, data) {
       '<option value="months"' + (relUnit==='months'?' selected':'') + '>months</option>' +
       '</select>' +
       '</div>' +
-      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20-JOHN-K3F9QZ) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
+      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20-K3F9QZ, always 15 characters or fewer, as WhatsApp copy-code buttons require) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
   }
   if (type === 'condition') {
     // 'order data' triggers -- see build_trigger_context() in flow_engine.py --
@@ -1104,7 +1118,7 @@ function _rebuildButtonRows(existingButtonParams, buttons) {
         '<select class="form-select form-select-sm" data-button-param-context="' + btnKey + '" onchange="applyConfig()"' +
           (mode==='static' ? ' style="display:none;"' : '') + '>' + selOpts + '</select>' +
         '<input type="text" class="form-control form-control-sm" data-button-param-static="' + btnKey + '" ' +
-          'placeholder="e.g. SAVE10" value="' + staticVal.replace(/"/g,'&quot;') + '" onchange="applyConfig()"' +
+          'placeholder="e.g. SAVE10" maxlength="15" title="WhatsApp copy-code buttons allow at most 15 characters" value="' + staticVal.replace(/"/g,'&quot;') + '" onchange="applyConfig()"' +
           (mode==='context' ? ' style="display:none;"' : '') + '>' +
         '</div>'
       );
@@ -1281,6 +1295,7 @@ function renderStats(steps) {
       '<div class="stats-row"><span>Reached this step</span><span class="val">' + s.passed_through + '</span></div>';
     if (s.step_type === 'send_message') {
       html += '<div class="stats-row"><span>Sent</span><span class="val">' + s.sent + '</span></div>' +
+        (s.failed ? '<div class="stats-row"><span>Failed (rejected by WhatsApp)</span><span class="val" style="color:#f87171;">' + s.failed + '</span></div>' : '') +
         statBar('Delivered', s.delivered_rate) +
         statBar('Read', s.read_rate) +
         statBar('Replied', s.reply_rate);

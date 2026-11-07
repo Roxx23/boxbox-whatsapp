@@ -2153,15 +2153,15 @@ class Database:
 
     # Flow Messages
 
-    def add_flow_message(self, flow_id, participant_id, step_key, phone, wamid=None):
+    def add_flow_message(self, flow_id, participant_id, step_key, phone, wamid=None, status='sent'):
         now = _now_utc()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 '''INSERT INTO flow_messages
-                   (flow_id, flow_participant_id, step_key, phone, whatsapp_message_id, sent_at)
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (flow_id, participant_id, str(step_key), phone, wamid, now)
+                   (flow_id, flow_participant_id, step_key, phone, whatsapp_message_id, status, sent_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (flow_id, participant_id, str(step_key), phone, wamid, status, now)
             )
             return cursor.lastrowid
 
@@ -2241,7 +2241,9 @@ class Database:
             participants = cursor.fetchall()
 
             cursor.execute(
-                '''SELECT step_key, COUNT(*) as sent,
+                '''SELECT step_key,
+                          SUM(CASE WHEN status = 'failed' THEN 0 ELSE 1 END) as sent,
+                          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
                           SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) as delivered,
                           SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) as read_ct,
                           SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) as replied
@@ -2272,9 +2274,10 @@ class Database:
                 'passed_through': passed_through,
             }
             if s['step_type'] == 'send_message':
-                m = msg_stats.get(key, {'sent': 0, 'delivered': 0, 'read_ct': 0, 'replied': 0})
+                m = msg_stats.get(key, {'sent': 0, 'failed': 0, 'delivered': 0, 'read_ct': 0, 'replied': 0})
                 sent = m['sent'] or 0
                 row['sent'] = sent
+                row['failed'] = m['failed'] or 0
                 row['delivered_rate'] = round(100 * (m['delivered'] or 0) / sent, 1) if sent else 0
                 row['read_rate'] = round(100 * (m['read_ct'] or 0) / sent, 1) if sent else 0
                 row['reply_rate'] = round(100 * (m['replied'] or 0) / sent, 1) if sent else 0

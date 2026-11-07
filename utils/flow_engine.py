@@ -435,15 +435,17 @@ def _execute_send_message(participant, step, config):
         msgs = response.get('messages', [])
         wamid = msgs[0].get('id') if msgs else None
 
+    sent_ok = status_code in (200, 201)
     _db.add_flow_message(
         flow_id=participant['flow_id'],
         participant_id=participant['id'],
         step_key=step['step_key'],
         phone=participant['phone'],
-        wamid=wamid
+        wamid=wamid,
+        status='sent' if sent_ok else 'failed'
     )
 
-    if status_code not in (200, 201):
+    if not sent_ok:
         logger.warning(
             f"Flow participant {participant['id']}: send failed ({status_code}), advancing anyway"
         )
@@ -661,14 +663,22 @@ def _execute_generate_discount(participant, step, config):
     _advance_to_step(participant, step['next_yes'])
 
 
-def _generate_flow_discount_code(percentage, first_name):
-    """SAVE<percentage>-<sanitized first name>-<random suffix>, e.g.
-    'SAVE20-JOHN-K3F9QZ'. The random suffix guards against two customers
-    sharing a first name colliding on the same code -- Shopify discount codes
-    must be unique across the whole store."""
-    name_part = re.sub(r'[^A-Za-z0-9]', '', first_name).upper()[:15] or 'CUSTOMER'
+WHATSAPP_COUPON_CODE_MAX_LEN = 15
+
+
+def _generate_flow_discount_code(percentage, first_name=None):
+    """SAVE<percentage>-<random suffix>, e.g. 'SAVE20-K3F9QZ' (13-14 chars).
+
+    The code goes into a WhatsApp COPY_CODE button, and WhatsApp rejects any
+    coupon_code longer than 15 characters ('Invalid coupon_code provided for
+    copy_code button'). The old SAVE<pct>-<NAME>-<suffix> format was >= 15
+    chars even for a one-letter name, so every send after this step failed.
+    The customer's name is no longer part of the code; the 6-char random
+    suffix (36^6 combinations) keeps codes unique across the store, which
+    Shopify requires. `first_name` is accepted only for call compatibility.
+    """
     suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return f"SAVE{percentage}-{name_part}-{suffix}"
+    return f"SAVE{int(percentage)}-{suffix}"  # <= 15 for any percentage up to 99999
 
 
 def _next_action_at_for_entering(step):

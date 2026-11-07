@@ -1672,6 +1672,30 @@ def _parse_drawflow_canvas(canvas_data_str):
         connections = output_obj.get('connections', [])
         return str(connections[0]['node']) if connections else None
 
+    _labels = {'trigger': 'Trigger', 'send_message': 'Send Message', 'wait': 'Wait / Delay',
+               'condition': 'Condition', 'generate_discount': 'Generate Discount', 'exit': 'Exit Flow'}
+
+    def _label(nid):
+        n = nodes.get(str(nid)) or nodes.get(nid) or {}
+        return _labels.get(n.get('name', ''), n.get('name') or 'step')
+
+    # A participant follows exactly one path (one current_step_key), so only
+    # one arrow per output can ever be followed. Drawflow lets the user draw
+    # several; previously every arrow after the first was silently dropped on
+    # save, so whole branches (e.g. a 96h wait + follow-up) never ran.
+    for node_id, node in nodes.items():
+        for out_name, out in (node.get('outputs') or {}).items():
+            conns = (out or {}).get('connections', [])
+            if len(conns) > 1:
+                targets = ', '.join(_label(c.get('node')) for c in conns)
+                branch = {'output_1': ' Yes', 'output_2': ' No'}.get(out_name, '') \
+                    if node.get('name') == 'condition' else ''
+                raise ValueError(
+                    f"The {_label(node_id)} step's{branch} output has {len(conns)} arrows "
+                    f"(to {targets}). A customer follows one path, so each output can connect "
+                    f"to only one next step. Chain the steps one after another instead."
+                )
+
     steps = []
     for node_id, node in nodes.items():
         step_type = node.get('name', '')
