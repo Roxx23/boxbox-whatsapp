@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 WHATSAPP_IMAGE_MAX_BYTES = 5 * 1024 * 1024   # Meta's limit for JPEG/PNG media
 TARGET_MAX_BYTES = int(4.8 * 1024 * 1024)    # headroom under the hard limit
-MAX_LONG_SIDE = 2048                         # phones render headers far smaller
+# Cap by pixel area, not long side, so tall/wide banners keep a usable width:
+# 4032x3024 -> ~2365x1774, 2160x7968 -> ~1066x3934. Phones show headers far smaller.
+MAX_PIXELS = 2048 * 2048
+MIN_PIXELS = 1024 * 768                      # don't shrink below this on retries
 QUALITY_STEPS = (90, 87, 84, 81, 78, 75)     # stop at 75 to keep it looking good
 
 
@@ -40,6 +43,12 @@ def compress_image_bytes(data, content_type=None, filename=None):
 
     try:
         img = Image.open(io.BytesIO(data))
+        w, h = img.size
+        if img.format == 'JPEG' and w * h > MAX_PIXELS:
+            # Let libjpeg decode at a reduced scale (1/2, 1/4, 1/8) so a 50MP
+            # phone photo never sits in memory at full size.
+            k = (MAX_PIXELS / (w * h)) ** 0.5
+            img.draft('RGB', (int(w * k), int(h * k)))
         img.load()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as e:
         logger.warning(f"Unreadable image {filename!r}: {e}")
@@ -57,17 +66,29 @@ def compress_image_bytes(data, content_type=None, filename=None):
     elif img.mode != 'RGB':
         img = img.convert('RGB')
 
-    if max(img.size) > MAX_LONG_SIDE:
-        img.thumbnail((MAX_LONG_SIDE, MAX_LONG_SIDE), Image.LANCZOS)
+    def _fit(im, max_px):
+        w, h = im.size
+        if w * h <= max_px:
+            return im
+        k = (max_px / (w * h)) ** 0.5
+        return im.resize((max(1, round(w * k)), max(1, round(h * k))), Image.LANCZOS)
 
-    out = None
-    for q in QUALITY_STEPS:
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=q, optimize=True, progressive=True)
-        out = buf.getvalue()
-        if len(out) <= TARGET_MAX_BYTES:
+    # Try quality 90 -> 75 at the pixel cap; only if even q75 is too big,
+    # shrink the image further and try again.
+    out, max_px = None, MAX_PIXELS
+    while True:
+        cur = _fit(img, max_px)
+        for q in QUALITY_STEPS:
+            buf = io.BytesIO()
+            cur.save(buf, format='JPEG', quality=q, optimize=True, progressive=True)
+            out = buf.getvalue()
+            if len(out) <= TARGET_MAX_BYTES:
+                break
+        if len(out) <= TARGET_MAX_BYTES or max_px <= MIN_PIXELS:
             break
-    if out is None or len(out) > TARGET_MAX_BYTES:
+        max_px = max(MIN_PIXELS, int(max_px * 0.6))
+    img = cur
+    if len(out) > TARGET_MAX_BYTES:
         raise ImageCompressError(
             f"Image is {_mb(len(data))} and could not be compressed under 5MB.")
 
