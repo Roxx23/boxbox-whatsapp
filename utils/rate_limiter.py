@@ -31,11 +31,24 @@ class RateLimiter:
         self.time_window = time_window
         self.requests = deque()
         self.lock = threading.Lock()
-    
+        self.paused_until = 0.0
+
+    def backoff(self, seconds):
+        """Pause ALL sender threads for `seconds` (on 429/5xx). Every thread
+        passes through wait_if_needed, so one throttled reply slows the whole
+        queue, not just the thread that got it."""
+        with self.lock:
+            self.paused_until = max(self.paused_until, time.time() + seconds)
+
     def wait_if_needed(self):
         """Block if rate limit is reached"""
         with self.lock:
             now = time.time()
+            # Global backoff after a 429/5xx (holding the lock makes every
+            # other thread queue up behind this one).
+            if self.paused_until > now:
+                time.sleep(self.paused_until - now)
+                now = time.time()
             
             # Remove old requests outside time window
             while self.requests and self.requests[0] < now - self.time_window:
@@ -139,6 +152,13 @@ class MessageQueue:
 
                 message_id = message.get('message_id')
 
+                # Rate limit (and any global 429/5xx pause) BEFORE claiming,
+                # so a row is only 'sending' while its API call is in flight.
+                try:
+                    self.rate_limiter.wait_if_needed()
+                except Exception as e:
+                    logger.error(f"❌ Rate limiter error: {e}")
+
                 # Claim the DB row ('queued' -> 'sending') before sending. If
                 # the claim fails the row was already sent, failed, or is being
                 # sent by another thread, so skip it: never double-send.
@@ -146,18 +166,20 @@ class MessageQueue:
                     try:
                         claimed = self._get_db().claim_message_for_send(message_id)
                     except Exception as e:
-                        logger.error(f"❌ Could not claim message #{message_id}, skipping: {e}")
+                        # e.g. lock timeout: the row is still 'queued', so put
+                        # it back rather than drop it (bounded, so a broken DB
+                        # can't loop forever; it stays queued for resume/resend).
+                        message['claim_errors'] = message.get('claim_errors', 0) + 1
+                        if message['claim_errors'] <= 5:
+                            logger.warning(f"⚠️ Could not claim message #{message_id} ({e}); re-queueing ({message['claim_errors']}/5)")
+                            self.queue.put(message)
+                        else:
+                            logger.error(f"❌ Could not claim message #{message_id} after 5 tries; left queued in DB: {e}")
                         claimed = False
                     if not claimed:
                         logger.info(f"⏭️ Message #{message_id} already handled, skipping")
                         self.queue.task_done()
                         continue
-
-                # Rate limit before sending
-                try:
-                    self.rate_limiter.wait_if_needed()
-                except Exception as e:
-                    logger.error(f"❌ Rate limiter error: {e}")
 
                 # Send the message
                 try:
@@ -177,10 +199,10 @@ class MessageQueue:
                     if retryable and message['retries'] < message['max_retries']:
                         message['retries'] += 1
                         wait_time = 2 ** message['retries']  # 2s, 4s, 8s
-                        logger.warning(f"⚠️ HTTP {status}. Retry {message['retries']}/{message['max_retries']} in {wait_time}s")
+                        logger.warning(f"⚠️ HTTP {status}. Pausing all senders {wait_time}s; retry {message['retries']}/{message['max_retries']}")
                         if message_id:
                             self._get_db().release_message_claim(message_id)
-                        time.sleep(wait_time)
+                        self.rate_limiter.backoff(wait_time)
                         self.queue.put(message)  # Re-queue
                     elif status >= 400:
                         logger.error(f"❌ API error {status} sending to {message['args'][0] if message['args'] else '?'}: {response}")

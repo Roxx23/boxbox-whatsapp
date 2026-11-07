@@ -113,8 +113,22 @@ def _get_template_definition(waba_id, template_name):
         return c["by_name"].get(template_name)
 
 
+def invalidate_template_cache():
+    """Force the next send to refetch template definitions (after this app
+    creates/deletes a template, or a send fails with a template error)."""
+    with _template_cache_lock:
+        _template_cache["fetched_at"] = 0.0
+        _template_cache["attempted_at"] = 0.0
+
+
+# Meta error codes meaning the template or its parameters don't match what we
+# sent: the cached definition may be stale, so refetch once and retry.
+_TEMPLATE_ERROR_CODES = {132000, 132001, 132005, 132007, 132012, 132015, 132016}
+
+
 def delete_template(waba_id, template_name):
     """Delete a WhatsApp message template by name"""
+    invalidate_template_cache()
     url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     try:
@@ -125,7 +139,7 @@ def delete_template(waba_id, template_name):
 
 
 def send_template(number, template_name, params, lang="en_US", header_media_id=None, button_params=None,
-                   header_param=None, header_media_type="image", retry=True):
+                   header_param=None, header_media_type="image", retry=True, _template_refetched=False):
     """Send a WhatsApp template message
 
     Args:
@@ -311,7 +325,17 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         if retry and resp.status_code == 429:
             time.sleep(2)
             return send_template(number, template_name, params, lang, header_media_id, button_params,
-                                  header_param, header_media_type, retry=False)
+                                  header_param, header_media_type, retry=False,
+                                  _template_refetched=_template_refetched)
+
+        # Template/param mismatch may mean our cached definition is stale
+        # (template edited in WhatsApp Manager): refetch it and retry once.
+        err_code = (response_data.get("error") or {}).get("code") if isinstance(response_data, dict) else None
+        if resp.status_code == 400 and err_code in _TEMPLATE_ERROR_CODES and not _template_refetched and WABA_ID:
+            logger.warning(f"Template error {err_code} for '{template_name}': refetching definitions and retrying once")
+            invalidate_template_cache()
+            return send_template(number, template_name, params, lang, header_media_id, button_params,
+                                  header_param, header_media_type, retry=retry, _template_refetched=True)
 
         return resp.status_code, response_data
     except requests.exceptions.RequestException as e:
@@ -547,6 +571,7 @@ def _validate_body_variable_numbering(body_text):
 
 def create_template(waba_id, template_data, media_file=None):
     """Create a new WhatsApp message template"""
+    invalidate_template_cache()
 
     # Validate credentials
     if not ACCESS_TOKEN or ACCESS_TOKEN == "None":

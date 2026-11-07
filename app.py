@@ -116,7 +116,7 @@ logger.info(f"⚙️ Rate limit: {MAX_REQUESTS} requests per {TIME_WINDOW}s with
 def _resume_interrupted_campaigns():
     """The queue lives in memory, so a restart (every auto-deploy) used to wipe
     any campaign mid-send. On startup, re-queue the still-'queued' rows of
-    pending/running campaigns from the DB. Safe against double sends: rows
+    running campaigns from the DB. Safe against double sends: rows
     with a WhatsApp id are excluded, and the worker's atomic claim skips any
     row that isn't 'queued' by the time it's picked up."""
     import json as _json
@@ -143,9 +143,8 @@ def _resume_interrupted_campaigns():
                     header_media_id=m['header_media_id'] or None, button_params=btn_p, **common)
             else:
                 message_queue.add_message(send_text, m['phone_number'], m['message_content'] or '', **common)
-        if rows:
-            camps = sorted({m['campaign_id'] for m in rows})
-            logger.warning(f"♻️ Resume: re-queued {len(rows)} unsent message(s) for campaign(s) {camps}")
+        camps = sorted({m['campaign_id'] for m in rows})
+        logger.warning(f"♻️ Resume: re-queued {len(rows)} unsent message(s) for running campaign(s) {camps}")
     except Exception as e:
         logger.error(f"♻️ Resume after restart failed: {e}", exc_info=True)
 

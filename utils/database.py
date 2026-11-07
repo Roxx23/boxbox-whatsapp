@@ -676,15 +676,17 @@ class Database:
                 conn.execute(
                     "UPDATE messages SET status = 'failed', error_message = ? WHERE id = ?",
                     ('Interrupted by an app restart mid-send; it may or may not have been delivered', r['id']))
-                if r['campaign_id']:
-                    conn.execute(
-                        "UPDATE campaigns SET failed_count = COALESCE(failed_count, 0) + 1 WHERE id = ?",
-                        (r['campaign_id'],))
-            return len(rows)
+        # Count each one through the normal result path, so a campaign whose
+        # last rows were interrupted still gets marked completed (a bare
+        # failed_count bump left it 'running' forever).
+        for r in rows:
+            if r['campaign_id']:
+                self.record_campaign_result(r['campaign_id'], failed=True)
+        return len(rows)
 
     def get_resumable_messages(self, max_age_hours=24):
         """Startup: 'queued' rows (never sent, no WhatsApp id) of campaigns that
-        are still pending/running, with what's needed to re-queue them. Rows
+        are still 'running', with what's needed to re-queue them. Rows
         older than max_age_hours are left alone (a campaign shouldn't go out
         days late); Resend to Unsent can still pick them up by hand."""
         since = (datetime.now() - timedelta(hours=max_age_hours)).isoformat()
@@ -695,7 +697,7 @@ class Database:
                        m.button_params, m.header_media_id, c.user_id
                 FROM messages m JOIN campaigns c ON c.id = m.campaign_id
                 WHERE m.status = 'queued' AND m.whatsapp_message_id IS NULL
-                  AND c.status IN ('pending', 'running')
+                  AND c.status = 'running'
                   AND m.created_at >= ?
                 ORDER BY m.id
             ''', (since,)).fetchall()
