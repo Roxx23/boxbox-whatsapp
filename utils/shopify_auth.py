@@ -27,10 +27,11 @@ logger = logging.getLogger(__name__)
 API_VERSION = '2025-10'
 REFRESH_MARGIN_SECONDS = 3600      # renew when under 1h of life is left
 GRANT_TIMEOUT_SECONDS = 15
+GRANT_BACKOFF_SECONDS = 60       # after a failed grant, don't try again for this long
 DEFAULT_LIFETIME_SECONDS = 86399   # what Shopify returns today; used if expires_in is missing
 
 _lock = threading.Lock()
-_cache = {'token': None, 'expires_at': 0.0, 'client_id': None}
+_cache = {'token': None, 'expires_at': 0.0, 'client_id': None, 'grant_failed_at': 0.0}
 
 
 def _env(name):
@@ -89,47 +90,59 @@ def _request_grant_token():
     return token, time.time() + lifetime
 
 
-def get_shopify_token(force_refresh=False):
+def get_shopify_token(force_refresh=False, stale_token=None):
     """Return a usable Admin API token, or '' if none can be had.
 
     Thread-safe: concurrent callers share one cached token and at most one
     grant request is in flight at a time.
+
+    force_refresh + stale_token (the token that just got a 401): renew only if
+    the cache still holds that same token; if another thread already replaced
+    it, the replacement is returned without a second grant.
+
+    After a failed grant, no new grant is attempted for GRANT_BACKOFF_SECONDS
+    (callers get the cached-but-unexpired or static token instead), so a
+    Shopify outage or bad secret can't make every call wait on the grant
+    timeout under the lock -- e.g. stalling an order webhook past Shopify's 5s.
     """
     if not uses_client_credentials():
         return _env('SHOPIFY_ACCESS_TOKEN')
 
     client_id = _env('SHOPIFY_CLIENT_ID')
-    now = time.time()
+
+    def _fresh(now):
+        return (c['token'] and c['client_id'] == client_id
+                and c['expires_at'] - now > REFRESH_MARGIN_SECONDS)
+
     c = _cache
-    if (not force_refresh and c['token'] and c['client_id'] == client_id
-            and c['expires_at'] - now > REFRESH_MARGIN_SECONDS):
+    if not force_refresh and _fresh(time.time()):
         return c['token']
 
     with _lock:
         now = time.time()
-        if (not force_refresh and c['token'] and c['client_id'] == client_id
-                and c['expires_at'] - now > REFRESH_MARGIN_SECONDS):
+        if not force_refresh and _fresh(now):
             return c['token']          # another thread renewed it while we waited
-        token, expires_at = _request_grant_token()
-        if token:
-            c.update(token=token, expires_at=expires_at, client_id=client_id)
-            return token
-        if c['token'] and c['client_id'] == client_id and c['expires_at'] > now and not force_refresh:
-            logger.warning("Shopify token renewal failed; using the cached token until it expires")
+        if (force_refresh and stale_token and c['token'] and c['token'] != stale_token
+                and c['client_id'] == client_id and c['expires_at'] > now):
+            return c['token']          # another thread already replaced the 401'd token
+        if now - c['grant_failed_at'] >= GRANT_BACKOFF_SECONDS:
+            token, expires_at = _request_grant_token()
+            if token:
+                c.update(token=token, expires_at=expires_at, client_id=client_id, grant_failed_at=0.0)
+                return token
+            c['grant_failed_at'] = now
+        if c['token'] and c['client_id'] == client_id and c['expires_at'] > now and c['token'] != stale_token:
+            logger.warning("Shopify token renewal unavailable; using the cached token until it expires")
             return c['token']
         fallback = _env('SHOPIFY_ACCESS_TOKEN')
         if fallback:
-            logger.warning("Shopify token renewal failed; falling back to static SHOPIFY_ACCESS_TOKEN")
+            logger.warning("Shopify token renewal unavailable; falling back to static SHOPIFY_ACCESS_TOKEN")
         return fallback
 
 
 def _token_for_retry(used_token):
     """After a 401: renew once, unless another thread already replaced the token."""
-    with _lock:
-        current = _cache['token']
-    if current and current != used_token and _cache['expires_at'] > time.time():
-        return current
-    return get_shopify_token(force_refresh=True)
+    return get_shopify_token(force_refresh=True, stale_token=used_token)
 
 
 def shopify_request(method, url_or_path, headers=None, timeout=30, **kwargs):
@@ -155,4 +168,4 @@ def shopify_request(method, url_or_path, headers=None, timeout=30, **kwargs):
 
 def _reset_cache_for_tests():
     with _lock:
-        _cache.update(token=None, expires_at=0.0, client_id=None)
+        _cache.update(token=None, expires_at=0.0, client_id=None, grant_failed_at=0.0)
