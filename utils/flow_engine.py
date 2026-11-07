@@ -412,6 +412,28 @@ def _execute_send_message(participant, step, config):
             blank_mappings.append(f"button '{btn_key}'->'{ctx_key}'")
     if header_ctx_key and not context.get(header_ctx_key):
         blank_mappings.append(f"header->'{header_ctx_key}'")
+    # A COPY_CODE button with no coupon is always rejected by WhatsApp
+    # ("Parameter 'coupon_code' is mandatory"), so don't send at all: record the
+    # step as skipped with the reason (usually a failed Generate Discount step)
+    # and move on, rather than logging a misleading send attempt.
+    for btn_key, value in button_params.items():
+        if btn_key == 'copy_code' and not str(value or '').strip():
+            reason = context.get('discount_error') or 'coupon code is empty'
+            logger.error(
+                f"Flow participant {participant['id']}: skipped send of '{template_name}' -- "
+                f"its copy-code button needs a coupon code but none is available ({reason})"
+            )
+            _db.add_flow_message(
+                flow_id=participant['flow_id'],
+                participant_id=participant['id'],
+                step_key=step['step_key'],
+                phone=participant['phone'],
+                wamid=None,
+                status='skipped'
+            )
+            _advance_to_step(participant, step['next_yes'])
+            return
+
     if blank_mappings:
         logger.warning(
             f"Flow participant {participant['id']}: sending template '{template_name}' with "
@@ -435,15 +457,17 @@ def _execute_send_message(participant, step, config):
         msgs = response.get('messages', [])
         wamid = msgs[0].get('id') if msgs else None
 
+    sent_ok = status_code in (200, 201)
     _db.add_flow_message(
         flow_id=participant['flow_id'],
         participant_id=participant['id'],
         step_key=step['step_key'],
         phone=participant['phone'],
-        wamid=wamid
+        wamid=wamid,
+        status='sent' if sent_ok else 'failed'
     )
 
-    if status_code not in (200, 201):
+    if not sent_ok:
         logger.warning(
             f"Flow participant {participant['id']}: send failed ({status_code}), advancing anyway"
         )
@@ -637,14 +661,22 @@ def _execute_generate_discount(participant, step, config):
     context['discount_percentage'] = str(percentage)
 
     from app import _create_discount_code_in_shopify
+    errors = []
     price_rule_id, created_code = _create_discount_code_in_shopify(
-        discount_code, percentage=percentage, ends_at=ends_at
+        discount_code, percentage=percentage, ends_at=ends_at, errors=errors
     )
 
     if created_code:
         context['discount_code'] = created_code
+        context.pop('discount_error', None)
         logger.info(f"Flow participant {participant['id']}: generated discount code {created_code}")
     else:
+        # Remembered so a later copy-code send can be skipped with this reason
+        # instead of being sent with an empty coupon (which WhatsApp rejects).
+        context['discount_error'] = errors[0] if errors else 'Shopify discount creation failed'
+        logger.error(
+            f"Flow participant {participant['id']}: no discount code -- {context['discount_error']}"
+        )
         # Non-fatal by design, matching every other Shopify-write-failure path
         # in this codebase -- the flow keeps moving. 'discount_code' is simply
         # left unset in context, so a downstream send_message step mapping it
@@ -661,14 +693,22 @@ def _execute_generate_discount(participant, step, config):
     _advance_to_step(participant, step['next_yes'])
 
 
-def _generate_flow_discount_code(percentage, first_name):
-    """SAVE<percentage>-<sanitized first name>-<random suffix>, e.g.
-    'SAVE20-JOHN-K3F9QZ'. The random suffix guards against two customers
-    sharing a first name colliding on the same code -- Shopify discount codes
-    must be unique across the whole store."""
-    name_part = re.sub(r'[^A-Za-z0-9]', '', first_name).upper()[:15] or 'CUSTOMER'
+WHATSAPP_COUPON_CODE_MAX_LEN = 15
+
+
+def _generate_flow_discount_code(percentage, first_name=None):
+    """SAVE<percentage>-<random suffix>, e.g. 'SAVE20-K3F9QZ' (13-14 chars).
+
+    The code goes into a WhatsApp COPY_CODE button, and WhatsApp rejects any
+    coupon_code longer than 15 characters ('Invalid coupon_code provided for
+    copy_code button'). The old SAVE<pct>-<NAME>-<suffix> format was >= 15
+    chars even for a one-letter name, so every send after this step failed.
+    The customer's name is no longer part of the code; the 6-char random
+    suffix (36^6 combinations) keeps codes unique across the store, which
+    Shopify requires. `first_name` is accepted only for call compatibility.
+    """
     suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return f"SAVE{percentage}-{name_part}-{suffix}"
+    return f"SAVE{int(percentage)}-{suffix}"  # <= 15 for any percentage up to 99999
 
 
 def _next_action_at_for_entering(step):
