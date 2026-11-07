@@ -2942,7 +2942,7 @@ def whatsapp_webhook():
         # Handle incoming webhook data
         try:
             data = request.json
-            logger.info(f"📥 Webhook received: {data}")
+            logger.debug(f"📥 Webhook received: {data}")
             
             # Process status updates
             if data.get("entry"):
