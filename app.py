@@ -2987,6 +2987,12 @@ def process_message_status(status_data):
             error_message = error.get("message", "Unknown error")
             logger.error(f"❌ Message {message_id} failed: {error_message} (code: {error_code})")
             db.fail_message_by_whatsapp_id(message_id, error_code, error_message)
+            # Flow sends live in flow_messages, not messages: without this a
+            # message Meta accepted (200 + wamid) but later failed (e.g. 131049)
+            # kept counting as 'sent' in the flow step stats.
+            if db.get_flow_message_by_wamid(message_id):
+                db.update_flow_message_status(message_id, 'status', 'failed')
+                logger.info(f"Flow message {message_id} marked failed (code {error_code})")
     
     except Exception as e:
         logger.error(f"❌ Error processing status: {e}", exc_info=True)
