@@ -2,19 +2,22 @@ import requests
 import logging
 from datetime import datetime, timezone
 
+from utils.shopify_auth import API_VERSION, shopify_request
+
 logger = logging.getLogger(__name__)
 
 class ShopifyIntegration:
-    """Shopify integration for fetching customer data"""
-    
-    def __init__(self, shop_name, access_token):
+    """Shopify integration for fetching customer data.
+
+    Every Admin API call goes through utils.shopify_auth.shopify_request, which
+    supplies the current token (client-credentials grant, auto-renewed, or the
+    static SHOPIFY_ACCESS_TOKEN) and retries once after a 401. `access_token`
+    is accepted for backward compatibility and no longer used.
+    """
+
+    def __init__(self, shop_name, access_token=None):
         self.shop_name = shop_name
-        self.access_token = access_token
-        self.base_url = f"https://{shop_name}.myshopify.com/admin/api/2024-01"
-        self.headers = {
-            "X-Shopify-Access-Token": access_token,
-            "Content-Type": "application/json"
-        }
+        self.base_url = f"https://{shop_name}.myshopify.com/admin/api/{API_VERSION}"
     
     def fetch_customers(self, limit=250, created_at_min=None):
         """Fetch customers from Shopify, optionally only those created after created_at_min."""
@@ -27,12 +30,12 @@ class ShopifyIntegration:
         while url:
             try:
                 logger.info(f"🔄 Fetching from: {url}")
-                response = requests.get(url, headers=self.headers, timeout=30)
+                response = shopify_request('GET', url, timeout=30)
                 
                 logger.info(f"📊 Response status: {response.status_code}")
                 
                 if response.status_code == 401:
-                    logger.error("❌ Authentication failed. Check your SHOPIFY_ACCESS_TOKEN")
+                    logger.error("❌ Authentication failed. Check SHOPIFY_CLIENT_ID/SHOPIFY_CLIENT_SECRET (or SHOPIFY_ACCESS_TOKEN)")
                     break
                 elif response.status_code == 404:
                     logger.error("❌ Store not found. Check your SHOPIFY_SHOP_NAME")
@@ -91,7 +94,7 @@ class ShopifyIntegration:
         """Get orders for a specific customer"""
         try:
             url = f"{self.base_url}/customers/{customer_id}/orders.json"
-            response = requests.get(url, headers=self.headers, timeout=30)
+            response = shopify_request('GET', url, timeout=30)
             response.raise_for_status()
             
             # Check for empty response
@@ -196,7 +199,7 @@ class ShopifyIntegration:
             }
 
             url = f"{self.base_url}/price_rules.json"
-            response = requests.post(url, headers=self.headers, json=price_rule_payload, timeout=30)
+            response = shopify_request('POST', url, json=price_rule_payload, timeout=30)
 
             if response.status_code != 201:
                 logger.error(f"❌ Failed to create price rule: {response.status_code}")
@@ -225,7 +228,7 @@ class ShopifyIntegration:
             }
 
             url = f"{self.base_url}/price_rules/{price_rule_id}/discount_codes.json"
-            response = requests.post(url, headers=self.headers, json=discount_code_payload, timeout=30)
+            response = shopify_request('POST', url, json=discount_code_payload, timeout=30)
 
             if response.status_code != 201:
                 logger.error(f"❌ Failed to create discount code: {response.status_code}")

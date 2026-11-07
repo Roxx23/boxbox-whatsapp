@@ -218,29 +218,25 @@ def _fetch_order_status_url(shopify_order_id):
     """Fetch Shopify's customer-facing order_status_url for one order via the Admin API.
 
     Used by /track/<order_ref> to self-heal orders fulfilled before the
-    order_status_url column existed. Needs the read_orders scope on
-    SHOPIFY_ACCESS_TOKEN; returns None (and logs why) on any failure so the
+    order_status_url column existed. Needs the read_orders scope on the
+    Shopify app (token from utils.shopify_auth); returns None (and logs why) on any failure so the
     caller falls through to the AWB-only page.
     """
     if not shopify_order_id:
         return None
-    shop  = os.getenv('SHOPIFY_SHOP_NAME', '')
-    token = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
-    if not (shop and token):
+    from utils.shopify_auth import is_configured, shopify_request
+    if not is_configured():
         return None
     try:
-        import requests as _req
-        url = (f"https://{shop}.myshopify.com/admin/api/2024-01/orders/"
-               f"{shopify_order_id}.json?fields=order_status_url")
-        resp = _req.get(url, headers={"X-Shopify-Access-Token": token}, timeout=10)
+        resp = shopify_request('GET', f"/orders/{shopify_order_id}.json?fields=order_status_url", timeout=10)
         if resp.status_code == 200:
             status_url = (resp.json().get('order') or {}).get('order_status_url')
             if status_url:
                 logger.info(f"order_status_url backfilled from Shopify for {shopify_order_id}")
             return status_url or None
         if resp.status_code == 403:
-            logger.warning("Shopify orders API returned 403 — SHOPIFY_ACCESS_TOKEN "
-                           "lacks read_orders scope; /track/ cannot backfill old orders")
+            logger.warning("Shopify orders API returned 403 — the Shopify app lacks the "
+                           "read_orders scope (or API access is disabled); /track/ cannot backfill old orders")
         else:
             logger.warning(f"Shopify orders API returned {resp.status_code} "
                            f"for order {shopify_order_id}")
@@ -269,14 +265,9 @@ def _get_product_image_url(line_items):
     product_id = line_items[0].get('product_id')
     if product_id:
         try:
-            import requests as _req
-            shop  = os.getenv('SHOPIFY_SHOP_NAME', '')
-            token = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
-            if shop and token:
-                url = f"https://{shop}.myshopify.com/admin/api/2024-01/products/{product_id}.json"
-                resp = _req.get(url,
-                                headers={"X-Shopify-Access-Token": token},
-                                timeout=10)
+            from utils.shopify_auth import is_configured, shopify_request
+            if is_configured():
+                resp = shopify_request('GET', f"/products/{product_id}.json", timeout=10)
                 if resp.status_code == 200:
                     images = resp.json().get('product', {}).get('images', [])
                     if images:
@@ -506,16 +497,16 @@ def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None, 
     try:
         from utils.shopify_integration import ShopifyIntegration
 
-        shop_name = os.getenv('SHOPIFY_SHOP_NAME', '').strip()
-        access_token = os.getenv('SHOPIFY_ACCESS_TOKEN', '').strip()
+        from utils.shopify_auth import is_configured, shop_name as _shop_name
 
-        if not shop_name or not access_token:
-            logger.warning("⚠️ SHOPIFY_SHOP_NAME or SHOPIFY_ACCESS_TOKEN not set, skipping discount code creation")
+        if not is_configured():
+            logger.warning("⚠️ Shopify credentials not set (SHOPIFY_SHOP_NAME plus SHOPIFY_CLIENT_ID/"
+                           "SHOPIFY_CLIENT_SECRET or SHOPIFY_ACCESS_TOKEN), skipping discount code creation")
             if errors is not None:
-                errors.append("SHOPIFY_SHOP_NAME or SHOPIFY_ACCESS_TOKEN not set")
+                errors.append("Shopify credentials not set")
             return None, None
 
-        integration = ShopifyIntegration(shop_name, access_token)
+        integration = ShopifyIntegration(_shop_name())
         price_rule_id, generated_code = integration.create_price_rule_with_discount_code(
             discount_code, percentage=percentage, ends_at=ends_at
         )
@@ -2686,16 +2677,18 @@ def sync_shopify():
         
         logger.info(f"🔄 Starting Shopify sync for user {current_user.username}")
         
-        if not config.SHOPIFY_SHOP_NAME or not config.SHOPIFY_ACCESS_TOKEN:
+        from utils.shopify_auth import is_configured, shop_name as _shop_name
+        if not is_configured():
             logger.error("❌ Shopify credentials not configured")
             return jsonify({
                 'success': False,
-                'error': 'Shopify credentials not configured. Please add SHOPIFY_SHOP_NAME and SHOPIFY_ACCESS_TOKEN to your .env file'
+                'error': 'Shopify credentials not configured. Please add SHOPIFY_SHOP_NAME and '
+                         'SHOPIFY_CLIENT_ID/SHOPIFY_CLIENT_SECRET (or SHOPIFY_ACCESS_TOKEN) to your .env file'
             })
-        
-        logger.info(f"✅ Shopify credentials found - Shop: {config.SHOPIFY_SHOP_NAME}")
-        
-        shopify = ShopifyIntegration(config.SHOPIFY_SHOP_NAME, config.SHOPIFY_ACCESS_TOKEN)
+
+        logger.info(f"✅ Shopify credentials found - Shop: {_shop_name()}")
+
+        shopify = ShopifyIntegration(_shop_name())
 
         last_sync_date = db.get_last_shopify_created_at(current_user.id)
         if last_sync_date:
