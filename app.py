@@ -1384,6 +1384,7 @@ def index():
                 )
 
             # Add all template messages to queue
+            _rows, _sends = [], []
             for idx, row in df.iterrows():
                 row_dict = row.to_dict()
                 name = row_dict.get("Name", "")
@@ -1417,8 +1418,8 @@ def index():
                             if url_value:
                                 button_params[f"url_index_{btn['index']}"] = str(url_value)
 
-                # Add message record to database
-                message_id = db.add_message(
+                # Collected here, inserted in one transaction after the loop
+                _rows.append(dict(
                     campaign_id=campaign_id,
                     user_id=current_user.id,
                     phone_number=phone,
@@ -1429,22 +1430,12 @@ def index():
                     template_language=template_language,
                     button_params=button_params if button_params else None,
                     header_media_id=header_media_id
-                )
+                ))
+                _sends.append(((send_template, phone, template_name, params, template_language),
+                               dict(header_media_id=header_media_id,
+                                    button_params=button_params if button_params else None)))
 
-                # Add to queue instead of sending immediately
-                message_queue.add_message(
-                    send_template,
-                    phone,
-                    template_name,
-                    params,
-                    template_language,
-                    header_media_id=header_media_id,
-                    button_params=button_params if button_params else None,
-                    user_id=current_user.id,
-                    username=current_user.username,
-                    campaign_id=campaign_id,
-                    message_id=message_id
-                )
+            _insert_and_enqueue(_rows, _sends, campaign_id)
 
             flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Progress shows in the In progress panel.", "success")
             flash_skipped_summary()
@@ -1456,6 +1447,7 @@ def index():
                 flash("Please enter a message template.", "error")
                 return redirect("/")
 
+            _rows, _sends = [], []
             for idx, row in df.iterrows():
                 row_dict = row.to_dict()
                 name = row_dict.get("Name", "")
@@ -1463,26 +1455,17 @@ def index():
 
                 personalized_msg = personalize(message_template, row_dict, idx + 1)
                 
-                # Add message record to database
-                message_id = db.add_message(
+                _rows.append(dict(
                     campaign_id=campaign_id,
                     user_id=current_user.id,
                     phone_number=phone,
                     recipient_name=name,
                     message_content=personalized_msg,
                     status='queued'
-                )
+                ))
+                _sends.append(((send_text, phone, personalized_msg), {}))
 
-                # Add to queue
-                message_queue.add_message(
-                    send_text,
-                    phone,
-                    personalized_msg,
-                    user_id=current_user.id,
-                    username=current_user.username,
-                    campaign_id=campaign_id,
-                    message_id=message_id
-                )
+            _insert_and_enqueue(_rows, _sends, campaign_id)
 
             flash(f"✅ {len(df)} messages queued for campaign \"{campaign_name}\". Progress shows in the In progress panel.", "success")
             flash_skipped_summary()
@@ -2873,6 +2856,16 @@ def worker_debug():
         'workers': [{'name': w.name, 'alive': w.is_alive()} for w in message_queue.workers],
         'thread_traces': traces
     })
+
+
+def _insert_and_enqueue(rows, sends, campaign_id):
+    """Insert a send form's message rows in ONE transaction, then queue them.
+    Row-by-row commits took 200s+ for 3000 recipients once 4 sender threads
+    and webhooks were also writing, past the 120s gunicorn/nginx timeout."""
+    ids = db.add_messages_bulk(rows)
+    for ((args, kwargs), message_id) in zip(sends, ids):
+        message_queue.add_message(*args, user_id=current_user.id, username=current_user.username,
+                                  campaign_id=campaign_id, message_id=message_id, **kwargs)
 
 
 @app.route("/api/campaigns/progress")

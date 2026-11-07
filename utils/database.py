@@ -555,6 +555,30 @@ class Database:
                   header_media_id, datetime.now().isoformat()))
             return cursor.lastrowid
 
+    def add_messages_bulk(self, rows):
+        """Insert many message rows (dicts of add_message's arguments) in one
+        transaction. Returns the new ids in the same order."""
+        ids = []
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            for r in rows:
+                tp, bp = r.get('template_params'), r.get('button_params')
+                cursor.execute('''
+                    INSERT INTO messages (campaign_id, user_id, phone_number, recipient_name,
+                                        message_content, template_name, status,
+                                        template_params, template_language, button_params,
+                                        header_media_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (r['campaign_id'], r['user_id'], r['phone_number'], r.get('recipient_name'),
+                      r.get('message_content'), r.get('template_name'), r.get('status', 'pending'),
+                      json.dumps(tp) if tp is not None else None,
+                      r.get('template_language'),
+                      json.dumps(bp) if bp is not None else None,
+                      r.get('header_media_id'), now))
+                ids.append(cursor.lastrowid)
+        return ids
+
     def fail_message_by_whatsapp_id(self, whatsapp_message_id, error_code, error_message):
         """Mark a message as failed (e.g. 131049) and adjust campaign counts."""
         with self.get_connection() as conn:
