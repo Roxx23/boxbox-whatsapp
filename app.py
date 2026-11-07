@@ -492,7 +492,7 @@ def _start_abandoned_cart_checker():
                                 cursor.execute('''
                                     SELECT COUNT(*) as cnt FROM shopify_orders
                                     WHERE customer_phone = ?
-                                    AND created_at > ?
+                                    AND strftime('%Y-%m-%dT%H:%M:%S', created_at, 'localtime') > ?
                                 ''', (phone, cart['abandoned_at']))
                                 row = cursor.fetchone()
                                 if row and row['cnt'] > 0:
@@ -2931,7 +2931,7 @@ def process_incoming_message(message_data):
                     SELECT id, whatsapp_message_id FROM messages
                     WHERE phone_number LIKE ? 
                     AND replied_at IS NULL
-                    AND sent_at > datetime('now', '-24 hours')
+                    AND sent_at > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-24 hours', 'localtime')
                     ORDER BY sent_at DESC
                     LIMIT 1
                 ''', (f'%{phone_clean[-10:]}',))  # Match last 10 digits
@@ -2974,7 +2974,7 @@ def process_incoming_message(message_data):
                         SELECT id, whatsapp_message_id FROM messages
                         WHERE phone_number LIKE ? 
                         AND clicked_at IS NULL
-                        AND sent_at > datetime('now', '-24 hours')
+                        AND sent_at > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-24 hours', 'localtime')
                         ORDER BY sent_at DESC
                         LIMIT 1
                     ''', (f'%{phone_clean[-10:]}',))
