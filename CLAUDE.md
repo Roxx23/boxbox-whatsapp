@@ -65,11 +65,21 @@ WABA_ID=...
 WEBHOOK_VERIFY_TOKEN=my_secret_webhook_token_2024
 SECRET_KEY=...
 SHOPIFY_SHOP_NAME=...          # just the store name, e.g. "boxbox" (not .myshopify.com)
-SHOPIFY_ACCESS_TOKEN=...       # needs read_customers scope; read_products for product images
+SHOPIFY_CLIENT_ID=...          # Dev Dashboard app (preferred). With CLIENT_ID + CLIENT_SECRET set, the app gets its
+SHOPIFY_CLIENT_SECRET=...      #   own Admin API token via the client-credentials grant; it expires every 24h and is
+                               #   renewed automatically (utils/shopify_auth.py). Scopes: read_customers, read_orders,
+                               #   read_products, write_price_rules, write_discounts
+SHOPIFY_ACCESS_TOKEN=...       # optional static token; used only when CLIENT_ID/SECRET are not set, or as a
+                               #   last resort if the grant fails. The old custom app token gets 403
+                               #   "API Access has been disabled" since about 2026-10-25
 SHOPIFY_WEBHOOK_SECRET=...     # optional — if set, verifies Shopify webhook HMAC signatures
 ```
 
 Location on server: `/home/ubuntu/whatsapp-dashboard/.env`
+
+Shopify Admin API version: `2025-10` (`API_VERSION` in `utils/shopify_auth.py`). Every Admin API call goes
+through `shopify_request()` there: it adds the current token and, on a 401, renews the token once and retries.
+Never log the token or the client secret.
 
 ---
 
