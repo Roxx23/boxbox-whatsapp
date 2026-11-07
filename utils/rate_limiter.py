@@ -175,9 +175,10 @@ class MessageQueue:
                             self.queue.put(message)
                         else:
                             logger.error(f"❌ Could not claim message #{message_id} after 5 tries; left queued in DB: {e}")
-                        claimed = False
+                        claimed = None  # claim errored (logged above), not "already handled"
                     if not claimed:
-                        logger.info(f"⏭️ Message #{message_id} already handled, skipping")
+                        if claimed is False:
+                            logger.info(f"⏭️ Message #{message_id} already handled, skipping")
                         self.queue.task_done()
                         continue
 

@@ -121,6 +121,28 @@ def invalidate_template_cache():
         _template_cache["attempted_at"] = 0.0
 
 
+def _refetch_templates_after_error(waba_id):
+    """After a template/param error: refetch definitions, but within the same
+    60s throttle as cache misses. Returns True only if a refetch actually ran,
+    so a campaign where every send fails (e.g. wrong param count) doesn't do a
+    full template-list fetch per message."""
+    with _template_cache_lock:
+        now = time.time()
+        if now - _template_cache["attempted_at"] <= _TEMPLATE_MISS_REFRESH:
+            return False
+        _template_cache["attempted_at"] = now
+        templates = get_templates(waba_id)
+        if not templates:
+            return False
+        by_name = {}
+        for t in templates:
+            if t.get("name") not in by_name or t.get("status") == "APPROVED":
+                by_name[t.get("name")] = t
+        _template_cache["by_name"] = by_name
+        _template_cache["fetched_at"] = now
+        return True
+
+
 # Meta error codes meaning the template or its parameters don't match what we
 # sent: the cached definition may be stale, so refetch once and retry.
 _TEMPLATE_ERROR_CODES = {132000, 132001, 132005, 132007, 132012, 132015, 132016}
@@ -331,9 +353,9 @@ def send_template(number, template_name, params, lang="en_US", header_media_id=N
         # Template/param mismatch may mean our cached definition is stale
         # (template edited in WhatsApp Manager): refetch it and retry once.
         err_code = (response_data.get("error") or {}).get("code") if isinstance(response_data, dict) else None
-        if resp.status_code == 400 and err_code in _TEMPLATE_ERROR_CODES and not _template_refetched and WABA_ID:
-            logger.warning(f"Template error {err_code} for '{template_name}': refetching definitions and retrying once")
-            invalidate_template_cache()
+        if (resp.status_code == 400 and err_code in _TEMPLATE_ERROR_CODES and not _template_refetched
+                and WABA_ID and _refetch_templates_after_error(WABA_ID)):
+            logger.warning(f"Template error {err_code} for '{template_name}': refetched definitions, retrying once")
             return send_template(number, template_name, params, lang, header_media_id, button_params,
                                   header_param, header_media_type, retry=retry, _template_refetched=True)
 
