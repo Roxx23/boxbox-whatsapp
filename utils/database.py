@@ -542,14 +542,14 @@ class Database:
                 INSERT INTO messages (campaign_id, user_id, phone_number, recipient_name,
                                     message_content, template_name, status,
                                     template_params, template_language, button_params,
-                                    header_media_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    header_media_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (campaign_id, user_id, phone_number, recipient_name,
                   message_content, template_name, status,
                   json.dumps(template_params) if template_params is not None else None,
                   template_language,
                   json.dumps(button_params) if button_params is not None else None,
-                  header_media_id))
+                  header_media_id, datetime.now().isoformat()))
             return cursor.lastrowid
 
     def fail_message_by_whatsapp_id(self, whatsapp_message_id, error_code, error_message):
@@ -703,7 +703,7 @@ class Database:
                 cursor.execute(f'''
                     SELECT id, campaign_id FROM messages 
                     WHERE {column} IS NULL 
-                    AND sent_at > datetime('now', '-1 hour')
+                    AND sent_at > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-1 hour', 'localtime')
                     AND status = 'sent'
                     ORDER BY sent_at DESC
                     LIMIT 1
@@ -1038,13 +1038,13 @@ class Database:
             cursor.execute('''
                 INSERT OR IGNORE INTO customers (user_id, shopify_id, first_name, last_name,
                                                  email, phone, total_spent, orders_count,
-                                                 state, tags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                 state, tags, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (user_id, customer_data['shopify_id'], customer_data['first_name'],
                   customer_data['last_name'], customer_data['email'],
                   customer_data['phone'], customer_data['total_spent'],
                   customer_data['orders_count'], customer_data['state'],
-                  customer_data['tags']))
+                  customer_data['tags'], datetime.now().isoformat()))
 
             cursor.execute('''
                 UPDATE customers
@@ -1080,7 +1080,7 @@ class Database:
             insert_rows.append((
                 user_id, c['shopify_id'], c['first_name'], c['last_name'],
                 c['email'], c['phone'], c['total_spent'], c['orders_count'],
-                c['state'], c['tags'], c.get('created_at') or None
+                c['state'], c['tags'], c.get('created_at') or None, now
             ))
             update_rows.append((
                 user_id, c['first_name'], c['last_name'], c['email'], c['phone'],
@@ -1092,8 +1092,8 @@ class Database:
             cursor.executemany('''
                 INSERT OR IGNORE INTO customers (user_id, shopify_id, first_name, last_name,
                                                  email, phone, total_spent, orders_count,
-                                                 state, tags, shopify_created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                 state, tags, shopify_created_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', insert_rows)
             cursor.executemany('''
                 UPDATE customers
@@ -1135,14 +1135,14 @@ class Database:
                 if filters.get('segment_type'):
                     segment_type = filters['segment_type']
                     if segment_type == 'engaged_last_7_days':
-                        cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days') "
+                        cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days', 'localtime') "
                         query += (
                             f" AND (last_message_sent >= {cutoff}"
                             f" OR last_message_read >= {cutoff}"
                             f" OR last_message_replied >= {cutoff})"
                         )
                     elif segment_type == 'not_engaged_last_7_days':
-                        cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days') "
+                        cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days', 'localtime') "
                         query += (
                             f" AND (last_message_sent IS NULL OR last_message_sent < {cutoff})"
                         )
@@ -1224,9 +1224,11 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO customer_segments (user_id, segment_name, segment_type, conditions)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, segment_name, segment_type, json.dumps(conditions) if conditions else None))
+                INSERT INTO customer_segments (user_id, segment_name, segment_type, conditions,
+                                               created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, segment_name, segment_type, json.dumps(conditions) if conditions else None,
+                  datetime.now().isoformat(), datetime.now().isoformat()))
             return cursor.lastrowid
     
     def get_user_segments(self, user_id):
@@ -1283,8 +1285,8 @@ class Database:
             cursor.execute('''
                 INSERT INTO abandoned_carts
                 (user_id, shopify_cart_id, customer_id, customer_name, customer_email, customer_phone,
-                 cart_token, cart_items, total_price, currency, abandoned_at, cart_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cart_token, cart_items, total_price, currency, abandoned_at, cart_url, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(shopify_cart_id) DO UPDATE SET
                     customer_id = excluded.customer_id,
                     customer_name = excluded.customer_name,
@@ -1308,7 +1310,8 @@ class Database:
                 cart_data.get('total_price'),
                 cart_data.get('currency'),
                 now,
-                cart_data.get('abandoned_checkout_url')
+                cart_data.get('abandoned_checkout_url'),
+                now
             ))
             # cursor.lastrowid is unreliable after the DO UPDATE path (see
             # add_order() for the empirically-verified reason) -- re-query.
@@ -1640,9 +1643,9 @@ class Database:
             else:
                 # Insert new
                 cursor.execute('''
-                    INSERT INTO template_usage (user_id, username, template_name)
-                    VALUES (?, ?, ?)
-                ''', (user_id, username, template_name))
+                    INSERT INTO template_usage (user_id, username, template_name, last_used, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, username, template_name, datetime.now().isoformat(), datetime.now().isoformat()))
     
     def get_template_stats(self, user_id=None):
         """Get template usage statistics"""
@@ -1672,9 +1675,9 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO user_sessions (user_id, username, ip_address, user_agent)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, username, ip_address, user_agent))
+                INSERT INTO user_sessions (user_id, username, ip_address, user_agent, login_time)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, username, ip_address, user_agent, datetime.now().isoformat()))
             
             return cursor.lastrowid
     
@@ -1840,12 +1843,12 @@ class Database:
             if user_id:
                 cursor.execute('''
                     SELECT COUNT(*) as count FROM activity_log
-                    WHERE user_id = ? AND timestamp > datetime('now', '-24 hours', 'localtime')
+                    WHERE user_id = ? AND timestamp > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-24 hours', 'localtime')
                 ''', (user_id,))
             else:
                 cursor.execute('''
                     SELECT COUNT(*) as count FROM activity_log
-                    WHERE timestamp > datetime('now', '-24 hours', 'localtime')
+                    WHERE timestamp > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-24 hours', 'localtime')
                 ''')
             stats['recent_activity'] = cursor.fetchone()['count']
             
@@ -1865,7 +1868,7 @@ class Database:
                         SUM(success_count) as success,
                         SUM(failed_count) as failed
                     FROM campaigns 
-                    WHERE user_id = ? AND created_at > datetime('now', ? || ' days')
+                    WHERE user_id = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%S', 'now', ? || ' days', 'localtime')
                     GROUP BY DATE(created_at)
                     ORDER BY date DESC
                 ''', (user_id, -days))
@@ -1878,7 +1881,7 @@ class Database:
                         SUM(success_count) as success,
                         SUM(failed_count) as failed
                     FROM campaigns 
-                    WHERE created_at > datetime('now', ? || ' days')
+                    WHERE created_at > strftime('%Y-%m-%dT%H:%M:%S', 'now', ? || ' days', 'localtime')
                     GROUP BY DATE(created_at)
                     ORDER BY date DESC
                 ''', (-days,))
