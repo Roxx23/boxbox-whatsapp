@@ -704,6 +704,13 @@ def _execute_generate_discount(participant, step, config):
         context['discount_code'] = created_code
         context.pop('discount_error', None)
         logger.info(f"Flow participant {participant['id']}: generated discount code {created_code}")
+        # Durable record for code-revenue reporting. Never blocks the flow.
+        try:
+            _db.record_issued_code(created_code, 'flow', flow_id=participant['flow_id'],
+                                   step_key=step['step_key'], participant_id=participant['id'],
+                                   phone=participant['phone'], percentage=percentage)
+        except Exception as e:
+            logger.warning(f"Could not record issued code {created_code}: {e}")
     else:
         # Remembered so a later copy-code send can be skipped with this reason
         # instead of being sent with an empty coupon (which WhatsApp rejects).

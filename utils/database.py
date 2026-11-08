@@ -39,6 +39,20 @@ def _parse_legacy_ts(ts):
         return None
 
 
+def _discount_codes_json(discount_codes):
+    """Shopify's discount_codes ([{code, amount, type}] or plain strings) ->
+    JSON list of code strings, or None when the payload didn't include it
+    (so an upsert keeps what's stored)."""
+    if discount_codes is None:
+        return None
+    codes = []
+    for d in discount_codes:
+        c = d.get('code') if isinstance(d, dict) else d
+        if c and str(c).strip():
+            codes.append(str(c).strip())
+    return json.dumps(codes)
+
+
 class Database:
     """Database manager for campaign tracking"""
     
@@ -396,6 +410,8 @@ class Database:
                 ('idx_customers_user', 'customers(user_id, updated_at)'),
                 ('idx_activity_log_user_time', 'activity_log(user_id, timestamp)'),
                 ('idx_activity_log_time', 'activity_log(timestamp)'),
+                # backfill_issued_codes: last send of a participant's step
+                ('idx_flow_messages_participant_step', 'flow_messages(flow_participant_id, step_key)'),
             ):
                 cursor.execute(f'CREATE INDEX IF NOT EXISTS {name} ON {ddl}')
 
@@ -431,13 +447,41 @@ class Database:
                 'ALTER TABLE flows ADD COLUMN allow_reenroll INTEGER DEFAULT 1',
                 'ALTER TABLE inbox_messages ADD COLUMN read_at TEXT',
                 'ALTER TABLE abandoned_carts ADD COLUMN discount_code TEXT',
+                # Code-revenue tracking: codes used on the order (JSON list,
+                # as Shopify sent them), and cancel/refund markers so revenue
+                # can leave those orders out. NULL discount_codes = not known
+                # yet (older orders until scripts/backfill_order_discount_codes.py).
+                'ALTER TABLE shopify_orders ADD COLUMN discount_codes TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN cancelled_at TEXT',
+                'ALTER TABLE shopify_orders ADD COLUMN refunded_at TEXT',
             ]:
                 try:
                     cursor.execute(col)
                 except Exception:
                     pass
 
+            # Every per-customer discount code this app has created, so
+            # Shopify orders can be matched back to the flow that issued it.
+            # code_upper is the match key (codes match case-insensitively).
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS issued_discount_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL,
+                    code_upper TEXT NOT NULL UNIQUE,
+                    source TEXT NOT NULL,
+                    flow_id INTEGER,
+                    step_key TEXT,
+                    participant_id INTEGER,
+                    phone TEXT,
+                    percentage INTEGER,
+                    issued_at TEXT,
+                    recorded_at TEXT
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_issued_codes_flow ON issued_discount_codes(flow_id, issued_at)')
+
             conn.commit()
+
 
     # Campaign Methods
     def create_campaign(self, user_id, username, campaign_name, campaign_type,
@@ -1665,9 +1709,10 @@ class Database:
                 INSERT INTO shopify_orders
                 (user_id, shopify_order_id, order_number, customer_id, customer_email,
                  customer_phone, total_price, currency, financial_status, fulfillment_status,
-                 order_items, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 order_items, updated_at, discount_codes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(shopify_order_id) DO UPDATE SET
+                    discount_codes = COALESCE(excluded.discount_codes, shopify_orders.discount_codes),
                     order_number = excluded.order_number,
                     customer_id = excluded.customer_id,
                     customer_email = excluded.customer_email,
@@ -1690,7 +1735,8 @@ class Database:
                 order_data.get('financial_status'),
                 order_data.get('fulfillment_status'),
                 json.dumps(order_data.get('line_items', [])),
-                now
+                now,
+                _discount_codes_json(order_data.get('discount_codes')),
             ))
             # cursor.lastrowid is unreliable here -- SQLite only guarantees it
             # reflects the most recent actual INSERT, and can return a stale
@@ -1736,6 +1782,201 @@ class Database:
                 SET fulfillment_sent = 1, fulfillment_sent_at = ?
                 WHERE id = ?
             ''', (datetime.now().isoformat(), order_id))
+
+    # --- Discount-code revenue -------------------------------------------
+    def record_issued_code(self, code, source, flow_id=None, step_key=None, participant_id=None,
+                           phone=None, percentage=None, issued_at=None):
+        """Remember a code this app created. First record wins (codes are
+        unique in Shopify, so a repeat is the same code)."""
+        if not code:
+            return
+        with self.get_connection() as conn:
+            conn.execute('''
+                INSERT OR IGNORE INTO issued_discount_codes
+                (code, code_upper, source, flow_id, step_key, participant_id, phone, percentage,
+                 issued_at, recorded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (code, code.strip().upper(), source, flow_id, step_key, participant_id, phone,
+                  int(percentage) if percentage not in (None, '') else None,
+                  issued_at or datetime.now().isoformat(), datetime.now().isoformat()))
+
+    def backfill_issued_codes(self):
+        """Called once per process at app start (app.py), not from
+        init_database(): Database() is constructed in webhook and scheduler
+        paths too. Record codes issued before issued_discount_codes existed:
+        - flows: flow_participants.context['discount_code']. step_key is the
+          flow's generate_discount step; issued_at is when the step after it
+          (the send) last ran, else completed_at, else enrolled_at.
+        Not included: the legacy abandoned-cart automation's codes
+        (abandoned_carts.discount_code); its template never carries the code,
+        so customers never saw them. Returns the number of rows added."""
+        added = 0
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            gen_steps = {}
+            for r in cur.execute("SELECT flow_id, step_key, next_yes, config FROM flow_steps "
+                                 "WHERE step_type = 'generate_discount' ORDER BY id"):
+                gen_steps.setdefault(r['flow_id'], dict(r))
+            # Participants already recorded (by an earlier run or by the flow
+            # engine) are skipped, so later runs only touch new rows.
+            rows = cur.execute(
+                "SELECT id, flow_id, phone, context, enrolled_at, completed_at "
+                "FROM flow_participants WHERE context LIKE '%discount_code%' "
+                "AND id NOT IN (SELECT participant_id FROM issued_discount_codes "
+                "WHERE participant_id IS NOT NULL)").fetchall()
+            for r in rows:
+                try:
+                    ctx = json.loads(r['context'] or '{}')
+                except Exception:
+                    continue
+                code = (ctx.get('discount_code') or '').strip()
+                if not code:
+                    continue
+                g = gen_steps.get(r['flow_id']) or {}
+                issued_at = None
+                if g.get('next_yes'):
+                    m = cur.execute("SELECT MAX(sent_at) FROM flow_messages WHERE flow_participant_id = ? "
+                                    "AND step_key = ?", (r['id'], g['next_yes'])).fetchone()
+                    issued_at = m[0] if m else None
+                pct = ctx.get('discount_percentage')
+                if pct in (None, ''):
+                    try:
+                        pct = json.loads(g.get('config') or '{}').get('percentage')
+                    except Exception:
+                        pct = None
+                cur.execute('''
+                    INSERT OR IGNORE INTO issued_discount_codes
+                    (code, code_upper, source, flow_id, step_key, participant_id, phone, percentage,
+                     issued_at, recorded_at)
+                    VALUES (?, ?, 'flow', ?, ?, ?, ?, ?, ?, ?)
+                ''', (code, code.upper(), r['flow_id'], g.get('step_key'), r['id'], r['phone'],
+                      int(pct) if str(pct or '').isdigit() else None,
+                      issued_at or r['completed_at'] or r['enrolled_at'], datetime.now().isoformat()))
+                added += cur.rowcount
+        if added:
+            logger.info(f"issued_discount_codes: backfilled {added} code(s)")
+        return added
+
+    def mark_order_cancelled(self, shopify_order_id, cancelled_at=None):
+        with self.get_connection() as conn:
+            conn.execute("UPDATE shopify_orders SET cancelled_at = COALESCE(cancelled_at, ?) "
+                         "WHERE shopify_order_id = ?", (cancelled_at or datetime.now().isoformat(), str(shopify_order_id)))
+
+    def mark_order_refunded(self, shopify_order_id, refunded_at=None):
+        with self.get_connection() as conn:
+            conn.execute("UPDATE shopify_orders SET refunded_at = COALESCE(refunded_at, ?) "
+                         "WHERE shopify_order_id = ?", (refunded_at or datetime.now().isoformat(), str(shopify_order_id)))
+
+    def get_orders_missing_discount_codes(self, all_orders=False):
+        """shopify_order_id list for the backfill script."""
+        with self.get_connection() as conn:
+            q = "SELECT shopify_order_id FROM shopify_orders WHERE shopify_order_id IS NOT NULL"
+            if not all_orders:
+                q += " AND discount_codes IS NULL"
+            return [r[0] for r in conn.execute(q + " ORDER BY id")]
+
+    def set_order_discount_info(self, shopify_order_id, discount_codes, financial_status=None, cancelled_at=None):
+        """Backfill: store codes (a list, [] when none) and Shopify's current
+        financial_status / cancelled_at for one order."""
+        with self.get_connection() as conn:
+            conn.execute('''
+                UPDATE shopify_orders
+                SET discount_codes = ?,
+                    financial_status = COALESCE(?, financial_status),
+                    cancelled_at = COALESCE(cancelled_at, ?)
+                WHERE shopify_order_id = ?
+            ''', (_discount_codes_json(discount_codes) or '[]', financial_status, cancelled_at, str(shopify_order_id)))
+
+    def get_code_revenue_report(self, user_id, since_local, since_utc):
+        """Per-flow code revenue.
+
+        since_local: local ISO cutoff for codes issued (issued_at is local).
+        since_utc:   'YYYY-MM-DD HH:MM:SS' UTC cutoff for orders (shopify_orders
+                     .created_at is SQLite's UTC default).
+        codes_sent counts codes issued since since_local; codes_used is how
+        many of those were redeemed on any stored order (any date). orders and
+        revenue are orders placed since since_utc carrying one of the flow's
+        codes, whenever it was issued. Codes match case-insensitively. An order counts once per flow even if
+        it carries several of that flow's codes. Orders that are cancelled,
+        refunded (any refund webhook, or Shopify status refunded/voided) are
+        counted separately and left out of revenue. Codes we didn't issue
+        (e.g. the shared BOXBOX5) are reported as uses only.
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            issued = {}
+            for r in cur.execute("SELECT code_upper, source, flow_id, issued_at FROM issued_discount_codes"):
+                issued[r['code_upper']] = dict(r)
+            flows = {r['id']: r['name'] for r in cur.execute("SELECT id, name FROM flows WHERE user_id = ?", (user_id,))}
+
+            def key_of(rec):
+                return rec['flow_id'] if rec['source'] == 'flow' else rec['source']
+
+            groups = {}
+            def g(key):
+                if key not in groups:
+                    name = (flows.get(key) or f"Flow {key}") if isinstance(key, int) else str(key)
+                    groups[key] = {'key': key, 'name': name, 'codes_sent': 0, 'codes_used': 0,
+                                   'orders': 0, 'revenue': 0.0, 'excluded_orders': 0, 'excluded_revenue': 0.0}
+                return groups[key]
+
+            # Codes ever used on any stored order (any date): a code sent in
+            # the range counts as used if a customer redeemed it at any point.
+            used_ever = set()
+            for o in cur.execute("SELECT discount_codes FROM shopify_orders "
+                                 "WHERE user_id = ? AND discount_codes IS NOT NULL", (user_id,)):
+                try:
+                    used_ever.update(str(c).strip().upper() for c in json.loads(o['discount_codes']))
+                except Exception:
+                    pass
+            for code, rec in issued.items():
+                if (rec['issued_at'] or '') >= since_local:
+                    grp = g(key_of(rec))
+                    grp['codes_sent'] += 1
+                    if code in used_ever:
+                        grp['codes_used'] += 1
+
+            shared = {}
+            orders_known = orders_unknown = 0
+            for o in cur.execute('''
+                SELECT shopify_order_id, total_price, financial_status, cancelled_at, refunded_at,
+                       discount_codes FROM shopify_orders
+                WHERE user_id = ? AND REPLACE(created_at, 'T', ' ') >= ?
+            ''', (user_id, since_utc)):
+                if o['discount_codes'] is None:
+                    orders_unknown += 1
+                    continue
+                orders_known += 1
+                try:
+                    codes = [str(c).strip().upper() for c in json.loads(o['discount_codes']) if str(c).strip()]
+                except Exception:
+                    codes = []
+                excluded = bool(o['cancelled_at'] or o['refunded_at']
+                                or (o['financial_status'] or '') in ('refunded', 'voided'))
+                hit = set()
+                for c in codes:
+                    rec = issued.get(c)
+                    if rec:
+                        hit.add(key_of(rec))
+                    else:
+                        shared[c] = shared.get(c, 0) + 1
+                for k in hit:
+                    if excluded:
+                        groups[k]['excluded_orders'] += 1
+                        groups[k]['excluded_revenue'] += float(o['total_price'] or 0)
+                    else:
+                        groups[k]['orders'] += 1
+                        groups[k]['revenue'] += float(o['total_price'] or 0)
+
+            rows = []
+            for grp in groups.values():
+                grp['use_rate'] = (grp['codes_used'] / grp['codes_sent'] * 100) if grp['codes_sent'] else None
+                rows.append(grp)
+            rows.sort(key=lambda r: (-r['revenue'], -r['codes_sent'], str(r['name'])))
+            return {'flows': rows,
+                    'shared_codes': sorted(shared.items(), key=lambda kv: -kv[1]),
+                    'orders_with_codes_known': orders_known,
+                    'orders_codes_unknown': orders_unknown}
 
     def get_order_by_shopify_id(self, shopify_order_id):
         """Get order row by Shopify order ID"""
