@@ -708,11 +708,14 @@ def _generate_flow_discount_code(percentage, first_name=None):
     provided for copy_code button', while hyphen-free codes on the same
     account ('DIWALI15', 'save20') were accepted. Meta's docs list only a
     length cap (15 in older docs, 20 now), so stay alphanumeric and <= 15.
-    The 6-char random suffix (36^6 combinations) keeps codes unique across
+    The 6-char random suffix (26*36^5, about 1.6 billion combinations) keeps codes unique across
     the store, which Shopify requires. `first_name` is accepted only for
     call compatibility.
     """
-    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    # First suffix character is a letter so the percentage stays readable
+    # (SAVE10K5..., never SAVE105... which reads as 105%).
+    suffix = random.choice(string.ascii_uppercase) + ''.join(
+        random.choices(string.ascii_uppercase + string.digits, k=5))
     return f"SAVE{int(percentage)}{suffix}"  # alphanumeric, <= 15 for any percentage up to 99999
 
 
