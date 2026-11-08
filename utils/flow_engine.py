@@ -699,18 +699,24 @@ WHATSAPP_COUPON_CODE_MAX_LEN = 15
 
 
 def _generate_flow_discount_code(percentage, first_name=None):
-    """SAVE<percentage>-<random suffix>, e.g. 'SAVE20-K3F9QZ' (13-14 chars).
+    """SAVE<percentage><random suffix>, e.g. 'SAVE20K3F9QZ' (12-13 chars):
+    letters and digits only.
 
-    The code goes into a WhatsApp COPY_CODE button, and WhatsApp rejects any
-    coupon_code longer than 15 characters ('Invalid coupon_code provided for
-    copy_code button'). The old SAVE<pct>-<NAME>-<suffix> format was >= 15
-    chars even for a one-letter name, so every send after this step failed.
-    The customer's name is no longer part of the code; the 6-char random
-    suffix (36^6 combinations) keeps codes unique across the store, which
-    Shopify requires. `first_name` is accepted only for call compatibility.
+    The code goes into a WhatsApp COPY_CODE button. WhatsApp rejected every
+    code we sent with a hyphen ('SAVE10-B5YIYU', 13 chars, and the older
+    22-char 'SAVE10-SEZHIYAN-UG1F0B') with 132018 'Invalid coupon_code
+    provided for copy_code button', while hyphen-free codes on the same
+    account ('DIWALI15', 'save20') were accepted. Meta's docs list only a
+    length cap (15 in older docs, 20 now), so stay alphanumeric and <= 15.
+    The 6-char random suffix (26*36^5, about 1.6 billion combinations) keeps codes unique across
+    the store, which Shopify requires. `first_name` is accepted only for
+    call compatibility.
     """
-    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return f"SAVE{int(percentage)}-{suffix}"  # <= 15 for any percentage up to 99999
+    # First suffix character is a letter so the percentage stays readable
+    # (SAVE10K5..., never SAVE105... which reads as 105%).
+    suffix = random.choice(string.ascii_uppercase) + ''.join(
+        random.choices(string.ascii_uppercase + string.digits, k=5))
+    return f"SAVE{int(percentage)}{suffix}"  # alphanumeric, <= 15 for any percentage up to 99999
 
 
 def _next_action_at_for_entering(step):

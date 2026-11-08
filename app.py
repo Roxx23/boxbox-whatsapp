@@ -1757,6 +1757,15 @@ def _validate_flow_steps(steps):
     for s in steps:
         if s['step_type'] == 'condition' and (not s['next_yes'] or not s['next_no']):
             return False, "All Condition nodes must have both Yes and No branches connected"
+        if s['step_type'] == 'send_message':
+            # A fixed copy-code value goes straight into WhatsApp's COPY_CODE
+            # button, which rejects hyphens/symbols (132018) and long codes.
+            entry = ((s.get('config') or {}).get('button_params') or {}).get('copy_code')
+            if isinstance(entry, dict) and entry.get('source') == 'static':
+                value = str(entry.get('value') or '')   # checked exactly as it will be sent (no strip)
+                if value and not re.fullmatch(r'[A-Za-z0-9]{1,15}', value):
+                    return False, (f"Copy-code value '{value}' is not allowed: WhatsApp accepts only "
+                                   f"letters and digits, at most 15 characters (no hyphens or spaces)")
     # Cycle detection via DFS
     step_map = {s['step_key']: s for s in steps}
     trigger = triggers[0]
