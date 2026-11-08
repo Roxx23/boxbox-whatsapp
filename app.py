@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
-from utils.whatsapp import send_text, get_templates, send_template, upload_media, upload_media_from_bytes
+from utils.whatsapp import send_text, get_templates, get_templates_cached, send_template, upload_media, upload_media_from_bytes
 from utils.image_compress import compress_image_upload, compress_image_bytes, ImageCompressError
 from utils.logger import log_message, setup_logging
 from utils.rate_limiter import RateLimiter, MessageQueue
@@ -824,8 +824,9 @@ def _skipped_phone_flash_lines(skipped):
 def templates_manager():
     """View and manage all WhatsApp message templates"""
     try:
-        from utils.whatsapp import get_templates as fetch_templates
-        templates = fetch_templates(WABA_ID)
+        # ?refresh=1 (the Refresh button) skips the 5-minute cache, for
+        # changes made directly in Meta's Business Manager.
+        templates = get_templates_cached(WABA_ID, force=request.args.get('refresh') == '1')
     except Exception as e:
         logger.error(f"Error fetching templates: {e}")
         templates = []
@@ -951,7 +952,7 @@ def get_csv_columns():
 def template_info():
     """Get template parameter count and button information"""
     template_name = request.args.get("name")
-    templates = get_templates(WABA_ID)
+    templates = get_templates_cached(WABA_ID)
 
     selected = next((t for t in templates if t["name"] == template_name), None)
 
@@ -1061,7 +1062,7 @@ def cancel_scheduled_job(job_id):
 def index():
     """Main page for sending WhatsApp messages"""
     results = []
-    templates = get_templates(WABA_ID)
+    templates = get_templates_cached(WABA_ID)
 
     template_param_count = 0
     csv_columns = []
@@ -1580,6 +1581,9 @@ def campaigns_page():
     return render_template('campaigns.html', campaigns=campaigns)
 
 
+CAMPAIGN_MESSAGES_PER_PAGE = 200
+
+
 @app.route("/campaign/<int:campaign_id>")
 @login_required
 def campaign_details(campaign_id):
@@ -1590,11 +1594,20 @@ def campaign_details(campaign_id):
         flash("Campaign not found", "error")
         return redirect(url_for('campaigns_page'))
     
-    messages = db.get_campaign_messages(campaign_id)
-    
+    # Paginated: a 5000-message campaign used to render every row. Totals
+    # come from SQL so the header and Resend count stay exact.
+    total_messages, unsent_count = db.count_campaign_messages(campaign_id)
+    pages = max(1, (total_messages + CAMPAIGN_MESSAGES_PER_PAGE - 1) // CAMPAIGN_MESSAGES_PER_PAGE)
+    page = min(max(1, request.args.get('page', 1, type=int)), pages)
+    offset = (page - 1) * CAMPAIGN_MESSAGES_PER_PAGE
+    messages = db.get_campaign_messages_page(campaign_id, limit=CAMPAIGN_MESSAGES_PER_PAGE, offset=offset)
+
     return render_template('campaign_details.html',
                          campaign=campaign,
-                         messages=messages)
+                         messages=messages,
+                         total_messages=total_messages,
+                         unsent_count=unsent_count,
+                         page=page, pages=pages, row_offset=offset)
 
 
 @app.route("/api/campaigns/<int:campaign_id>/mark-failed", methods=["POST"])
@@ -2007,7 +2020,7 @@ def flow_editor_page(flow_id):
             return redirect(url_for('flows_page'))
         steps = db.get_flow_steps(flow_id)
         try:
-            wa_templates = [t for t in get_templates(WABA_ID) if t.get('status') == 'APPROVED']
+            wa_templates = [t for t in get_templates_cached(WABA_ID) if t.get('status') == 'APPROVED']
         except Exception:
             wa_templates = []
         return render_template('flow_editor.html', flow=flow, steps=steps, wa_templates=wa_templates)
@@ -2657,58 +2670,86 @@ def api_inbox_send():
 # SHOPIFY & CUSTOMER MANAGEMENT
 # ============================================================
 
-@app.route("/customers")
-@login_required
-def customers_page():
-    """View all customers with filtering"""
-    segment_filter = request.args.get('segment', None)
-    
-    # Get filter parameters from query string
-    min_order_value = request.args.get('min_order_value', type=float)
-    max_order_value = request.args.get('max_order_value', type=float)
-    min_orders = request.args.get('min_orders', type=int)
-    max_orders = request.args.get('max_orders', type=int)
-    
+CUSTOMERS_PER_PAGE = 100
+
+
+def _customer_filters_from_args(args):
+    """Segment + order filters from the query string (shared by /customers and
+    /api/customers/recipients so 'select all matching' gets the same set)."""
+    segment_filter = args.get('segment', None)
     filters = {}
     if segment_filter:
         filters['segment_type'] = segment_filter
-    if min_order_value is not None:
-        filters['min_order_value'] = min_order_value
-    if max_order_value is not None:
-        filters['max_order_value'] = max_order_value
-    if min_orders is not None:
-        filters['min_orders'] = min_orders
-    if max_orders is not None:
-        filters['max_orders'] = max_orders
-    
-    customers = db.get_all_customers(current_user.id, filters)
+    for key, typ in (('min_order_value', float), ('max_order_value', float),
+                     ('min_orders', int), ('max_orders', int)):
+        val = args.get(key, type=typ)
+        if val is not None:
+            filters[key] = val
+    search = (args.get('q') or '').strip() or None
+    return segment_filter, filters, search
+
+
+@app.route("/customers")
+@login_required
+def customers_page():
+    """View customers with filtering. Paginated server-side (100 per page):
+    rendering all ~7k rows plus ten full-table loads for the segment counts
+    made this the slowest page in the app."""
+    segment_filter, filters, search = _customer_filters_from_args(request.args)
+
+    stats = db.get_customer_stats(current_user.id, filters, search)
+    total = stats['total']
+    pages = max(1, (total + CUSTOMERS_PER_PAGE - 1) // CUSTOMERS_PER_PAGE)
+    page = min(max(1, request.args.get('page', 1, type=int)), pages)
+    customers = db.get_customers_page(current_user.id, filters, search,
+                                      limit=CUSTOMERS_PER_PAGE,
+                                      offset=(page - 1) * CUSTOMERS_PER_PAGE)
     custom_segments = db.get_user_segments(current_user.id)
-    
-    # Auto-generate default segments
+
+    # All segment counts in one COUNT pass over customers (was ~10 full
+    # loads of the table, each only len()'d).
     default_segments = [
-        {'name': 'All Customers', 'type': 'all', 'count': len(db.get_all_customers(current_user.id))},
-        {'name': 'Has Phone Number', 'type': 'has_phone', 'count': len(db.get_all_customers(current_user.id, {'has_phone': True}))},
-        {'name': 'Engaged (Last 7 Days)', 'type': 'engaged_last_7_days', 'count': len(db.get_segment_customers(current_user.id, 'engaged_last_7_days'))},
-        {'name': 'Not Engaged (Last 7 Days)', 'type': 'not_engaged_last_7_days', 'count': len(db.get_segment_customers(current_user.id, 'not_engaged_last_7_days'))},
-        {'name': 'Never Messaged', 'type': 'no_message_sent', 'count': len(db.get_segment_customers(current_user.id, 'no_message_sent'))},
-        {'name': 'High Value (>$1000)', 'type': 'high_value', 'count': len(db.get_segment_customers(current_user.id, 'high_value'))},
-        {'name': 'Has Orders', 'type': 'has_orders', 'count': len(db.get_segment_customers(current_user.id, 'has_orders'))},
-        {'name': 'Replied to Messages', 'type': 'replied', 'count': len(db.get_segment_customers(current_user.id, 'replied'))},
+        {'name': 'All Customers', 'type': 'all', 'f': None},
+        {'name': 'Has Phone Number', 'type': 'has_phone', 'f': {'has_phone': True}},
+        {'name': 'Engaged (Last 7 Days)', 'type': 'engaged_last_7_days'},
+        {'name': 'Not Engaged (Last 7 Days)', 'type': 'not_engaged_last_7_days'},
+        {'name': 'Never Messaged', 'type': 'no_message_sent'},
+        {'name': 'High Value (>$1000)', 'type': 'high_value'},
+        {'name': 'Has Orders', 'type': 'has_orders'},
+        {'name': 'Replied to Messages', 'type': 'replied'},
     ]
-    
-    # Add custom segments with their counts
     for segment in custom_segments:
         segment['type'] = f"custom_{segment['id']}"
         segment['name'] = segment['segment_name']
-        segment['count'] = len(db.get_segment_customers(current_user.id, segment['type']))
         default_segments.append(segment)
-    
-    return render_template('customers.html', 
-                         customers=customers, 
+    counts = db.count_customers_multi(current_user.id, [
+        seg['f'] if 'f' in seg else {'segment_type': seg['type']} for seg in default_segments])
+    for seg, n in zip(default_segments, counts):
+        seg.pop('f', None)
+        seg['count'] = n
+
+    # Query string without 'page', for the pager links.
+    base_args = {k: v for k, v in request.args.items() if k != 'page' and v != ''}
+
+    return render_template('customers.html',
+                         customers=customers,
                          segments=default_segments,
                          custom_segments=custom_segments,
                          current_segment=segment_filter,
-                         filters=filters)
+                         filters=filters,
+                         search=search or '',
+                         stats=stats,
+                         page=page, pages=pages, per_page=CUSTOMERS_PER_PAGE,
+                         base_args=base_args)
+
+
+@app.route("/api/customers/recipients")
+@login_required
+def api_customer_recipients():
+    """Every customer matching the current /customers filters and search, as
+    [{phone, name}], for 'select all N matching' -> Send to Selected."""
+    _, filters, search = _customer_filters_from_args(request.args)
+    return jsonify({'customers': db.get_customer_recipients(current_user.id, filters, search)})
 
 
 @app.route("/api/sync-shopify", methods=["POST"])

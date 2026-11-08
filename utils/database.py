@@ -382,6 +382,23 @@ class Database:
                 ON flow_participants(status, next_action_at)
             ''')
 
+            # Lookup indexes for the hot queries (page loads and webhooks).
+            # Before these, every delivery/read webhook scanned all of
+            # messages for its whatsapp_message_id, and the campaign page,
+            # customers page and webhook user lookup were full scans + sorts.
+            # IF NOT EXISTS makes this a no-op after the first start; building
+            # them on ~10k-row tables takes milliseconds.
+            for name, ddl in (
+                ('idx_messages_campaign', 'messages(campaign_id, created_at)'),
+                ('idx_messages_wamid', 'messages(whatsapp_message_id)'),
+                ('idx_messages_phone', 'messages(phone_number)'),
+                ('idx_customers_phone', 'customers(phone)'),
+                ('idx_customers_user', 'customers(user_id, updated_at)'),
+                ('idx_activity_log_user_time', 'activity_log(user_id, timestamp)'),
+                ('idx_activity_log_time', 'activity_log(timestamp)'),
+            ):
+                cursor.execute(f'CREATE INDEX IF NOT EXISTS {name} ON {ddl}')
+
             # Add shopify_created_at column if it doesn't exist (migration for existing DBs)
             try:
                 cursor.execute('ALTER TABLE customers ADD COLUMN shopify_created_at TEXT')
@@ -1120,6 +1137,31 @@ class Database:
             
             return [dict(row) for row in cursor.fetchall()]
     
+    def get_campaign_messages_page(self, campaign_id, limit=200, offset=0):
+        """One page of a campaign's messages, same order as get_campaign_messages."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM messages
+                WHERE campaign_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?
+            ''', (campaign_id, int(limit), int(offset)))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def count_campaign_messages(self, campaign_id):
+        """(total messages, unsent = queued or failed) for a campaign, by SQL,
+        so the header and 'Resend to Unsent (N)' stay exact when paginated."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(status IN ('queued', 'failed')), 0) AS unsent
+                FROM messages WHERE campaign_id = ?
+            ''', (campaign_id,))
+            row = cursor.fetchone()
+            return row['total'], row['unsent']
+
     # Activity Log Methods
     def log_activity(self, user_id, username, action, details=None, ip_address=None):
         """Log user activity.
@@ -1243,81 +1285,156 @@ class Database:
                 WHERE shopify_id = ?
             ''', update_rows)
 
+    def _customer_where(self, user_id, filters=None, search=None):
+        """WHERE clause + params shared by every customer list/count query, so
+        the paginated page, its counts and get_all_customers always agree."""
+        query = 'WHERE user_id = ?'
+        params = [user_id]
+
+        if filters:
+            if filters.get('has_phone'):
+                query += ' AND phone IS NOT NULL AND phone != ""'
+            
+            # Order value filters
+            if filters.get('min_order_value') is not None:
+                query += ' AND total_spent >= ?'
+                params.append(filters['min_order_value'])
+            if filters.get('max_order_value') is not None:
+                query += ' AND total_spent <= ?'
+                params.append(filters['max_order_value'])
+            
+            # Number of orders filters
+            if filters.get('min_orders') is not None:
+                query += ' AND orders_count >= ?'
+                params.append(filters['min_orders'])
+            if filters.get('max_orders') is not None:
+                query += ' AND orders_count <= ?'
+                params.append(filters['max_orders'])
+            
+            # Predefined segment types
+            if filters.get('segment_type'):
+                segment_type = filters['segment_type']
+                if segment_type == 'engaged_last_7_days':
+                    cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days', 'localtime') "
+                    query += (
+                        f" AND (last_message_sent >= {cutoff}"
+                        f" OR last_message_read >= {cutoff}"
+                        f" OR last_message_replied >= {cutoff})"
+                    )
+                elif segment_type == 'not_engaged_last_7_days':
+                    cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days', 'localtime') "
+                    query += (
+                        f" AND (last_message_sent IS NULL OR last_message_sent < {cutoff})"
+                    )
+                elif segment_type == 'no_message_sent':
+                    query += ' AND (last_message_sent IS NULL OR messages_sent_count = 0)'
+                elif segment_type == 'high_value':
+                    query += ' AND total_spent > 1000'
+                elif segment_type == 'has_orders':
+                    query += ' AND orders_count > 0'
+                elif segment_type == 'replied':
+                    query += ' AND messages_replied_count > 0'
+                elif segment_type.startswith('custom_'):
+                    # Handle custom segments
+                    segment_id = segment_type.replace('custom_', '')
+                    segment = self.get_segment_by_id(segment_id)
+                    if segment and segment.get('conditions'):
+                        conditions = json.loads(segment['conditions'])
+                        if conditions.get('min_order_value') is not None:
+                            query += ' AND total_spent >= ?'
+                            params.append(conditions['min_order_value'])
+                        if conditions.get('max_order_value') is not None:
+                            query += ' AND total_spent <= ?'
+                            params.append(conditions['max_order_value'])
+                        if conditions.get('min_orders') is not None:
+                            query += ' AND orders_count >= ?'
+                            params.append(conditions['min_orders'])
+                        if conditions.get('max_orders') is not None:
+                            query += ' AND orders_count <= ?'
+                            params.append(conditions['max_orders'])
+
+        if search:
+            # Same match as the old client-side search: name or phone contains q
+            # (case-insensitive; LIKE is case-insensitive for ASCII in SQLite).
+            # '!' escapes LIKE wildcards so a typed % or _ matches literally.
+            like = '%' + search.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
+            query += (" AND ((COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) LIKE ? ESCAPE '!'"
+                      " OR COALESCE(phone,'') LIKE ? ESCAPE '!')")
+            params.extend([like, like])
+        return query, params
+
     def get_all_customers(self, user_id, filters=None):
         """Get all customers with optional filters"""
+        where, params = self._customer_where(user_id, filters)
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            query = 'SELECT * FROM customers WHERE user_id = ?'
-            params = [user_id]
-            
-            if filters:
-                if filters.get('has_phone'):
-                    query += ' AND phone IS NOT NULL AND phone != ""'
-                
-                # Order value filters
-                if filters.get('min_order_value') is not None:
-                    query += ' AND total_spent >= ?'
-                    params.append(filters['min_order_value'])
-                if filters.get('max_order_value') is not None:
-                    query += ' AND total_spent <= ?'
-                    params.append(filters['max_order_value'])
-                
-                # Number of orders filters
-                if filters.get('min_orders') is not None:
-                    query += ' AND orders_count >= ?'
-                    params.append(filters['min_orders'])
-                if filters.get('max_orders') is not None:
-                    query += ' AND orders_count <= ?'
-                    params.append(filters['max_orders'])
-                
-                # Predefined segment types
-                if filters.get('segment_type'):
-                    segment_type = filters['segment_type']
-                    if segment_type == 'engaged_last_7_days':
-                        cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days', 'localtime') "
-                        query += (
-                            f" AND (last_message_sent >= {cutoff}"
-                            f" OR last_message_read >= {cutoff}"
-                            f" OR last_message_replied >= {cutoff})"
-                        )
-                    elif segment_type == 'not_engaged_last_7_days':
-                        cutoff = " strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days', 'localtime') "
-                        query += (
-                            f" AND (last_message_sent IS NULL OR last_message_sent < {cutoff})"
-                        )
-                    elif segment_type == 'no_message_sent':
-                        query += ' AND (last_message_sent IS NULL OR messages_sent_count = 0)'
-                    elif segment_type == 'high_value':
-                        query += ' AND total_spent > 1000'
-                    elif segment_type == 'has_orders':
-                        query += ' AND orders_count > 0'
-                    elif segment_type == 'replied':
-                        query += ' AND messages_replied_count > 0'
-                    elif segment_type.startswith('custom_'):
-                        # Handle custom segments
-                        segment_id = segment_type.replace('custom_', '')
-                        segment = self.get_segment_by_id(segment_id)
-                        if segment and segment.get('conditions'):
-                            conditions = json.loads(segment['conditions'])
-                            if conditions.get('min_order_value') is not None:
-                                query += ' AND total_spent >= ?'
-                                params.append(conditions['min_order_value'])
-                            if conditions.get('max_order_value') is not None:
-                                query += ' AND total_spent <= ?'
-                                params.append(conditions['max_order_value'])
-                            if conditions.get('min_orders') is not None:
-                                query += ' AND orders_count >= ?'
-                                params.append(conditions['min_orders'])
-                            if conditions.get('max_orders') is not None:
-                                query += ' AND orders_count <= ?'
-                                params.append(conditions['max_orders'])
-            
-            query += ' ORDER BY updated_at DESC'
-            
-            cursor.execute(query, params)
+            cursor.execute(f'SELECT * FROM customers {where} ORDER BY updated_at DESC', params)
             return [dict(row) for row in cursor.fetchall()]
-    
+
+    def get_customers_page(self, user_id, filters=None, search=None, limit=100, offset=0):
+        """One page of customers, same filters and order as get_all_customers."""
+        where, params = self._customer_where(user_id, filters, search)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f'SELECT * FROM customers {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?',
+                params + [int(limit), int(offset)])
+            return [dict(row) for row in cursor.fetchall()]
+
+    def count_customers(self, user_id, filters=None, search=None):
+        """COUNT(*) of customers matching the filters (segment counts)."""
+        where, params = self._customer_where(user_id, filters, search)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'SELECT COUNT(*) FROM customers {where}', params)
+            return cursor.fetchone()[0]
+
+    def count_customers_multi(self, user_id, filters_list):
+        """COUNT for several filter sets in one table scan: returns a list of
+        counts in the same order. Each filter set goes through _customer_where,
+        so the counts match count_customers exactly."""
+        if not filters_list:
+            return []
+        cols, params = [], []
+        prefix = 'WHERE user_id = ?'
+        for f in filters_list:
+            where, p = self._customer_where(user_id, f)
+            cols.append(f'COALESCE(SUM(CASE WHEN 1=1 {where[len(prefix):]} THEN 1 ELSE 0 END), 0)')
+            params.extend(p[1:])
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'SELECT {", ".join(cols)} FROM customers WHERE user_id = ?', params + [user_id])
+            return list(cursor.fetchone())
+
+    def get_customer_stats(self, user_id, filters=None, search=None):
+        """Totals for the customers page stats strip, over the whole filtered
+        set (not just the visible page)."""
+        where, params = self._customer_where(user_id, filters, search)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'''
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(messages_sent_count > 0), 0) AS messaged,
+                       COALESCE(SUM(messages_replied_count > 0), 0) AS replied,
+                       COALESCE(SUM(orders_count > 2), 0) AS repeat_buyers
+                FROM customers {where}
+            ''', params)
+            return dict(cursor.fetchone())
+
+    def get_customer_recipients(self, user_id, filters=None, search=None):
+        """[{phone, name}] for every matching customer: what 'Send to Selected'
+        needs when the user picks all matches rather than one page."""
+        where, params = self._customer_where(user_id, filters, search)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"SELECT phone, first_name, last_name FROM customers {where}"
+                " AND phone IS NOT NULL AND phone != '' ORDER BY updated_at DESC",
+                params)
+            return [{'phone': r['phone'],
+                     'name': f"{r['first_name'] or ''} {r['last_name'] or ''}".strip()}
+                    for r in cursor.fetchall()]
+
     def get_customer_by_phone(self, phone):
         """Get customer by phone number"""
         with self.get_connection() as conn:

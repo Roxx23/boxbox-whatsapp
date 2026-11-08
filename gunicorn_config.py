@@ -21,6 +21,9 @@ _log_dir = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(_log_dir, exist_ok=True)
 accesslog = os.path.join(_log_dir, "access.log")
 errorlog  = os.path.join(_log_dir, "error.log")
+# Default combined format plus request time in seconds (%(L)s) at the end,
+# so slow pages show up in access.log.
+access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(L)ss'
 loglevel  = os.getenv("LOG_LEVEL", "info").lower()
 
 proc_name = "whatsapp-dashboard"
