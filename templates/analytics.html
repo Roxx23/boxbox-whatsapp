@@ -104,7 +104,7 @@
     <div class="page-subtitle">Performance overview across all campaigns</div>
   </div>
   <div class="d-flex align-items-center gap-2" style="font-size:0.8rem;color:var(--text-muted);">
-    <span>Button clicks (Meta):</span>
+    <span>Clicks &amp; code revenue:</span>
     {% for r in ranges %}
     <a href="{{ url_for('analytics_dashboard', days=r) }}"
        class="btn btn-sm {% if r == days %}btn-primary{% else %}btn-outline-secondary{% endif %}"
@@ -383,6 +383,55 @@
         <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No template usage yet</div>
         {% endif %}
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Revenue from flow discount codes -->
+<div class="row g-3 mt-1">
+  <div class="col-12">
+    <div class="data-table-card">
+      <h5><i class="fas fa-tags me-2" style="color:var(--gold);"></i>Code Revenue (last {{ days }} days)</h5>
+      {% if code_revenue is none %}
+      <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">Code revenue unavailable right now.</div>
+      {% elif not code_revenue.flows %}
+      <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No flow discount codes sent or used in this period</div>
+      {% else %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.83rem;">
+          <thead><tr>
+            <th>Flow</th>
+            <th title="Codes this flow created in the period">Codes sent</th>
+            <th title="Of those, how many a customer has used on an order (any date)">Used</th>
+            <th>Use rate</th>
+            <th title="Orders placed in the period with one of this flow's codes (cancelled/refunded left out)">Orders</th>
+            <th>Revenue</th>
+            <th title="Orders with this flow's codes that were cancelled or refunded; not in Revenue">Cancelled / refunded</th>
+          </tr></thead>
+          <tbody>
+            {% for f in code_revenue.flows %}
+            <tr>
+              <td style="color:var(--text);">{% if f.key is number %}<a href="{{ url_for('flow_editor_page', flow_id=f.key) }}" style="color:var(--text);">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
+              <td>{{ f.codes_sent }}</td>
+              <td>{{ f.codes_used }}</td>
+              <td>{{ "%.1f"|format(f.use_rate) ~ '%' if f.use_rate is not none else '—' }}</td>
+              <td>{{ f.orders }}</td>
+              <td style="color:var(--text);font-weight:600;">₹{{ "{:,.0f}".format(f.revenue) }}</td>
+              <td style="color:var(--text-muted);">{% if f.excluded_orders %}{{ f.excluded_orders }} (₹{{ "{:,.0f}".format(f.excluded_revenue) }}){% else %}&mdash;{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if code_revenue %}
+      <div style="color:var(--text-dim);font-size:0.72rem;margin-top:0.5rem;">
+        Codes sent counts codes created in the period; Used counts how many of them a customer has redeemed so far. Orders and revenue are orders placed in the period with one of the flow's codes (order total incl. tax/shipping). Codes match ignoring case.
+        {% if code_revenue.shared_codes %}<br>Shared codes, not attributed to a flow (uses in period):
+          {% for c, n in code_revenue.shared_codes[:8] %}<span style="font-family:monospace;">{{ c }}</span> &times;{{ n }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        {% if code_revenue.orders_codes_unknown %}<br>{{ code_revenue.orders_codes_unknown }} order(s) in this period have no discount-code data yet (stored before tracking began).{% endif %}
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>

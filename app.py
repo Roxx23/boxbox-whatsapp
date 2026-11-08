@@ -1639,6 +1639,17 @@ def analytics_dashboard():
         meta_clicks = None
     meta_loading = meta_clicks is None and template_analytics_loading()
 
+    # Revenue from flow-issued discount codes, same range as the clicks.
+    try:
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        code_revenue = db.get_code_revenue_report(
+            current_user.id,
+            since_local=(_dt.now() - _td(days=days)).isoformat(),
+            since_utc=(_dt.now(_tz.utc) - _td(days=days)).strftime('%Y-%m-%d %H:%M:%S'))
+    except Exception as e:
+        logger.warning(f"Code revenue report failed: {e}", exc_info=True)
+        code_revenue = None
+
     # Get template stats
     template_stats = db.get_template_stats(user_id=current_user.id)
     
@@ -1680,6 +1691,7 @@ def analytics_dashboard():
                          chart_data=chart_data,
                          meta_clicks=meta_clicks,
                          meta_loading=meta_loading,
+                         code_revenue=code_revenue,
                          days=days,
                          ranges=ANALYTICS_RANGES)
 
@@ -3565,7 +3577,9 @@ def shopify_order_create():
             'currency': data.get('currency', 'INR'),
             'financial_status': data.get('financial_status'),
             'fulfillment_status': data.get('fulfillment_status'),
-            'line_items': data.get('line_items', [])
+            'line_items': data.get('line_items', []),
+            # [{code, amount, type}]: matched to flow-issued codes for revenue
+            'discount_codes': data.get('discount_codes'),
         }
 
         user_id = _get_webhook_user_id()
@@ -3742,7 +3756,10 @@ def shopify_fulfillment():
                 'currency': data.get('currency', 'INR'),
                 'financial_status': data.get('financial_status'),
                 'fulfillment_status': 'fulfilled',
-                'line_items': line_items
+                'line_items': line_items,
+                # orders/fulfilled carries it; fulfillments/create doesn't
+                # (None keeps what order-create stored).
+                'discount_codes': data.get('discount_codes'),
             }
             order_db_id = db.add_order(user_id, order_data_payload)
             db.mark_order_fulfillment_received(shopify_order_id)
@@ -3876,6 +3893,15 @@ def shopify_order_cancelled():
         if not user_id:
             return jsonify({"status": "ok"}), 200
 
+        # Leave cancelled orders out of code revenue. Only for an order
+        # payload (orders/cancelled); a refunds/create payload's id is the
+        # refund's, not the order's.
+        if data.get('id') and 'refund' not in topic:
+            try:
+                db.mark_order_cancelled(str(data.get('id')), data.get('cancelled_at'))
+            except Exception as e:
+                logger.warning(f"Could not mark order {data.get('id')} cancelled: {e}")
+
         if phone:
             phone_e164 = _normalize_phone_webhook(phone)
             if phone_e164:
@@ -3936,6 +3962,10 @@ def shopify_order_refunded():
 
         order_record = dict(order_record)
         phone = order_record.get('customer_phone')
+        try:  # leave refunded orders out of code revenue
+            db.mark_order_refunded(str(order_id), data.get('created_at'))
+        except Exception as e:
+            logger.warning(f"Could not mark order {order_id} refunded: {e}")
 
         if phone:
             phone_e164 = _normalize_phone_webhook(phone)
