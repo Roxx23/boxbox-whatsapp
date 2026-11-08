@@ -482,7 +482,8 @@ def _generate_discount_code(prefix='BOXBOX5', suffix_length=6):
     return f"{prefix}-{suffix}"
 
 
-def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None, errors=None):
+def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None, errors=None,
+                                     regenerate=None, max_attempts=1):
     """Create a price rule and discount code in Shopify.
 
     Args:
@@ -490,6 +491,9 @@ def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None, 
         percentage: Discount percentage (default 5, matches abandoned-cart automation)
         ends_at: ISO 8601 expiry timestamp, or None for no expiry (default None)
         errors: optional list; on failure a human-readable reason is appended
+        regenerate: optional callable returning a fresh code; used when Shopify
+            says the code already exists (codes are store-unique)
+        max_attempts: total code attempts including the first (needs regenerate)
 
     Returns:
         (price_rule_id, generated_code) on success, (None, None) on failure
@@ -510,6 +514,16 @@ def _create_discount_code_in_shopify(discount_code, percentage=5, ends_at=None, 
         price_rule_id, generated_code = integration.create_price_rule_with_discount_code(
             discount_code, percentage=percentage, ends_at=ends_at
         )
+        attempts = 1
+        # Duplicate code: retry with a fresh code on the SAME price rule, so no
+        # stray price rules are left behind in Shopify.
+        while (not generated_code and price_rule_id and regenerate is not None
+               and getattr(integration, 'last_error_duplicate', False) and attempts < max_attempts):
+            attempts += 1
+            retry_code = regenerate()
+            logger.warning(f"Discount code already exists in Shopify; retrying with {retry_code} "
+                           f"(attempt {attempts}/{max_attempts})")
+            generated_code = integration.create_discount_code(price_rule_id, retry_code)
         if not generated_code and errors is not None:
             errors.append(getattr(integration, 'last_error', None) or "Shopify discount creation failed")
 

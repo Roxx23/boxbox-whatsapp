@@ -760,7 +760,7 @@ function buildConfigForm(type, data) {
       '<option value="months"' + (relUnit==='months'?' selected':'') + '>months</option>' +
       '</select>' +
       '</div>' +
-      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20K3F9QZ: letters and digits only, 15 characters or fewer, as WhatsApp copy-code buttons require) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
+      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (first name + percent + 3 random characters, e.g. AYUSH20K7Q, or SAVE20K7Q when there is no usable name; letters and digits only, 15 characters or fewer, as WhatsApp copy-code buttons require) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
   }
   if (type === 'condition') {
     // 'order data' triggers -- see build_trigger_context() in flow_engine.py --
