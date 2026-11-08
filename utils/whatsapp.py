@@ -156,7 +156,16 @@ def _store_template_fetch(templates, complete, now):
         _template_cache["by_name"] = _index_templates(templates)
         _template_cache["fetched_at"] = now
     else:
-        _template_cache["by_name"] = {**_template_cache["by_name"], **_index_templates(templates)}
+        merged = dict(_template_cache["by_name"])
+        for name, t in _index_templates(templates).items():
+            # Don't swap a cached APPROVED definition for a non-approved
+            # same-name variant (e.g. a PENDING other-language copy) just
+            # because the approved one was on a page that failed.
+            old = merged.get(name)
+            if old and old.get("status") == "APPROVED" and t.get("status") != "APPROVED":
+                continue
+            merged[name] = t
+        _template_cache["by_name"] = merged
     return True
 
 
