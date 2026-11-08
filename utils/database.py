@@ -410,6 +410,8 @@ class Database:
                 ('idx_customers_user', 'customers(user_id, updated_at)'),
                 ('idx_activity_log_user_time', 'activity_log(user_id, timestamp)'),
                 ('idx_activity_log_time', 'activity_log(timestamp)'),
+                # backfill_issued_codes: last send of a participant's step
+                ('idx_flow_messages_participant_step', 'flow_messages(flow_participant_id, step_key)'),
             ):
                 cursor.execute(f'CREATE INDEX IF NOT EXISTS {name} ON {ddl}')
 
@@ -480,12 +482,6 @@ class Database:
 
             conn.commit()
 
-        # Fill issued_discount_codes from data that predates it. Idempotent
-        # (INSERT OR IGNORE on the code), local DB only, ~ms on prod.
-        try:
-            self.backfill_issued_codes()
-        except Exception as e:
-            logger.warning(f"issued_discount_codes backfill skipped: {e}")
 
     # Campaign Methods
     def create_campaign(self, user_id, username, campaign_name, campaign_type,
@@ -1805,7 +1801,9 @@ class Database:
                   issued_at or datetime.now().isoformat(), datetime.now().isoformat()))
 
     def backfill_issued_codes(self):
-        """Record codes issued before issued_discount_codes existed:
+        """Called once per process at app start (app.py), not from
+        init_database(): Database() is constructed in webhook and scheduler
+        paths too. Record codes issued before issued_discount_codes existed:
         - flows: flow_participants.context['discount_code']. step_key is the
           flow's generate_discount step; issued_at is when the step after it
           (the send) last ran, else completed_at, else enrolled_at.
@@ -1819,8 +1817,13 @@ class Database:
             for r in cur.execute("SELECT flow_id, step_key, next_yes, config FROM flow_steps "
                                  "WHERE step_type = 'generate_discount' ORDER BY id"):
                 gen_steps.setdefault(r['flow_id'], dict(r))
-            rows = cur.execute("SELECT id, flow_id, phone, context, enrolled_at, completed_at "
-                               "FROM flow_participants WHERE context LIKE '%discount_code%'").fetchall()
+            # Participants already recorded (by an earlier run or by the flow
+            # engine) are skipped, so later runs only touch new rows.
+            rows = cur.execute(
+                "SELECT id, flow_id, phone, context, enrolled_at, completed_at "
+                "FROM flow_participants WHERE context LIKE '%discount_code%' "
+                "AND id NOT IN (SELECT participant_id FROM issued_discount_codes "
+                "WHERE participant_id IS NOT NULL)").fetchall()
             for r in rows:
                 try:
                     ctx = json.loads(r['context'] or '{}')

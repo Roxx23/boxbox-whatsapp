@@ -693,6 +693,14 @@ start_flow_engine(db, message_queue)
 if WABA_ID and os.getenv('TEMPLATE_ANALYTICS_WARM', '1') == '1':
     warm_template_analytics(WABA_ID)
 
+# Record discount codes issued before issued_discount_codes existed. Once per
+# process; skips participants already recorded, so after the first start it
+# only looks at new rows. Never blocks startup on an error.
+try:
+    db.backfill_issued_codes()
+except Exception as _e:
+    logger.warning(f"issued_discount_codes backfill skipped: {_e}")
+
 
 # ============================================================
 # AUTHENTICATION ROUTES

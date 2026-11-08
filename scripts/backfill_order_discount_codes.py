@@ -34,15 +34,26 @@ from utils.shopify_auth import shopify_request, is_configured  # noqa: E402
 BATCH = 100  # ids per orders.json call (Shopify allows up to 250)
 
 
+MAX_TRIES = 5
+
+
 def fetch_batch(ids):
-    """{order_id: {discount_codes, financial_status, cancelled_at}} for ids."""
-    resp = shopify_request('GET', '/orders.json', params={
-        'ids': ','.join(ids), 'status': 'any', 'limit': 250,
-        'fields': 'id,discount_codes,financial_status,cancelled_at',
-    }, timeout=30)
-    if resp.status_code == 429:
-        time.sleep(float(resp.headers.get('Retry-After', 2)))
-        return fetch_batch(ids)
+    """{order_id: {discount_codes, financial_status, cancelled_at}} for ids.
+    Retries a 429 (rate limited) up to MAX_TRIES times with backoff."""
+    for attempt in range(1, MAX_TRIES + 1):
+        resp = shopify_request('GET', '/orders.json', params={
+            'ids': ','.join(ids), 'status': 'any', 'limit': 250,
+            'fields': 'id,discount_codes,financial_status,cancelled_at',
+        }, timeout=30)
+        if resp.status_code != 429:
+            break
+        if attempt == MAX_TRIES:
+            raise RuntimeError(f"Shopify still rate-limiting after {MAX_TRIES} tries; re-run later (it resumes)")
+        try:
+            wait = float(resp.headers.get('Retry-After', 0))
+        except ValueError:
+            wait = 0
+        time.sleep(max(wait, 2 ** attempt))
     if resp.status_code != 200:
         raise RuntimeError(f"Shopify orders.json HTTP {resp.status_code}: {resp.text[:200]}")
     return {str(o['id']): o for o in resp.json().get('orders', [])}
