@@ -260,15 +260,25 @@ _ta_cache = {"by_name": None, "fetched_at": 0.0, "failed_at": 0.0, "ids": frozen
 _ta_lock = threading.Lock()
 
 
+# Only these button types count as clicks. Quick-reply taps (including an
+# opt-out "Stop") are replies, not clicks. On prod (2026-11-08) Meta only ever
+# reported url_button; copy-code buttons showed no entries at all.
+_CLICK_BUTTON_TYPES = {"url_button", "copy_code_button"}
+
+
 def _summarize_clicks(clicked):
     """Meta lists each button twice: '<type>' is total taps and
     'unique_<type>' is unique people who tapped. Summing every entry
-    double-counts. Returns (total_clicks, unique_clicks, {button: taps})."""
+    double-counts. Only URL and copy-code buttons count (see
+    _CLICK_BUTTON_TYPES). Returns (total_clicks, unique_clicks, {button: taps})."""
     total = unique = 0
     buttons = {}
     for c in clicked or []:
         n = int(c.get("count") or 0)
         ctype = c.get("type") or ""
+        base = ctype[len("unique_"):] if ctype.startswith("unique_") else ctype
+        if base not in _CLICK_BUTTON_TYPES:
+            continue
         if ctype.startswith("unique_"):
             unique += n
         else:
