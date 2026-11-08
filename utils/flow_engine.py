@@ -649,9 +649,7 @@ def _execute_generate_discount(participant, step, config):
                 first_name = customer['first_name'].strip()
         except Exception:
             pass
-    if not first_name:
-        first_name = 'CUSTOMER'
-
+    # No usable first name -> the generator falls back to SAVE<pct><tail>.
     discount_code = _generate_flow_discount_code(percentage, first_name)
 
     # Unlike discount_code, the percentage doesn't depend on the Shopify API
@@ -665,7 +663,8 @@ def _execute_generate_discount(participant, step, config):
     from app import _create_discount_code_in_shopify
     errors = []
     price_rule_id, created_code = _create_discount_code_in_shopify(
-        discount_code, percentage=percentage, ends_at=ends_at, errors=errors
+        discount_code, percentage=percentage, ends_at=ends_at, errors=errors,
+        regenerate=lambda: _generate_flow_discount_code(percentage, first_name), max_attempts=3
     )
 
     if created_code:
@@ -698,25 +697,41 @@ def _execute_generate_discount(participant, step, config):
 WHATSAPP_COUPON_CODE_MAX_LEN = 15
 
 
-def _generate_flow_discount_code(percentage, first_name=None):
-    """SAVE<percentage><random suffix>, e.g. 'SAVE20K3F9QZ' (12-13 chars):
-    letters and digits only.
+# Tail alphabet: A-Z and 2-9 without the look-alikes O/0 and I/1.
+_CODE_TAIL_LETTERS = ''.join(c for c in string.ascii_uppercase if c not in 'OI')
+_CODE_TAIL_CHARS = _CODE_TAIL_LETTERS + '23456789'
+COPY_CODE_MAX_LEN = 15
 
-    The code goes into a WhatsApp COPY_CODE button. WhatsApp rejected every
-    code we sent with a hyphen ('SAVE10-B5YIYU', 13 chars, and the older
-    22-char 'SAVE10-SEZHIYAN-UG1F0B') with 132018 'Invalid coupon_code
-    provided for copy_code button', while hyphen-free codes on the same
-    account ('DIWALI15', 'save20') were accepted. Meta's docs list only a
-    length cap (15 in older docs, 20 now), so stay alphanumeric and <= 15.
-    The 6-char random suffix (26*36^5, about 1.6 billion combinations) keeps codes unique across
-    the store, which Shopify requires. `first_name` is accepted only for
-    call compatibility.
+
+def _code_name_part(first_name):
+    """First name -> up to 6 letters A-Z: accents stripped (María -> MARIA),
+    spaces/punctuation/digits dropped. Non-Latin-only names (Devanagari, emoji)
+    give ''."""
+    import unicodedata
+    decomposed = unicodedata.normalize('NFKD', first_name or '')
+    letters = ''.join(c for c in decomposed if 'A' <= c.upper() <= 'Z' and c.isascii())
+    return letters.upper()[:6]
+
+
+def _generate_flow_discount_code(percentage, first_name=None):
+    """<NAME><pct><tail>, e.g. 'AYUSH10K7Q', 'SIDDHA15M2X'; 'SAVE10K7Q' when the
+    contact has no usable Latin first name.
+
+    - NAME: first name, uppercased, A-Z only, max 6 letters (see _code_name_part).
+    - pct: the discount percent as digits.
+    - tail: 3 random chars, letter first (so the pct never runs into it), from
+      A-Z/2-9 without the look-alikes O, 0, I, 1.
+    - Always letters/digits only and <= 15 chars: WhatsApp COPY_CODE buttons
+      reject hyphens (132018, confirmed by a live test on 2026-11-08) and long
+      codes.
+    Shopify codes are store-unique; a collision is retried with a new tail by
+    the caller (_execute_generate_discount -> _create_discount_code_in_shopify).
     """
-    # First suffix character is a letter so the percentage stays readable
-    # (SAVE10K5..., never SAVE105... which reads as 105%).
-    suffix = random.choice(string.ascii_uppercase) + ''.join(
-        random.choices(string.ascii_uppercase + string.digits, k=5))
-    return f"SAVE{int(percentage)}{suffix}"  # alphanumeric, <= 15 for any percentage up to 99999
+    pct = str(int(percentage))
+    name = _code_name_part(first_name) or 'SAVE'
+    name = name[:max(1, COPY_CODE_MAX_LEN - len(pct) - 3)]
+    tail = random.choice(_CODE_TAIL_LETTERS) + ''.join(random.choices(_CODE_TAIL_CHARS, k=2))
+    return f"{name}{pct}{tail}"
 
 
 def _next_action_at_for_entering(step):

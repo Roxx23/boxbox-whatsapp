@@ -181,6 +181,7 @@ class ShopifyIntegration:
             (price_rule_id, generated_code) on success, (None, None) on failure
         """
         self.last_error = None
+        self.last_error_duplicate = False
         try:
             # Step 1: Create Price Rule
             price_rule_payload = {
@@ -220,26 +221,7 @@ class ShopifyIntegration:
             logger.info(f"✅ Created price rule {price_rule_id}")
 
             # Step 2: Create Discount Code
-            discount_code_payload = {
-                "discount_code": {
-                    "price_rule_id": price_rule_id,
-                    "code": discount_code
-                }
-            }
-
-            url = f"{self.base_url}/price_rules/{price_rule_id}/discount_codes.json"
-            response = shopify_request('POST', url, json=discount_code_payload, timeout=30)
-
-            if response.status_code != 201:
-                logger.error(f"❌ Failed to create discount code: {response.status_code}")
-                logger.error(f"Response: {response.text}")
-                self.last_error = f"Shopify discount code creation failed ({response.status_code})"
-                return price_rule_id, None
-
-            code_data = response.json()
-            generated_code = code_data['discount_code']['code']
-            logger.info(f"✅ Created discount code: {generated_code}")
-
+            generated_code = self.create_discount_code(price_rule_id, discount_code)
             return price_rule_id, generated_code
 
         except Exception as e:
@@ -248,3 +230,37 @@ class ShopifyIntegration:
             import traceback
             logger.error(traceback.format_exc())
             return None, None
+
+    def create_discount_code(self, price_rule_id, discount_code):
+        """Create one discount code under an existing price rule.
+
+        Returns the created code, or None on failure. On failure sets
+        self.last_error, and self.last_error_duplicate = True when Shopify
+        refused the code because it already exists in the store (codes are
+        store-unique), so the caller can retry with a different code on the
+        same price rule instead of creating another price rule.
+        """
+        self.last_error = None
+        self.last_error_duplicate = False
+        try:
+            url = f"{self.base_url}/price_rules/{price_rule_id}/discount_codes.json"
+            response = shopify_request('POST', url, json={
+                "discount_code": {"price_rule_id": price_rule_id, "code": discount_code}
+            }, timeout=30)
+            if response.status_code != 201:
+                text = response.text or ''
+                logger.error(f"❌ Failed to create discount code: {response.status_code}")
+                logger.error(f"Response: {text}")
+                self.last_error_duplicate = (response.status_code == 422 and
+                                             any(w in text.lower() for w in ('unique', 'taken', 'already')))
+                self.last_error = (f"Shopify discount code '{discount_code}' already exists"
+                                   if self.last_error_duplicate else
+                                   f"Shopify discount code creation failed ({response.status_code})")
+                return None
+            generated_code = response.json()['discount_code']['code']
+            logger.info(f"✅ Created discount code: {generated_code}")
+            return generated_code
+        except Exception as e:
+            logger.error(f"❌ Error creating discount code: {e}")
+            self.last_error = f"Error creating Shopify discount code: {e}"
+            return None
