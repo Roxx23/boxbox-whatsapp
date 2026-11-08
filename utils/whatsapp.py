@@ -150,10 +150,43 @@ def _get_template_definition(waba_id, template_name):
 
 def invalidate_template_cache():
     """Force the next send to refetch template definitions (after this app
-    creates/deletes a template, or a send fails with a template error)."""
+    creates/deletes a template, or a send fails with a template error).
+    Also drops the page-level list cache below."""
     with _template_cache_lock:
         _template_cache["fetched_at"] = 0.0
         _template_cache["attempted_at"] = 0.0
+    with _page_templates_lock:
+        _page_templates["fetched_at"] = 0.0
+
+
+# --- Template list cache for page loads -----------------------------------
+# The send page, flow editor, templates page and /template-info each used to
+# call get_templates() live: 0.6-1s of Meta round trips on every click.
+# Pages read this 5-minute copy instead. It is separate from the send cache
+# above (which keys by name and has its own refresh rules) and is dropped by
+# invalidate_template_cache() whenever this app creates or deletes a template.
+# Edits made directly in Meta's Business Manager show up within 5 minutes, or
+# immediately with the Refresh button on /templates (force=True).
+_PAGE_TEMPLATES_TTL = 300
+_page_templates = {"list": [], "fetched_at": 0.0}
+_page_templates_lock = threading.Lock()
+
+
+def get_templates_cached(waba_id, force=False):
+    """get_templates() with a 5-minute in-process cache. Returns a new list
+    each call (template dicts are shared, treat them as read-only). A failed
+    fetch (empty result) is not cached, so the next load tries Meta again,
+    and a stale copy is served instead of an empty page when one exists."""
+    with _page_templates_lock:
+        c = _page_templates
+        if not force and c["list"] and time.time() - c["fetched_at"] < _PAGE_TEMPLATES_TTL:
+            return list(c["list"])
+        templates = get_templates(waba_id)
+        if templates:
+            c["list"] = templates
+            c["fetched_at"] = time.time()
+            return list(templates)
+        return list(c["list"])
 
 
 def _refetch_templates_after_error(waba_id):

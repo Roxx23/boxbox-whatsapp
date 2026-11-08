@@ -221,7 +221,7 @@
       <i class="fas fa-users me-2" style="color:var(--gold);"></i>Customers
     </div>
     <div class="page-subtitle">
-      {{ customers|length }} customer{{ 's' if customers|length != 1 else '' }} in your database
+      {{ stats.total }} customer{{ 's' if stats.total != 1 else '' }} in your database
     </div>
   </div>
   <div class="d-flex gap-2">
@@ -242,7 +242,7 @@
         <i class="fas fa-users" style="color:var(--gold);"></i>
       </div>
       <div>
-        <div class="cust-stat-val">{{ customers|length }}</div>
+        <div class="cust-stat-val">{{ stats.total }}</div>
         <div class="cust-stat-label">Total Customers</div>
       </div>
     </div>
@@ -253,7 +253,7 @@
         <i class="fas fa-paper-plane" style="color:#3db37a;"></i>
       </div>
       <div>
-        <div class="cust-stat-val">{{ customers|selectattr('messages_sent_count','gt',0)|list|length }}</div>
+        <div class="cust-stat-val">{{ stats.messaged }}</div>
         <div class="cust-stat-label">Messaged</div>
       </div>
     </div>
@@ -264,7 +264,7 @@
         <i class="fas fa-reply" style="color:#4a9eba;"></i>
       </div>
       <div>
-        <div class="cust-stat-val">{{ customers|selectattr('messages_replied_count','gt',0)|list|length }}</div>
+        <div class="cust-stat-val">{{ stats.replied }}</div>
         <div class="cust-stat-label">Have Replied</div>
       </div>
     </div>
@@ -275,7 +275,7 @@
         <i class="fas fa-star" style="color:var(--gold);"></i>
       </div>
       <div>
-        {% set high_value = customers|selectattr('orders_count','gt',2)|list|length %}
+        {% set high_value = stats.repeat_buyers %}
         <div class="cust-stat-val">{{ high_value }}</div>
         <div class="cust-stat-label">Repeat Buyers</div>
       </div>
@@ -295,7 +295,7 @@
         <div class="search-wrap">
           <i class="fas fa-search search-icon"></i>
           <input type="text" id="searchInput" class="form-control"
-                 placeholder="Search name or phone…" oninput="searchCustomers(this.value)">
+                 placeholder="Search name or phone…" value="{{ search }}" oninput="searchCustomers(this.value)">
         </div>
       </div>
 
@@ -329,6 +329,8 @@
       <div class="left-panel-section">
         <div class="section-label"><i class="fas fa-sliders-h me-1"></i>Filters</div>
         <form id="filterForm" method="get" action="{{ url_for('customers_page') }}">
+          {% if current_segment %}<input type="hidden" name="segment" value="{{ current_segment }}">{% endif %}
+          <input type="hidden" name="q" value="{{ search }}">
           <div class="filter-row mb-3">
             <label>Order Value (₹)</label>
             <div class="row g-2">
@@ -380,9 +382,11 @@
       <div class="table-panel-header">
         <h6>
           <i class="fas fa-table me-2" style="color:var(--gold);"></i>
-          <span id="visibleCount">{{ customers|length }}</span> Customers
+          <span id="visibleCount">{{ stats.total }}</span> Customers
         </h6>
         <div class="d-flex align-items-center gap-2">
+          <a href="#" id="selectAllMatching" class="d-none" onclick="selectAllMatching(); return false;"
+             style="font-size:0.78rem;color:var(--gold);">Select all {{ stats.total }} matching</a>
           <span id="selectedBadge" class="d-none"
                 style="font-size:0.78rem;color:var(--gold-dark);padding:0.25rem 0.75rem;
                        background:rgba(37,211,102,0.1);border-radius:20px;border:1px solid rgba(37,211,102,0.2);">
@@ -462,6 +466,16 @@
           </tbody>
         </table>
       </div>
+      {% if pages > 1 %}
+      <div class="d-flex align-items-center justify-content-between px-3 py-2 flex-wrap gap-2" style="font-size:0.8rem;color:var(--text-muted);">
+        <span>Showing {{ (page - 1) * per_page + 1 }}&ndash;{{ (page - 1) * per_page + customers|length }} of {{ stats.total }}</span>
+        <div class="d-flex gap-2">
+          {% if page > 1 %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('customers_page', page=page-1, **base_args) }}">&laquo; Prev</a>{% endif %}
+          <span style="align-self:center;">Page {{ page }} of {{ pages }}</span>
+          {% if page < pages %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('customers_page', page=page+1, **base_args) }}">Next &raquo;</a>{% endif %}
+        </div>
+      </div>
+      {% endif %}
       {% else %}
       <div class="empty-state">
         <i class="fas fa-users empty-state-icon"></i>
@@ -541,30 +555,58 @@
 
   function showCreateSegmentModal() { createSegmentModal.show(); }
 
+  // Set by "Select all N matching": every customer matching the current
+  // segment/filters/search across all pages, fetched from the server.
+  let allMatching = null;
+  const TOTAL_MATCHING = {{ stats.total }};
+
   function updateSelectedCount() {
+    const boxes   = document.querySelectorAll('.customer-checkbox');
     const checked = document.querySelectorAll('.customer-checkbox:checked').length;
     const badge   = document.getElementById('selectedBadge');
     const countEl = document.getElementById('selectedCount');
-    if (checked > 0) {
-      countEl.textContent = checked;
+    const more    = document.getElementById('selectAllMatching');
+    if (allMatching && checked < boxes.length) allMatching = null;  // user unticked one
+    const n = allMatching ? allMatching.length : checked;
+    if (n > 0) {
+      countEl.textContent = n;
       badge.classList.remove('d-none');
     } else {
       badge.classList.add('d-none');
     }
-    document.getElementById('selectAll').indeterminate =
-      checked > 0 && checked < document.querySelectorAll('.customer-checkbox').length;
+    if (more) more.classList.toggle('d-none',
+      !(checked === boxes.length && boxes.length > 0 && TOTAL_MATCHING > boxes.length && !allMatching));
+    const sa = document.getElementById('selectAll');
+    if (sa) sa.indeterminate = checked > 0 && checked < boxes.length;
   }
 
   function toggleSelectAll() {
     const all = document.getElementById('selectAll').checked;
+    if (!all) allMatching = null;
     document.querySelectorAll('.customer-checkbox').forEach(cb => {
       if (cb.closest('tr').style.display !== 'none') cb.checked = all;
     });
     updateSelectedCount();
   }
 
+  function selectAllMatching() {
+    const link = document.getElementById('selectAllMatching');
+    link.textContent = 'Loading…';
+    const qs = new URLSearchParams(window.location.search);
+    qs.delete('page');
+    fetch('{{ url_for("api_customer_recipients") }}?' + qs.toString())
+      .then(r => r.json())
+      .then(data => { allMatching = data.customers || []; updateSelectedCount(); })
+      .catch(e => alert('Could not load all matching customers: ' + e.message))
+      .finally(() => { link.textContent = 'Select all ' + TOTAL_MATCHING + ' matching'; });
+  }
+
+  // Filters this page's rows instantly, then, after a pause in typing,
+  // reloads with ?q= so the search covers every page.
+  let searchTimer = null;
   function searchCustomers(q) {
-    q = q.toLowerCase().trim();
+    const raw = q.trim();
+    q = raw.toLowerCase();
     let visible = 0;
     document.querySelectorAll('#custTableBody tr').forEach(row => {
       const name  = row.dataset.name  || '';
@@ -574,7 +616,20 @@
       if (show) visible++;
     });
     document.getElementById('visibleCount').textContent = visible;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const qs = new URLSearchParams(window.location.search);
+      if ((qs.get('q') || '') === raw) return;
+      if (raw) qs.set('q', raw); else qs.delete('q');
+      qs.delete('page');
+      window.location.search = qs.toString();
+    }, 600);
   }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const si = document.getElementById('searchInput');
+    if (si && si.value) { si.focus(); si.setSelectionRange(si.value.length, si.value.length); }
+  });
 
   function filterSegment(segmentType) {
     if (segmentType === 'all') window.location.href = '{{ url_for("customers_page") }}';
@@ -612,8 +667,10 @@
 
   function sendToCustomers() {
     const checked = document.querySelectorAll('.customer-checkbox:checked');
-    if (!checked.length) { alert('Select at least one customer first.'); return; }
-    const customers = Array.from(checked).map(cb => ({ phone: cb.value, name: cb.dataset.name }));
+    if (!checked.length && !allMatching) { alert('Select at least one customer first.'); return; }
+    const customers = allMatching
+      ? allMatching
+      : Array.from(checked).map(cb => ({ phone: cb.value, name: cb.dataset.name }));
     sessionStorage.setItem('selectedCustomers', JSON.stringify(customers));
     window.location.href = '{{ url_for("index") }}';
   }
