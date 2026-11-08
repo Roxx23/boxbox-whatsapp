@@ -704,17 +704,22 @@ COPY_CODE_MAX_LEN = 15
 CODE_TAIL_LEN = 3   # random tail length (first char a letter); 3 = 24,576 codes per name+pct prefix
 
 
+_NAME_TITLES = {'MR', 'MRS', 'MS', 'MISS', 'DR', 'SHRI', 'SMT', 'KUM', 'SRI', 'PROF'}
+
+
 def _code_name_part(first_name):
     """First name -> up to 6 letters A-Z: accents stripped (María -> MARIA),
-    spaces/punctuation/digits dropped. Non-Latin-only names (Devanagari, emoji)
-    give ''."""
+    punctuation/digits dropped. Uses the first word that has Latin letters and
+    is not a title ('Ayush Kumar' -> AYUSH, 'Dr. Ayush' -> AYUSH, 'आयुष Ayush'
+    -> AYUSH); hyphenated names stay one word ('Ana-María' -> ANAMAR).
+    Returns '' when no word qualifies (Devanagari/emoji only, empty)."""
     import unicodedata
-    words = (first_name or '').split()
-    # Only the first word: 'Ayush Kumar' -> AYUSH, not AYUSHK. Hyphenated names
-    # stay one word ('Ana-María' -> ANAMAR).
-    decomposed = unicodedata.normalize('NFKD', words[0] if words else '')
-    letters = ''.join(c for c in decomposed if 'A' <= c.upper() <= 'Z' and c.isascii())
-    return letters.upper()[:6]
+    for word in (first_name or '').split():
+        decomposed = unicodedata.normalize('NFKD', word)
+        letters = ''.join(c for c in decomposed if 'A' <= c.upper() <= 'Z' and c.isascii()).upper()
+        if letters and letters not in _NAME_TITLES:
+            return letters[:6]
+    return ''
 
 
 def _generate_flow_discount_code(percentage, first_name=None):
