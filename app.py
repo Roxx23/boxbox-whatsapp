@@ -261,23 +261,33 @@ def _get_product_image_url(line_items):
         if src:
             return src
 
-    # 2. Fetch from Shopify Admin API using product_id
-    product_id = line_items[0].get('product_id')
-    if product_id:
-        try:
-            from utils.shopify_auth import is_configured, shopify_request
-            if is_configured():
-                resp = shopify_request('GET', f"/products/{product_id}.json", timeout=10)
-                if resp.status_code == 200:
-                    images = resp.json().get('product', {}).get('images', [])
-                    if images:
-                        src = images[0].get('src')
-                        logger.info(f"Product image fetched from Shopify API: {src}")
-                        return src
-                else:
-                    logger.warning(f"Shopify product image API returned {resp.status_code} for product {product_id}")
-        except Exception as e:
-            logger.warning(f"Could not fetch product image from Shopify API: {e}")
+    # 2. Fetch from Shopify Admin API. Try each line item's product (first 3:
+    # a custom item or a deleted product has no usable product_id), and prefer
+    # the image attached to the ordered variant (the right colour) over the
+    # product's main image.
+    try:
+        from utils.shopify_auth import is_configured, shopify_request
+        if not is_configured():
+            return None
+        for item in line_items[:3]:
+            product_id = item.get('product_id')
+            if not product_id:
+                continue
+            resp = shopify_request('GET', f"/products/{product_id}.json", timeout=10)
+            if resp.status_code != 200:
+                logger.warning(f"Shopify product image API returned {resp.status_code} for product {product_id}")
+                continue
+            images = resp.json().get('product', {}).get('images', []) or []
+            if not images:
+                continue
+            variant_id = item.get('variant_id')
+            chosen = next((im for im in images if variant_id and variant_id in (im.get('variant_ids') or [])), images[0])
+            src = chosen.get('src')
+            if src:
+                logger.info(f"Product image fetched from Shopify API: {src}")
+                return src
+    except Exception as e:
+        logger.warning(f"Could not fetch product image from Shopify API: {e}")
 
     return None
 
@@ -310,7 +320,18 @@ def _upload_media_from_url(media_url, media_type='image'):
         content_type = resp.headers.get('Content-Type', fallback_type).split(';')[0].strip()
         if content_type not in accepted_types:
             content_type = fallback_type
-        media_id = upload_media_from_bytes(resp.content, content_type)
+        data = resp.content
+        if media_type == 'image':
+            # Product photos on the Shopify CDN can be over WhatsApp's 5MB limit.
+            from utils.image_compress import compress_image_bytes, ImageCompressError
+            try:
+                data, content_type, _name, note = compress_image_bytes(data, content_type, 'header.jpg')
+                if note:
+                    logger.info(f"Header image: {note}")
+            except ImageCompressError as e:
+                logger.warning(f"Header image unusable: {e}")
+                return None
+        media_id = upload_media_from_bytes(data, content_type)
         if media_id:
             logger.info(f"{media_type.capitalize()} uploaded to WhatsApp: {media_id}")
         return media_id

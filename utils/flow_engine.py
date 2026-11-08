@@ -285,17 +285,12 @@ def _resolve_header_media_id(participant, config, context):
     be confusing UI. Either path re-uploads to WhatsApp fresh on every send
     rather than caching a media_id — WhatsApp media IDs expire.
 
-    Non-fatal by design, matching _upload_media_from_url's own convention: if no
-    media can be resolved (no header_media_type on this template — including a
-    LOCATION header, which Flows doesn't support sending yet — 'auto' with no
-    line_items in context, or a download/upload failure), this returns None and
-    the send proceeds without a header component. WhatsApp itself will reject a
-    send that omits a header a template structurally requires; that failure is
-    caught by the existing 'status_code not in (200, 201)' handling below, same
-    as any other send failure. Failing the step outright instead of attempting
-    the send would need a new error path for the same ultimate outcome
-    (participant doesn't get this message) with no extra information for the
-    flow owner.
+    Returns None when no media can be resolved ('auto' with no product photo
+    and no fallback image set, a missing upload, or a download/upload failure).
+    For 'auto', header_fallback_source ('static'/'upload', set in the editor)
+    picks the image to send when the order has no product photo. The caller
+    skips the send when a media header is required but unresolved, since
+    WhatsApp rejects a send that omits it.
     """
     media_type = config.get('header_media_type')
     if not media_type:
@@ -310,36 +305,54 @@ def _resolve_header_media_id(participant, config, context):
             return None
         line_items = context.get('line_items') or []
         media_url = _get_product_image_url(line_items)
-        if not media_url:
-            logger.info(
-                f"Flow participant {participant['id']}: 'auto' header media has no "
-                f"line_items in context (trigger has no order data) — sending without header"
-            )
-            return None
-        return _upload_media_from_url(media_url, media_type)
+        media_id = _upload_media_from_url(media_url, media_type) if media_url else None
+        if media_id:
+            return media_id
+        reason = ('no product photo found for this order' if not media_url
+                  else 'the product photo could not be downloaded or uploaded')
+        # The template has an image header, so a send without one is a
+        # guaranteed 400 from WhatsApp. Use the node's fallback image if set.
+        fallback = config.get('header_fallback_source') or ''
+        if fallback == 'static':
+            logger.warning(f"Flow participant {participant['id']}: {reason}; sending the fallback image URL")
+            return _upload_media_from_url(config.get('header_media_url'), media_type)
+        if fallback == 'upload':
+            logger.warning(f"Flow participant {participant['id']}: {reason}; sending the fallback uploaded image")
+            return _upload_stored_header_image(participant, config.get('header_media_ref_id'))
+        logger.error(
+            f"Flow participant {participant['id']}: {reason}, and this step has no fallback "
+            f"header image (flow editor: 'If the order has no product photo, send')"
+        )
+        return None
 
     if source == 'upload':
-        # A flow stays active enrolling participants for months, but a WhatsApp
-        # media_id expires long before that -- so a fixed "upload once" image
-        # isn't uploaded to WhatsApp once, it's stored as raw bytes (see
-        # utils/database.py's flow_header_images) and re-uploaded fresh here on
-        # every send, same non-caching approach as the 'auto'/'static' URL paths.
-        ref_id = config.get('header_media_ref_id')
-        if not ref_id:
-            return None
-        image_row = _db.get_flow_header_image(ref_id)
-        if not image_row:
-            logger.warning(
-                f"Flow participant {participant['id']}: uploaded header image "
-                f"(ref {ref_id}) not found — sending without header"
-            )
-            return None
-        from utils.whatsapp import upload_media_from_bytes
-        return upload_media_from_bytes(
-            image_row['image_bytes'], image_row['content_type'], image_row['filename'] or 'header.jpg'
-        )
+        return _upload_stored_header_image(participant, config.get('header_media_ref_id'))
 
     return _upload_media_from_url(config.get('header_media_url'), media_type)
+
+
+def _upload_stored_header_image(participant, ref_id):
+    """Upload one flow_header_images row to WhatsApp; return the media_id or None.
+
+    A flow stays active enrolling participants for months, but a WhatsApp
+    media_id expires long before that -- so a fixed "upload once" image
+    isn't uploaded to WhatsApp once, it's stored as raw bytes (see
+    utils/database.py's flow_header_images) and re-uploaded fresh on every
+    send, same non-caching approach as the 'auto'/'static' URL paths.
+    """
+    if not ref_id:
+        return None
+    image_row = _db.get_flow_header_image(ref_id)
+    if not image_row:
+        logger.warning(
+            f"Flow participant {participant['id']}: uploaded header image "
+            f"(ref {ref_id}) not found"
+        )
+        return None
+    from utils.whatsapp import upload_media_from_bytes
+    return upload_media_from_bytes(
+        image_row['image_bytes'], image_row['content_type'], image_row['filename'] or 'header.jpg'
+    )
 
 
 def _resolve_button_param(entry, context):
@@ -442,6 +455,26 @@ def _execute_send_message(participant, step, config):
     # Resolved only now, after the skip check above, so a skipped step never
     # uploads its header image to WhatsApp media for nothing.
     header_media_id = _resolve_header_media_id(participant, config, context)
+
+    # header_media_type is set by the editor only when the template HAS an
+    # image/video/document header, and WhatsApp rejects a send that omits it
+    # (400). If no media could be resolved, record the step as skipped (same
+    # as an empty copy-code coupon above) instead of making a doomed call.
+    if config.get('header_media_type') in ('image', 'video', 'document') and not header_media_id:
+        logger.error(
+            f"Flow participant {participant['id']}: skipped send of '{template_name}' -- "
+            f"its {config.get('header_media_type')} header has no media (see the message above)"
+        )
+        _db.add_flow_message(
+            flow_id=participant['flow_id'],
+            participant_id=participant['id'],
+            step_key=step['step_key'],
+            phone=participant['phone'],
+            wamid=None,
+            status='skipped'
+        )
+        _advance_to_step(participant, step['next_yes'])
+        return
 
     status_code, response = send_template(
         participant['phone'],
