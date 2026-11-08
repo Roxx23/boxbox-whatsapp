@@ -243,6 +243,140 @@ def _refetch_templates_after_error(waba_id):
         return _store_template_fetch(*_fetch_templates(waba_id), now)
 
 
+# --- Template analytics (Meta's per-template daily sent/delivered/read/clicks)
+# WhatsApp webhooks never report URL or copy-code button taps, so the only
+# source of click counts is Meta's template_analytics endpoint. It reports per
+# template per UTC day. We fetch the last 90 days (Meta's maximum range) for
+# every template in one go (limit=1000 gives one page per batch of 10 ids;
+# without it Meta pages 25 points at a time), and keep it for an hour.
+# After the first load, a stale copy is served while a background thread
+# refreshes it, so the analytics page only waits for Meta once per process.
+# Read-only: this never writes anything to Meta.
+TEMPLATE_ANALYTICS_DAYS = 90
+_TA_TTL = 3600            # seconds a fetch stays fresh
+_TA_FAIL_RETRY = 300      # after a failure, don't retry Meta for 5 minutes
+_ta_cache = {"by_name": None, "fetched_at": 0.0, "failed_at": 0.0, "ids": frozenset(),
+             "refreshing": False}
+_ta_lock = threading.Lock()
+
+
+def _summarize_clicks(clicked):
+    """Meta lists each button twice: '<type>' is total taps and
+    'unique_<type>' is unique people who tapped. Summing every entry
+    double-counts. Returns (total_clicks, unique_clicks, {button: taps})."""
+    total = unique = 0
+    buttons = {}
+    for c in clicked or []:
+        n = int(c.get("count") or 0)
+        ctype = c.get("type") or ""
+        if ctype.startswith("unique_"):
+            unique += n
+        else:
+            total += n
+            if n:
+                key = c.get("button_content") or ctype
+                buttons[key] = buttons.get(key, 0) + n
+    return total, unique, buttons
+
+
+def _fetch_template_analytics(waba_id, id_to_name, start, end):
+    """{template_name: {'YYYY-MM-DD' (UTC day): metrics}}; raises on failure.
+    Same-name templates (one per language) are summed under the name."""
+    import json as _json
+    from datetime import datetime, timezone
+    url_base = f"https://graph.facebook.com/v21.0/{waba_id}/template_analytics"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}  # a query-string token fails on paging.next
+    out = {}
+    ids = sorted(id_to_name)
+    for i in range(0, len(ids), 10):  # Meta allows at most 10 template ids per call
+        url = url_base
+        params = {"start": start, "end": end, "granularity": "DAILY", "limit": 1000,
+                  "metric_types": "SENT,DELIVERED,READ,CLICKED",
+                  "template_ids": _json.dumps(ids[i:i + 10])}
+        pages = 0
+        while url and pages < 50:
+            resp = _http().get(url, params=params, headers=headers, timeout=(CONNECT_TIMEOUT, 20))
+            if resp.status_code != 200:
+                try:
+                    msg = resp.json().get("error", {}).get("message")
+                except ValueError:
+                    msg = resp.text[:200]
+                raise RuntimeError(f"template_analytics HTTP {resp.status_code}: {msg}")
+            data = resp.json()
+            for block in data.get("data", []):
+                for p in block.get("data_points", []):
+                    name = id_to_name.get(str(p.get("template_id")))
+                    if not name:
+                        continue
+                    day = datetime.fromtimestamp(int(p.get("start", 0)), tz=timezone.utc).strftime("%Y-%m-%d")
+                    total, unique, buttons = _summarize_clicks(p.get("clicked"))
+                    m = out.setdefault(name, {}).setdefault(day, {
+                        "sent": 0, "delivered": 0, "read": 0, "clicks": 0, "unique_clicks": 0, "buttons": {}})
+                    m["sent"] += int(p.get("sent") or 0)
+                    m["delivered"] += int(p.get("delivered") or 0)
+                    m["read"] += int(p.get("read") or 0)
+                    m["clicks"] += total
+                    m["unique_clicks"] += unique
+                    for b, n in buttons.items():
+                        m["buttons"][b] = m["buttons"].get(b, 0) + n
+            url = data.get("paging", {}).get("next")
+            params = None  # the next URL already carries every parameter
+            pages += 1
+    return out
+
+
+def _refresh_template_analytics(waba_id, id_to_name):
+    """Fetch and store; on failure keep the old copy and note the time.
+    Returns True on success. Never raises."""
+    now = time.time()
+    end = (int(now) // 86400 + 1) * 86400            # next UTC midnight: includes today
+    start = end - TEMPLATE_ANALYTICS_DAYS * 86400
+    try:
+        by_name = _fetch_template_analytics(waba_id, id_to_name, start, end)
+    except Exception as e:  # requests errors, HTTP errors, bad JSON
+        logger.warning(f"Template analytics unavailable: {e}")
+        with _ta_lock:
+            _ta_cache["failed_at"] = time.time()
+            _ta_cache["refreshing"] = False
+        return False
+    with _ta_lock:
+        _ta_cache.update(by_name=by_name, fetched_at=time.time(), failed_at=0.0,
+                         ids=frozenset(id_to_name), refreshing=False)
+    return True
+
+
+def get_template_daily_metrics(waba_id, templates):
+    """Per-template daily metrics from Meta for the last 90 UTC days:
+    {template_name: {'YYYY-MM-DD': {'sent', 'delivered', 'read', 'clicks',
+    'unique_clicks', 'buttons': {button_text: taps}}}}, or None when Meta
+    can't be reached and nothing is cached (callers show 'unavailable').
+
+    templates: template dicts with 'id' and 'name' (e.g. get_templates_cached()).
+    Cached 1h. A stale copy is returned at once while a background thread
+    refreshes it; only a cold cache (or a new template id) waits for Meta."""
+    id_to_name = {str(t["id"]): t.get("name") for t in templates or [] if t.get("id") and t.get("name")}
+    if not id_to_name:
+        with _ta_lock:
+            return _ta_cache["by_name"]
+    now = time.time()
+    with _ta_lock:
+        c = _ta_cache
+        have = c["by_name"] is not None
+        fresh = have and now - c["fetched_at"] < _TA_TTL and frozenset(id_to_name) <= c["ids"]
+        recently_failed = now - c["failed_at"] < _TA_FAIL_RETRY
+        if fresh or (recently_failed and have) or c["refreshing"]:
+            return c["by_name"]
+        if recently_failed:
+            return None
+        c["refreshing"] = True
+        if have:
+            threading.Thread(target=_refresh_template_analytics, args=(waba_id, id_to_name),
+                             daemon=True, name="template-analytics-refresh").start()
+            return c["by_name"]
+    _refresh_template_analytics(waba_id, id_to_name)  # cold cache: wait for Meta
+    with _ta_lock:
+        return _ta_cache["by_name"]
+
 # Meta error codes meaning the template or its parameters don't match what we
 # sent: the cached definition may be stale, so refetch once and retry.
 _TEMPLATE_ERROR_CODES = {132000, 132001, 132005, 132007, 132012, 132015, 132016}
