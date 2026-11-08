@@ -275,6 +275,7 @@ Register all six in Shopify Admin → Settings → Notifications → Webhooks, p
 - Sends immediately when a new order is placed
 - Template params: `{{1}}`=first name, `{{2}}`=order# (format: `#F1xxxx`), `{{3}}`=items with size/colour, `{{4}}`=total (₹)
 - Tries to upload product image from Shopify as IMAGE header — falls back gracefully if unavailable
+- **Flows (the live path)**: a send_message node with an IMAGE-header template and header source "Auto — product image from order" sends the ordered variant's photo (Shopify Admin API, first 2 line items, 5s each; compressed if over 5MB). If no photo is found it sends the node's fallback image ("If the order has no product photo, send": an image URL or an uploaded image). With no fallback the step is recorded `skipped`, because WhatsApp rejects an image-header template sent without one (400). Template `order_created_image` (= `order_created` + IMAGE header) was submitted 2026-11-08 for this.
 - To get product images: `SHOPIFY_ACCESS_TOKEN` needs `read_products` scope. Without it, no image header (template must have no IMAGE header)
 - Approved WhatsApp template name in use: `order_created`
 
