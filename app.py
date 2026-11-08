@@ -21,7 +21,7 @@ from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, get_templates_cached, send_template, upload_media, upload_media_from_bytes
-from utils.whatsapp import get_template_daily_metrics, TEMPLATE_ANALYTICS_DAYS
+from utils.whatsapp import get_template_daily_metrics, template_analytics_loading, warm_template_analytics, TEMPLATE_ANALYTICS_DAYS
 from utils.image_compress import compress_image_upload, compress_image_bytes, ImageCompressError
 from utils.logger import log_message, setup_logging
 from utils.rate_limiter import RateLimiter, MessageQueue
@@ -686,6 +686,12 @@ _start_abandoned_cart_checker()
 
 # Start flow engine
 start_flow_engine(db, message_queue)
+
+# Fill the Meta button-click cache in the background so /analytics never
+# waits for Meta (read-only; ~6s on prod). TEMPLATE_ANALYTICS_WARM=0 skips it
+# (local tests and scripts that import app).
+if WABA_ID and os.getenv('TEMPLATE_ANALYTICS_WARM', '1') == '1':
+    warm_template_analytics(WABA_ID)
 
 
 # ============================================================
@@ -1631,6 +1637,7 @@ def analytics_dashboard():
     except Exception as e:  # never let Meta break the page
         logger.warning(f"Meta click report failed: {e}", exc_info=True)
         meta_clicks = None
+    meta_loading = meta_clicks is None and template_analytics_loading()
 
     # Get template stats
     template_stats = db.get_template_stats(user_id=current_user.id)
@@ -1672,6 +1679,7 @@ def analytics_dashboard():
                          recent_activity=recent_activity,
                          chart_data=chart_data,
                          meta_clicks=meta_clicks,
+                         meta_loading=meta_loading,
                          days=days,
                          ranges=ANALYTICS_RANGES)
 

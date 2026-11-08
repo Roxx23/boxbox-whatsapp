@@ -219,8 +219,13 @@
             {{ meta_clicks.totals.unique_clicks }} unique &middot; {{ "%.1f"|format(meta_clicks.totals.click_rate) }}% of delivered
           </div>
           {% else %}
+          {% if meta_loading %}
+          <div class="stat-value" style="font-size:1.1rem;color:var(--text-dim);">loading&hellip;</div>
+          <div class="stat-sub">Fetching from Meta; reload in a few seconds</div>
+          {% else %}
           <div class="stat-value" style="font-size:1.1rem;color:var(--text-dim);">unavailable</div>
           <div class="stat-sub">Meta click data could not be loaded</div>
+          {% endif %}
           {% endif %}
         </div>
         <div class="stat-icon" style="background:linear-gradient(135deg,#f59e0b,#ef4444);"><i class="fas fa-mouse-pointer"></i></div>
@@ -326,7 +331,7 @@
               <td style="color:var(--text);"
                   {% if cc %}title="{{ campaign.template_name }}: {{ cc.unique_clicks }} unique, {{ cc.from }} to {{ cc.to }} (UTC days){% if cc.shared %}. Shared: this template is also sent by a flow or another campaign that day, so these clicks are not only this campaign's{% endif %}"{% endif %}>
                 {% if cc %}{{ cc.clicks }}{% if cc.shared %} <span style="color:var(--text-dim);font-size:0.7rem;">shared</span>{% endif %}
-                {% elif not meta_clicks %}<span style="color:var(--text-dim);" title="Meta click data unavailable">?</span>
+                {% elif not meta_clicks %}<span style="color:var(--text-dim);" title="{{ 'Loading from Meta' if meta_loading else 'Meta click data unavailable' }}">?</span>
                 {% else %}<span style="color:var(--text-dim);">&mdash;</span>{% endif %}
               </td>
               <td>
@@ -388,7 +393,7 @@
     <div class="data-table-card">
       <h5><i class="fas fa-mouse-pointer me-2" style="color:var(--gold);"></i>Template Clicks (Meta, last {{ days }} days)</h5>
       {% if not meta_clicks %}
-      <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">Meta click data unavailable right now. Try again in a few minutes.</div>
+      <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">{% if meta_loading %}Loading click data from Meta&hellip; reload in a few seconds.{% else %}Meta click data unavailable right now. Try again in a few minutes.{% endif %}</div>
       {% elif not meta_clicks.templates %}
       <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No template sends in this period</div>
       {% else %}

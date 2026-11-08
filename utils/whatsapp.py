@@ -368,14 +368,42 @@ def get_template_daily_metrics(waba_id, templates):
             return c["by_name"]
         if recently_failed:
             return None
+        # Stale or cold: refresh in the background and answer now. A cold
+        # cache returns None; template_analytics_loading() tells the page
+        # to say 'loading' rather than 'unavailable'. No page waits for Meta.
         c["refreshing"] = True
-        if have:
-            threading.Thread(target=_refresh_template_analytics, args=(waba_id, id_to_name),
-                             daemon=True, name="template-analytics-refresh").start()
-            return c["by_name"]
-    _refresh_template_analytics(waba_id, id_to_name)  # cold cache: wait for Meta
+        threading.Thread(target=_refresh_template_analytics, args=(waba_id, id_to_name),
+                         daemon=True, name="template-analytics-refresh").start()
+        return c["by_name"]
+
+
+def template_analytics_loading():
+    """True while the first fetch is still running (nothing cached yet)."""
     with _ta_lock:
-        return _ta_cache["by_name"]
+        return _ta_cache["by_name"] is None and _ta_cache["refreshing"]
+
+
+def warm_template_analytics(waba_id, delay=5):
+    """Fill the analytics cache in a background thread at app start, so the
+    first /analytics load after a restart doesn't find it cold. Waits `delay`
+    seconds first so it doesn't compete with startup. Never raises."""
+    def run():
+        time.sleep(delay)
+        try:
+            id_to_name = {str(t["id"]): t.get("name") for t in get_templates_cached(waba_id)
+                          if t.get("id") and t.get("name")}
+            if not id_to_name:
+                return
+            with _ta_lock:
+                if _ta_cache["refreshing"] or _ta_cache["by_name"] is not None:
+                    return
+                _ta_cache["refreshing"] = True
+            _refresh_template_analytics(waba_id, id_to_name)
+        except Exception as e:
+            logger.warning(f"Template analytics warm-up failed: {e}")
+            with _ta_lock:
+                _ta_cache["refreshing"] = False
+    threading.Thread(target=run, daemon=True, name="template-analytics-warm").start()
 
 # Meta error codes meaning the template or its parameters don't match what we
 # sent: the cached definition may be stale, so refetch once and retry.
