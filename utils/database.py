@@ -2165,6 +2165,25 @@ class Database:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def get_flow_template_usage(self, user_id):
+        """{template_name: [{'id', 'name', 'status'}]} for every flow of the
+        user with a send_message step using that template."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT DISTINCT f.id, f.name, f.status,
+                       json_extract(s.config, '$.template_name') AS template_name
+                FROM flow_steps s JOIN flows f ON f.id = s.flow_id
+                WHERE f.user_id = ? AND s.step_type = 'send_message'
+                ORDER BY f.id
+            ''', (user_id,))
+            usage = {}
+            for r in cursor.fetchall():
+                if r['template_name']:
+                    usage.setdefault(r['template_name'], []).append(
+                        {'id': r['id'], 'name': r['name'], 'status': r['status']})
+            return usage
+
     def get_user_flows(self, user_id):
         with self.get_connection() as conn:
             cursor = conn.cursor()

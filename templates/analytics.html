@@ -103,6 +103,14 @@
     <div class="page-title"><i class="fas fa-chart-line me-2" style="color:var(--gold);"></i>Analytics</div>
     <div class="page-subtitle">Performance overview across all campaigns</div>
   </div>
+  <div class="d-flex align-items-center gap-2" style="font-size:0.8rem;color:var(--text-muted);">
+    <span>Button clicks (Meta):</span>
+    {% for r in ranges %}
+    <a href="{{ url_for('analytics_dashboard', days=r) }}"
+       class="btn btn-sm {% if r == days %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+       style="padding:0.15rem 0.6rem;font-size:0.75rem;">{{ r }}d</a>
+    {% endfor %}
+  </div>
 </div>
 
 <!-- Primary stats -->
@@ -204,9 +212,21 @@
     <div class="stat-card">
       <div class="d-flex justify-content-between align-items-start">
         <div>
-          <div class="stat-label">Clicked</div>
-          <div class="stat-value">{{ stats.clicked_count }}</div>
-          <div class="stat-sub">{{ "%.1f"|format(stats.click_rate) }}% of sent</div>
+          <div class="stat-label">Clicked <span style="font-weight:400;text-transform:none;">(Meta, last {{ days }}d)</span></div>
+          {% if meta_clicks %}
+          <div class="stat-value">{{ meta_clicks.totals.clicks }}</div>
+          <div class="stat-sub" title="Unique people who tapped a button, divided by messages delivered">
+            {{ meta_clicks.totals.unique_clicks }} unique &middot; {{ "%.1f"|format(meta_clicks.totals.click_rate) }}% of delivered
+          </div>
+          {% else %}
+          {% if meta_loading %}
+          <div class="stat-value" style="font-size:1.1rem;color:var(--text-dim);">loading&hellip;</div>
+          <div class="stat-sub">Fetching from Meta; reload in a few seconds</div>
+          {% else %}
+          <div class="stat-value" style="font-size:1.1rem;color:var(--text-dim);">unavailable</div>
+          <div class="stat-sub">Meta click data could not be loaded</div>
+          {% endif %}
+          {% endif %}
         </div>
         <div class="stat-icon" style="background:linear-gradient(135deg,#f59e0b,#ef4444);"><i class="fas fa-mouse-pointer"></i></div>
       </div>
@@ -295,7 +315,9 @@
         <table class="table table-sm table-hover mb-0" style="font-size:0.83rem;">
           <thead>
             <tr>
-              <th>Name</th><th>Recipients</th><th>Sent</th><th>Failed</th><th>Status</th><th>Date</th><th></th>
+              <th>Name</th><th>Recipients</th><th>Sent</th><th>Failed</th>
+              <th title="Template-level button clicks from Meta, from the send day until the template's next campaign (max 7 days)">Clicks&sup1;</th>
+              <th>Status</th><th>Date</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -305,6 +327,13 @@
               <td style="color:var(--text);">{{ campaign.recipient_count }}</td>
               <td style="color:#16A34A;">{{ campaign.success_count }}</td>
               <td style="color:{% if campaign.failed_count > 0 %}#DC2626{% else %}var(--text-dim){% endif %};">{{ campaign.failed_count }}</td>
+              {% set cc = meta_clicks.campaign_clicks.get(campaign.id) if meta_clicks else None %}
+              <td style="color:var(--text);"
+                  {% if cc %}title="{{ campaign.template_name }}: {{ cc.unique_clicks }} unique, {{ cc.from }} to {{ cc.to }} (UTC days){% if cc.shared %}. Shared: this template is also sent by a flow or another campaign that day, so these clicks are not only this campaign's{% endif %}"{% endif %}>
+                {% if cc %}{{ cc.clicks }}{% if cc.shared %} <span style="color:var(--text-dim);font-size:0.7rem;">shared</span>{% endif %}
+                {% elif not meta_clicks %}<span style="color:var(--text-dim);" title="{{ 'Loading from Meta' if meta_loading else 'Meta click data unavailable' }}">?</span>
+                {% else %}<span style="color:var(--text-dim);">&mdash;</span>{% endif %}
+              </td>
               <td>
                 {% if campaign.status == 'completed' %}<span style="color:#16A34A;font-size:0.72rem;font-weight:600;">✓ Done</span>
                 {% elif campaign.status == 'running' %}<span style="color:#2563EB;font-size:0.72rem;font-weight:600;">⟳ Running</span>
@@ -327,6 +356,9 @@
         {% if not campaigns %}
         <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No campaigns yet</div>
         {% endif %}
+        <div style="color:var(--text-dim);font-size:0.72rem;margin-top:0.5rem;">
+          &sup1; Template-level, from Meta: the template's button clicks from the send day until its next campaign (max 7 days). Marked shared when a flow or another campaign sends the same template.
+        </div>
       </div>
     </div>
   </div>
@@ -351,6 +383,49 @@
         <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No template usage yet</div>
         {% endif %}
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Template button clicks (Meta) -->
+<div class="row g-3 mt-1">
+  <div class="col-12">
+    <div class="data-table-card">
+      <h5><i class="fas fa-mouse-pointer me-2" style="color:var(--gold);"></i>Template Clicks (Meta, last {{ days }} days)</h5>
+      {% if not meta_clicks %}
+      <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">{% if meta_loading %}Loading click data from Meta&hellip; reload in a few seconds.{% else %}Meta click data unavailable right now. Try again in a few minutes.{% endif %}</div>
+      {% elif not meta_clicks.templates %}
+      <div class="text-center py-3" style="color:var(--text-dim);font-size:0.83rem;">No template sends in this period</div>
+      {% else %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.83rem;">
+          <thead><tr>
+            <th>Template</th><th>Used by</th><th>Sent</th><th>Delivered</th><th>Read</th>
+            <th>Clicks</th><th>Unique</th><th title="Unique clicks / delivered">Click rate</th><th>Top button</th>
+          </tr></thead>
+          <tbody>
+            {% for t in meta_clicks.templates %}
+            <tr>
+              <td style="color:var(--text);font-family:monospace;font-size:0.8rem;">{{ t.name }}</td>
+              <td style="color:var(--text-muted);">
+                {% for f in t.flows %}<a href="{{ url_for('flow_editor_page', flow_id=f.id) }}" style="color:var(--text-muted);">{{ f.name }}</a>{% if f.status != 'active' %} <span style="color:var(--text-dim);font-size:0.7rem;">({{ f.status }})</span>{% endif %}{% if not loop.last %}, {% endif %}{% else %}&mdash;{% endfor %}
+              </td>
+              <td>{{ t.sent }}</td>
+              <td>{{ t.delivered }}</td>
+              <td>{{ t.read }}</td>
+              <td style="color:var(--text);font-weight:600;">{{ t.clicks }}</td>
+              <td>{{ t.unique_clicks }}</td>
+              <td>{{ "%.1f"|format(t.click_rate) }}%</td>
+              <td style="color:var(--text-muted);">{{ t.top_button or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="color:var(--text-dim);font-size:0.72rem;margin-top:0.5rem;">
+        Meta reports per template per UTC day, refreshed hourly. Clicks = taps on URL and copy-code buttons (quick-reply taps such as "Stop" are not counted); Unique = people who tapped.
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>

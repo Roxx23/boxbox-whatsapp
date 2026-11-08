@@ -21,6 +21,7 @@ from urllib.parse import urlparse, parse_qs, quote
 
 from utils.personalize import personalize
 from utils.whatsapp import send_text, get_templates, get_templates_cached, send_template, upload_media, upload_media_from_bytes
+from utils.whatsapp import get_template_daily_metrics, template_analytics_loading, warm_template_analytics, TEMPLATE_ANALYTICS_DAYS
 from utils.image_compress import compress_image_upload, compress_image_bytes, ImageCompressError
 from utils.logger import log_message, setup_logging
 from utils.rate_limiter import RateLimiter, MessageQueue
@@ -685,6 +686,12 @@ _start_abandoned_cart_checker()
 
 # Start flow engine
 start_flow_engine(db, message_queue)
+
+# Fill the Meta button-click cache in the background so /analytics never
+# waits for Meta (read-only; ~6s on prod). TEMPLATE_ANALYTICS_WARM=0 skips it
+# (local tests and scripts that import app).
+if WABA_ID and os.getenv('TEMPLATE_ANALYTICS_WARM', '1') == '1':
+    warm_template_analytics(WABA_ID)
 
 
 # ============================================================
@@ -1522,6 +1529,95 @@ def index():
 # ANALYTICS & REPORTING ROUTES
 # ============================================================
 
+ANALYTICS_RANGES = (7, 30, 90)
+CAMPAIGN_CLICK_WINDOW_DAYS = 7
+
+
+def _utc_day(ts):
+    """Local ISO timestamp string -> its UTC date (Meta buckets by UTC day).
+    Naive timestamps are server-local (IST); old 'YYYY-MM-DD HH:MM:SS' rows
+    parse too. None if unparseable."""
+    from datetime import datetime, timezone
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts).replace(' ', 'T'))
+    except ValueError:
+        return None
+    return dt.astimezone(timezone.utc).date()
+
+
+def _meta_click_report(user_id, days, campaigns):
+    """Click numbers from Meta's template_analytics for the analytics page.
+
+    Returns None when Meta is unavailable. Otherwise:
+      totals: sent/delivered/read/clicks/unique_clicks/click_rate over the
+              last `days` UTC days, all templates;
+      templates: per-template rows for that range, with the flows using it;
+      campaign_clicks: {campaign_id: {...}} for `campaigns`.
+
+    Campaign clicks are template-level: Meta counts per template per day,
+    not per campaign. A campaign gets its template's clicks from its send
+    day until the template's next campaign (at most 7 days), and is marked
+    shared when a flow also sends that template or another campaign used
+    it the same day.
+    """
+    from datetime import datetime, timedelta, timezone
+    metrics = get_template_daily_metrics(WABA_ID, get_templates_cached(WABA_ID)) if WABA_ID else None
+    if metrics is None:
+        return None
+    today = datetime.now(timezone.utc).date()
+    first = today - timedelta(days=days - 1)
+    oldest = today - timedelta(days=TEMPLATE_ANALYTICS_DAYS - 1)
+    flow_usage = db.get_flow_template_usage(user_id)
+
+    def window_sum(name, d0, d1):
+        tot = {'sent': 0, 'delivered': 0, 'read': 0, 'clicks': 0, 'unique_clicks': 0, 'buttons': {}}
+        for day, m in (metrics.get(name) or {}).items():
+            if d0.isoformat() <= day <= d1.isoformat():
+                for k in ('sent', 'delivered', 'read', 'clicks', 'unique_clicks'):
+                    tot[k] += m[k]
+                for b, n in m['buttons'].items():
+                    tot['buttons'][b] = tot['buttons'].get(b, 0) + n
+        tot['click_rate'] = (tot['unique_clicks'] / tot['delivered'] * 100) if tot['delivered'] else 0.0
+        return tot
+
+    rows = []
+    for name in metrics:
+        t = window_sum(name, first, today)
+        if t['sent'] or t['delivered'] or t['clicks']:
+            top = max(t['buttons'].items(), key=lambda kv: kv[1])[0] if t['buttons'] else None
+            rows.append(dict(t, name=name, top_button=top, flows=flow_usage.get(name, [])))
+    rows.sort(key=lambda r: (-r['clicks'], -r['sent'], r['name']))
+    totals = {k: sum(r[k] for r in rows) for k in ('sent', 'delivered', 'read', 'clicks', 'unique_clicks')}
+    totals['click_rate'] = (totals['unique_clicks'] / totals['delivered'] * 100) if totals['delivered'] else 0.0
+
+    # Campaign attribution. Every campaign of the user is needed to find the
+    # next send of the same template, not just the ones on screen.
+    starts = {}
+    for c in db.get_user_campaigns(user_id):
+        d = _utc_day(c.get('started_at') or c.get('created_at'))
+        if c.get('template_name') and d and c.get('status') != 'scheduled':
+            starts.setdefault(c['template_name'], []).append((d, c['id']))
+    campaign_clicks = {}
+    for c in campaigns:
+        name = c.get('template_name')
+        d0 = _utc_day(c.get('started_at') or c.get('created_at'))
+        if not name or not d0 or d0 < oldest or c.get('status') == 'scheduled':
+            continue
+        same = [d for d, cid in starts.get(name, []) if cid != c['id']]
+        later = [d for d in same if d > d0]
+        d1 = min([d0 + timedelta(days=CAMPAIGN_CLICK_WINDOW_DAYS - 1), today]
+                 + [d - timedelta(days=1) for d in later])
+        t = window_sum(name, d0, d1)
+        campaign_clicks[c['id']] = {
+            'clicks': t['clicks'], 'unique_clicks': t['unique_clicks'],
+            'from': d0.isoformat(), 'to': d1.isoformat(),
+            'shared': bool(flow_usage.get(name)) or d0 in same,
+        }
+    return {'totals': totals, 'templates': rows, 'campaign_clicks': campaign_clicks}
+
+
 @app.route("/analytics")
 @login_required
 def analytics_dashboard():
@@ -1531,7 +1627,18 @@ def analytics_dashboard():
     
     # Get campaigns
     campaigns = db.get_user_campaigns(current_user.id, limit=10)
-    
+
+    # Button clicks come from Meta (webhooks never report URL/copy-code taps).
+    days = request.args.get('days', 30, type=int)
+    if days not in ANALYTICS_RANGES:
+        days = 30
+    try:
+        meta_clicks = _meta_click_report(current_user.id, days, campaigns)
+    except Exception as e:  # never let Meta break the page
+        logger.warning(f"Meta click report failed: {e}", exc_info=True)
+        meta_clicks = None
+    meta_loading = meta_clicks is None and template_analytics_loading()
+
     # Get template stats
     template_stats = db.get_template_stats(user_id=current_user.id)
     
@@ -1570,7 +1677,11 @@ def analytics_dashboard():
                          campaigns=campaigns,
                          template_stats=template_stats,
                          recent_activity=recent_activity,
-                         chart_data=chart_data)
+                         chart_data=chart_data,
+                         meta_clicks=meta_clicks,
+                         meta_loading=meta_loading,
+                         days=days,
+                         ranges=ANALYTICS_RANGES)
 
 
 @app.route("/campaigns")
