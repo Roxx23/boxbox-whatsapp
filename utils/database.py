@@ -1416,7 +1416,8 @@ class Database:
                 SELECT COUNT(*) AS total,
                        COALESCE(SUM(messages_sent_count > 0), 0) AS messaged,
                        COALESCE(SUM(messages_replied_count > 0), 0) AS replied,
-                       COALESCE(SUM(orders_count > 2), 0) AS repeat_buyers
+                       COALESCE(SUM(orders_count > 2), 0) AS repeat_buyers,
+                       COALESCE(SUM(phone IS NOT NULL AND phone != ''), 0) AS with_phone
                 FROM customers {where}
             ''', params)
             return dict(cursor.fetchone())
