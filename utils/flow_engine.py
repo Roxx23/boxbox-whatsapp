@@ -701,6 +701,7 @@ WHATSAPP_COUPON_CODE_MAX_LEN = 15
 _CODE_TAIL_LETTERS = ''.join(c for c in string.ascii_uppercase if c not in 'OI')
 _CODE_TAIL_CHARS = _CODE_TAIL_LETTERS + '23456789'
 COPY_CODE_MAX_LEN = 15
+CODE_TAIL_LEN = 3   # random tail length (first char a letter); 3 = 24,576 codes per name+pct prefix
 
 
 def _code_name_part(first_name):
@@ -708,7 +709,10 @@ def _code_name_part(first_name):
     spaces/punctuation/digits dropped. Non-Latin-only names (Devanagari, emoji)
     give ''."""
     import unicodedata
-    decomposed = unicodedata.normalize('NFKD', first_name or '')
+    words = (first_name or '').split()
+    # Only the first word: 'Ayush Kumar' -> AYUSH, not AYUSHK. Hyphenated names
+    # stay one word ('Ana-María' -> ANAMAR).
+    decomposed = unicodedata.normalize('NFKD', words[0] if words else '')
     letters = ''.join(c for c in decomposed if 'A' <= c.upper() <= 'Z' and c.isascii())
     return letters.upper()[:6]
 
@@ -729,8 +733,8 @@ def _generate_flow_discount_code(percentage, first_name=None):
     """
     pct = str(int(percentage))
     name = _code_name_part(first_name) or 'SAVE'
-    name = name[:max(1, COPY_CODE_MAX_LEN - len(pct) - 3)]
-    tail = random.choice(_CODE_TAIL_LETTERS) + ''.join(random.choices(_CODE_TAIL_CHARS, k=2))
+    name = name[:max(1, COPY_CODE_MAX_LEN - len(pct) - CODE_TAIL_LEN)]
+    tail = random.choice(_CODE_TAIL_LETTERS) + ''.join(random.choices(_CODE_TAIL_CHARS, k=CODE_TAIL_LEN - 1))
     return f"{name}{pct}{tail}"
 
 
