@@ -89,7 +89,14 @@ def format_phone_number(number: str) -> str:
 
 
 def get_templates(waba_id):
-    """Fetch all WhatsApp message templates (all statuses)"""
+    """Fetch all WhatsApp message templates (all statuses). If a page fails
+    partway through, returns the templates fetched so far."""
+    return _fetch_templates(waba_id)[0]
+
+
+def _fetch_templates(waba_id):
+    """(templates, complete). complete is False when any page request failed,
+    so callers that cache can avoid storing a partial list."""
     url = f"https://graph.facebook.com/v21.0/{waba_id}/message_templates"
     # Without an explicit fields= param, the Graph API's default field set omits
     # quality_score and rejected_reason -- templates_manager.html already has
@@ -110,7 +117,8 @@ def get_templates(waba_id):
             params = {}  # next URL already has all params
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching templates: {e}")
-    return all_templates
+        return all_templates, False
+    return all_templates, True
 
 
 # --- Template definition cache for send_template --------------------------
@@ -174,19 +182,23 @@ _page_templates_lock = threading.Lock()
 
 def get_templates_cached(waba_id, force=False):
     """get_templates() with a 5-minute in-process cache. Returns a new list
-    each call (template dicts are shared, treat them as read-only). A failed
-    fetch (empty result) is not cached, so the next load tries Meta again,
-    and a stale copy is served instead of an empty page when one exists."""
+    each call (template dicts are shared, treat them as read-only).
+    Only a complete fetch is cached. If Meta fails (on the first page or
+    partway through paging), the last complete list is served when there is
+    one; otherwise whatever was fetched is returned uncached, so the next
+    load tries Meta again."""
     with _page_templates_lock:
         c = _page_templates
         if not force and c["list"] and time.time() - c["fetched_at"] < _PAGE_TEMPLATES_TTL:
             return list(c["list"])
-        templates = get_templates(waba_id)
-        if templates:
+        templates, complete = _fetch_templates(waba_id)
+        if complete and templates:
             c["list"] = templates
             c["fetched_at"] = time.time()
             return list(templates)
-        return list(c["list"])
+        if c["list"]:
+            return list(c["list"])
+        return list(templates)
 
 
 def _refetch_templates_after_error(waba_id):

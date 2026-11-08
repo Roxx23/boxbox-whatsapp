@@ -386,7 +386,7 @@
         </h6>
         <div class="d-flex align-items-center gap-2">
           <a href="#" id="selectAllMatching" class="d-none" onclick="selectAllMatching(); return false;"
-             style="font-size:0.78rem;color:var(--gold);">Select all {{ stats.total }} matching</a>
+             style="font-size:0.78rem;color:var(--gold);">Select all {{ stats.with_phone }} matching</a>
           <span id="selectedBadge" class="d-none"
                 style="font-size:0.78rem;color:var(--gold-dark);padding:0.25rem 0.75rem;
                        background:rgba(37,211,102,0.1);border-radius:20px;border:1px solid rgba(37,211,102,0.2);">
@@ -559,6 +559,8 @@
   // segment/filters/search across all pages, fetched from the server.
   let allMatching = null;
   const TOTAL_MATCHING = {{ stats.total }};
+  // What "Select all" actually sends to: matching customers with a phone.
+  const SENDABLE_MATCHING = {{ stats.with_phone }};
 
   function updateSelectedCount() {
     const boxes   = document.querySelectorAll('.customer-checkbox');
@@ -598,7 +600,7 @@
       .then(r => r.json())
       .then(data => { allMatching = data.customers || []; updateSelectedCount(); })
       .catch(e => alert('Could not load all matching customers: ' + e.message))
-      .finally(() => { link.textContent = 'Select all ' + TOTAL_MATCHING + ' matching'; });
+      .finally(() => { link.textContent = 'Select all ' + SENDABLE_MATCHING + ' matching'; });
   }
 
   // Filters this page's rows instantly, then, after a pause in typing,
