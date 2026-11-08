@@ -133,6 +133,33 @@ _template_cache = {"by_name": {}, "fetched_at": 0.0, "attempted_at": 0.0}
 _template_cache_lock = threading.Lock()
 
 
+def _index_templates(templates):
+    """name -> template dict; the same name can exist per language, so an
+    APPROVED one wins."""
+    by_name = {}
+    for t in templates:
+        if t.get("name") not in by_name or t.get("status") == "APPROVED":
+            by_name[t.get("name")] = t
+    return by_name
+
+
+def _store_template_fetch(templates, complete, now):
+    """Update the send cache from one fetch; caller holds the lock. Returns
+    True if any templates came back. Only a complete fetch replaces by_name
+    and resets the TTL. A partial fetch (Meta failed partway through paging)
+    only adds or updates the templates it did get, so templates on the pages
+    that failed keep their cached definitions instead of reading as missing,
+    and fetched_at is unchanged so the next stale check refetches."""
+    if not templates:
+        return False
+    if complete:
+        _template_cache["by_name"] = _index_templates(templates)
+        _template_cache["fetched_at"] = now
+    else:
+        _template_cache["by_name"] = {**_template_cache["by_name"], **_index_templates(templates)}
+    return True
+
+
 def _get_template_definition(waba_id, template_name):
     """Return the template dict for template_name from a cached copy of
     get_templates(). Thread-safe: sender threads wait on the lock while one
@@ -144,15 +171,8 @@ def _get_template_definition(waba_id, template_name):
         missing = template_name not in c["by_name"]
         if (stale or missing) and now - c["attempted_at"] > _TEMPLATE_MISS_REFRESH:
             c["attempted_at"] = now
-            templates = get_templates(waba_id)
-            if templates:  # on a failed fetch, keep serving the old copy
-                by_name = {}
-                for t in templates:
-                    # Same name can exist per language; prefer an APPROVED one
-                    if t.get("name") not in by_name or t.get("status") == "APPROVED":
-                        by_name[t.get("name")] = t
-                c["by_name"] = by_name
-                c["fetched_at"] = now
+            # On a failed fetch, keep serving the old copy; see _store_template_fetch.
+            _store_template_fetch(*_fetch_templates(waba_id), now)
         return c["by_name"].get(template_name)
 
 
@@ -211,16 +231,7 @@ def _refetch_templates_after_error(waba_id):
         if now - _template_cache["attempted_at"] <= _TEMPLATE_MISS_REFRESH:
             return False
         _template_cache["attempted_at"] = now
-        templates = get_templates(waba_id)
-        if not templates:
-            return False
-        by_name = {}
-        for t in templates:
-            if t.get("name") not in by_name or t.get("status") == "APPROVED":
-                by_name[t.get("name")] = t
-        _template_cache["by_name"] = by_name
-        _template_cache["fetched_at"] = now
-        return True
+        return _store_template_fetch(*_fetch_templates(waba_id), now)
 
 
 # Meta error codes meaning the template or its parameters don't match what we
