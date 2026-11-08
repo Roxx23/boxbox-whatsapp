@@ -760,7 +760,7 @@ function buildConfigForm(type, data) {
       '<option value="months"' + (relUnit==='months'?' selected':'') + '>months</option>' +
       '</select>' +
       '</div>' +
-      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20-K3F9QZ, always 15 characters or fewer, as WhatsApp copy-code buttons require) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
+      '<div class="config-hint">Relative expiry is counted from the moment the code is generated for each customer, not from when the flow was built. Generates a unique one-time-use code (e.g. SAVE20K3F9QZ: letters and digits only, 15 characters or fewer, as WhatsApp copy-code buttons require) when the flow reaches this step, and makes both <code>discount_code</code> and <code>discount_percentage</code> (e.g. \'15\', no % sign) available in a later Send Message step\'s template params.</div></div>';
   }
   if (type === 'condition') {
     // 'order data' triggers -- see build_trigger_context() in flow_engine.py --
@@ -1118,7 +1118,7 @@ function _rebuildButtonRows(existingButtonParams, buttons) {
         '<select class="form-select form-select-sm" data-button-param-context="' + btnKey + '" onchange="applyConfig()"' +
           (mode==='static' ? ' style="display:none;"' : '') + '>' + selOpts + '</select>' +
         '<input type="text" class="form-control form-control-sm" data-button-param-static="' + btnKey + '" ' +
-          'placeholder="e.g. SAVE10" maxlength="15" title="WhatsApp copy-code buttons allow at most 15 characters" value="' + staticVal.replace(/"/g,'&quot;') + '" onchange="applyConfig()"' +
+          'placeholder="e.g. SAVE10" maxlength="15" pattern="[A-Za-z0-9]+" title="WhatsApp copy-code buttons: letters and digits only, at most 15 characters (WhatsApp rejects codes with hyphens)" value="' + staticVal.replace(/"/g,'&quot;') + '" onchange="applyConfig()"' +
           (mode==='context' ? ' style="display:none;"' : '') + '>' +
         '</div>'
       );
