@@ -1016,7 +1016,7 @@ function _rebuildMediaHeaderRow(existingSource, existingUrl, mediaType, existing
       '</select>' +
       '<div id="cfg_header_fallback_wrap"' + (source==='auto' ? '' : ' style="display:none;"') + '>' +
         '<label class="config-hint mb-1" for="cfg_header_fallback_source">If the order has no product photo, send:</label>' +
-        '<select id="cfg_header_fallback_source" class="form-select form-select-sm mb-2" onchange="onHeaderMediaSourceChange(document.getElementById('cfg_header_media_source'))">' +
+        '<select id="cfg_header_fallback_source" class="form-select form-select-sm mb-2" onchange="onHeaderMediaSourceChange()">' +
           '<option value=""' + (fallback===''?' selected':'') + '>Nothing (message is not sent)</option>' +
           '<option value="static"' + (fallback==='static'?' selected':'') + '>This image URL</option>' +
           '<option value="upload"' + (fallback==='upload'?' selected':'') + '>This uploaded image</option>' +
@@ -1040,6 +1040,7 @@ function _rebuildMediaHeaderRow(existingSource, existingUrl, mediaType, existing
 }
 
 function onHeaderMediaSourceChange(sel) {
+  sel = sel || document.getElementById('cfg_header_media_source');
   const urlInput = document.getElementById('cfg_header_media_url');
   const uploadWrap = document.getElementById('cfg_header_upload_wrap');
   const fbWrap = document.getElementById('cfg_header_fallback_wrap');

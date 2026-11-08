@@ -261,19 +261,19 @@ def _get_product_image_url(line_items):
         if src:
             return src
 
-    # 2. Fetch from Shopify Admin API. Try each line item's product (first 3:
-    # a custom item or a deleted product has no usable product_id), and prefer
-    # the image attached to the ordered variant (the right colour) over the
-    # product's main image.
+    # 2. Fetch from Shopify Admin API. Try the first 2 line items' products
+    # (a custom item or a deleted product has no usable product_id), 5s each so
+    # the legacy order webhook stays close to Shopify's 5s timeout. Prefer the
+    # image attached to the ordered variant (the right colour) over the main one.
     try:
         from utils.shopify_auth import is_configured, shopify_request
         if not is_configured():
             return None
-        for item in line_items[:3]:
+        for item in line_items[:2]:
             product_id = item.get('product_id')
             if not product_id:
                 continue
-            resp = shopify_request('GET', f"/products/{product_id}.json", timeout=10)
+            resp = shopify_request('GET', f"/products/{product_id}.json", timeout=5)
             if resp.status_code != 200:
                 logger.warning(f"Shopify product image API returned {resp.status_code} for product {product_id}")
                 continue
