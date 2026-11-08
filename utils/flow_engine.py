@@ -22,9 +22,46 @@ def start_flow_engine(db, message_queue):
     global _db, _message_queue
     _db = db
     _message_queue = message_queue
+    try:
+        recover_stale_processing(db)
+    except Exception as e:
+        logger.error(f"Flow engine: stale 'processing' recovery failed: {e}", exc_info=True)
     t = threading.Thread(target=_engine_loop, daemon=True, name='flow_engine')
     t.start()
     logger.info("Flow engine started")
+
+
+def recover_stale_processing(db):
+    """Return participants stranded in 'processing' to 'active'.
+
+    claim_flow_participant() sets 'processing' and only the claiming thread's
+    `finally` releases it, so a restart mid-step left the row stuck forever
+    (get_due_flow_participants only picks 'active'). Runs once at engine start,
+    before the engine thread exists; with a single worker nothing else can hold
+    a claim then.
+
+    No double send: if a send_message step already wrote its flow_messages row
+    after the claim, the process died between recording the send and advancing,
+    so advance past the step instead of letting it run again. Rows claimed
+    before claimed_at existed fall back to next_action_at (when the step was
+    entered). Call after _db is set. Returns a list of
+    (participant_id, 'rearmed' | 'advanced')."""
+    results = []
+    for p in db.get_processing_flow_participants():
+        action = 'rearmed'
+        step = db.get_flow_step(p['flow_id'], p['current_step_key']) if p.get('current_step_key') else None
+        if step and step['step_type'] == 'send_message':
+            since = p.get('claimed_at') or p.get('next_action_at')
+            if db.get_flow_message_for_step_since(p['id'], p['current_step_key'], since):
+                _advance_to_step(p, step['next_yes'])   # uses _db, set by start_flow_engine
+                action = 'advanced'
+        db.release_flow_participant(p['id'])
+        results.append((p['id'], action))
+        logger.warning(f"Flow engine: participant {p['id']} was stuck in 'processing' at step "
+                       f"{p.get('current_step_key')}; {action}")
+    if results:
+        logger.warning(f"Flow engine: recovered {len(results)} stale 'processing' participant(s)")
+    return results
 
 
 def enroll_participant(db, flow_id, phone, context_dict, first_step_key):

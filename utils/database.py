@@ -454,6 +454,10 @@ class Database:
                 'ALTER TABLE shopify_orders ADD COLUMN discount_codes TEXT',
                 'ALTER TABLE shopify_orders ADD COLUMN cancelled_at TEXT',
                 'ALTER TABLE shopify_orders ADD COLUMN refunded_at TEXT',
+                # When claim_flow_participant() last moved the row to
+                # 'processing' (UTC, same format as flow_messages.sent_at), so
+                # startup recovery can tell whether the interrupted step already sent.
+                'ALTER TABLE flow_participants ADD COLUMN claimed_at TEXT',
             ]:
                 try:
                     cursor.execute(col)
@@ -2559,10 +2563,34 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE flow_participants SET status = 'processing' WHERE id = ? AND status = 'active'",
-                (participant_id,)
+                "UPDATE flow_participants SET status = 'processing', claimed_at = ? "
+                "WHERE id = ? AND status = 'active'",
+                (_now_utc(), participant_id)
             )
             return cursor.rowcount > 0
+
+    def get_processing_flow_participants(self):
+        """Rows left in 'processing'. With one gunicorn worker, any such row at
+        engine start belongs to a process that died mid-step (restart/deploy)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM flow_participants WHERE status = 'processing' ORDER BY id")
+            return [dict(r) for r in cursor.fetchall()]
+
+    def get_flow_message_for_step_since(self, participant_id, step_key, since):
+        """The flow_messages row this participant got at step_key at or after
+        `since` (any status: sent, failed and skipped all mean the step ran),
+        or None. `since` None matches any time."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            sql = 'SELECT * FROM flow_messages WHERE flow_participant_id = ? AND step_key = ?'
+            args = [participant_id, str(step_key)]
+            if since:
+                sql += ' AND sent_at >= ?'
+                args.append(since)
+            cursor.execute(sql + ' ORDER BY id DESC LIMIT 1', args)
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     def release_flow_participant(self, participant_id):
         """Release a claim taken by claim_flow_participant(), returning the
