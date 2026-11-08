@@ -1762,7 +1762,7 @@ def _validate_flow_steps(steps):
             # button, which rejects hyphens/symbols (132018) and long codes.
             entry = ((s.get('config') or {}).get('button_params') or {}).get('copy_code')
             if isinstance(entry, dict) and entry.get('source') == 'static':
-                value = str(entry.get('value') or '').strip()
+                value = str(entry.get('value') or '')   # checked exactly as it will be sent (no strip)
                 if value and not re.fullmatch(r'[A-Za-z0-9]{1,15}', value):
                     return False, (f"Copy-code value '{value}' is not allowed: WhatsApp accepts only "
                                    f"letters and digits, at most 15 characters (no hyphens or spaces)")
