@@ -162,6 +162,13 @@ journalctl -u whatsapp-dashboard -n 50
 ### Database backup
 Daily cron job on the server backs up `whatsapp_dashboard.db`. Check with `crontab -l`.
 
+### SQLite WAL mode
+The DB runs in WAL journal mode (set once by `Database._enable_wal()`, stored in the file); each connection sets `busy_timeout=30000` and `synchronous=NORMAL`.
+- `whatsapp_dashboard.db-wal` and `-shm` next to the DB are part of the database while the app runs. Never delete or copy them by hand while the service is up.
+- A clean stop/restart checkpoints and removes `-wal`. After a hard kill it stays and is replayed on the next open; that is normal.
+- Backups: `sqlite3 ... ".backup FILE"` copies everything, including writes still in `-wal`, into one file. Copying the `.db` with `cp` is NOT a safe backup.
+- Restoring a backup: stop the service, delete any `-wal`/`-shm` beside the live DB, copy the backup in, start the service. A leftover `-wal` from the old file would be replayed onto the restored one.
+
 ---
 
 ## Auth / Users
