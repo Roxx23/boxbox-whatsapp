@@ -79,6 +79,13 @@ class Database:
         # after the 5s default.
         conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
+        # Per-connection settings (WAL itself is stored in the file, see
+        # _enable_wal). busy_timeout matches timeout=30 above, stated
+        # explicitly; synchronous=NORMAL is the recommended pairing with WAL
+        # (durable on app crash; only an OS crash/power loss can drop the
+        # last few commits).
+        conn.execute('PRAGMA busy_timeout=30000')
+        conn.execute('PRAGMA synchronous=NORMAL')
         try:
             yield conn
             conn.commit()
@@ -88,8 +95,26 @@ class Database:
         finally:
             conn.close()
     
+    def _enable_wal(self):
+        """Switch the DB file to WAL journaling. The mode is saved in the
+        file, so this is a no-op after the first time. WAL lets readers and
+        the writer work at the same time, which removes the instant
+        "database is locked" errors seen under rollback journaling.
+        Failure here only logs; the app still works in the old mode."""
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30)
+            try:
+                mode = conn.execute('PRAGMA journal_mode=WAL').fetchone()[0]
+            finally:
+                conn.close()
+            if str(mode).lower() != 'wal':
+                logger.warning(f"SQLite journal_mode is {mode}, not WAL")
+        except Exception as e:
+            logger.warning(f"Could not enable SQLite WAL mode: {e}")
+
     def init_database(self):
         """Initialize database tables"""
+        self._enable_wal()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
