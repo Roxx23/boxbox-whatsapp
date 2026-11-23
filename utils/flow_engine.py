@@ -55,6 +55,11 @@ def recover_stale_processing(db):
             if db.get_flow_message_for_step_since(p['id'], p['current_step_key'], since):
                 _advance_to_step(p, step['next_yes'])   # uses _db, set by start_flow_engine
                 action = 'advanced'
+        elif step and step['step_type'] == 'generate_discount' and _code_made_by_this_step(db, p, step):
+            # The code was created and saved to context before the process died;
+            # running the step again would create a second Shopify code.
+            _advance_to_step(p, step['next_yes'])
+            action = 'advanced'
         db.release_flow_participant(p['id'])
         results.append((p['id'], action))
         logger.warning(f"Flow engine: participant {p['id']} was stuck in 'processing' at step "
@@ -62,6 +67,23 @@ def recover_stale_processing(db):
     if results:
         logger.warning(f"Flow engine: recovered {len(results)} stale 'processing' participant(s)")
     return results
+
+
+def _code_made_by_this_step(db, participant, step):
+    """True when the participant's context already holds a discount_code that
+    was not issued by a different step (e.g. an earlier generate_discount step
+    in the same flow, whose code must not stop this one from running)."""
+    try:
+        code = (json.loads(participant.get('context') or '{}') or {}).get('discount_code')
+    except Exception:
+        return False
+    if not code:
+        return False
+    issued = db.get_issued_code(code)
+    if issued and issued.get('participant_id') == participant['id'] \
+            and str(issued.get('step_key')) != str(step['step_key']):
+        return False
+    return True
 
 
 def enroll_participant(db, flow_id, phone, context_dict, first_step_key):

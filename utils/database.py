@@ -1804,6 +1804,15 @@ class Database:
                   int(percentage) if percentage not in (None, '') else None,
                   issued_at or datetime.now().isoformat(), datetime.now().isoformat()))
 
+    def get_issued_code(self, code):
+        """The issued_discount_codes row for this code (case-insensitive), or None."""
+        if not code:
+            return None
+        with self.get_connection() as conn:
+            row = conn.execute('SELECT * FROM issued_discount_codes WHERE code_upper = ?',
+                               (code.strip().upper(),)).fetchone()
+            return dict(row) if row else None
+
     def backfill_issued_codes(self):
         """Called once per process at app start (app.py), not from
         init_database(): Database() is constructed in webhook and scheduler
