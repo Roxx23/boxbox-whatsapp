@@ -28,6 +28,7 @@ from utils.rate_limiter import RateLimiter, MessageQueue
 from utils.background_scheduler import schedule_message_job, get_scheduled_jobs, cancel_job
 from utils.auth import UserManager
 from utils.database import Database
+from utils import push
 from utils.flow_engine import (
     start_flow_engine, enroll_participant as flow_enroll_participant,
     trigger_immediate_recheck, get_flow_first_step_key, build_trigger_context
@@ -76,11 +77,16 @@ def load_user(user_id):
 
 @app.context_processor
 def inject_unread_inbox():
-    """Makes has_unread_inbox available in every template (base.html nav dot)
-    without threading it through every route. Cheap EXISTS check, not a count."""
+    """Makes the Inbox nav badge (unread_inbox_count: customers with unread
+    messages) and push_enabled available in every template without threading
+    them through every route. The count uses a partial index of unread rows."""
     if not current_user.is_authenticated:
-        return {'has_unread_inbox': False}
-    return {'has_unread_inbox': db.has_unread_inbox_messages(current_user.id)}
+        return {'has_unread_inbox': False, 'unread_inbox_count': 0, 'push_enabled': False}
+    try:
+        n = db.count_unread_inbox_conversations(current_user.id)
+    except Exception:
+        n = 0
+    return {'has_unread_inbox': n > 0, 'unread_inbox_count': n, 'push_enabled': push.is_configured()}
 
 
 @app.template_filter('ist_time')
@@ -2735,6 +2741,72 @@ def _inbox_within_24h_window(user_id, phone):
     return (datetime.now() - last_dt) < timedelta(hours=24), last_inbound
 
 
+# ============================================================
+# Browser push notifications (incoming WhatsApp messages)
+# ============================================================
+@app.route("/sw.js")
+def service_worker():
+    """Service worker, served from the site root so its scope covers every
+    page. Public: the browser fetches it for update checks without a page."""
+    resp = app.send_static_file('sw.js')
+    resp.headers['Content-Type'] = 'application/javascript'
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['Service-Worker-Allowed'] = '/'
+    return resp
+
+
+@app.route("/manifest.json")
+def web_manifest():
+    """Minimal PWA manifest: iOS only allows web push for a site added to
+    the Home Screen."""
+    resp = app.send_static_file('manifest.json')
+    resp.headers['Content-Type'] = 'application/manifest+json'
+    return resp
+
+
+@app.route("/api/push/config")
+@login_required
+def api_push_config():
+    return jsonify({'enabled': push.is_configured(), 'public_key': push.public_key() or None})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@login_required
+def api_push_subscribe():
+    if not push.is_configured():
+        return jsonify({'success': False, 'error': 'Push is not configured on the server'}), 503
+    sub = request.get_json(silent=True) or {}
+    endpoint = (sub.get('endpoint') or '').strip()
+    keys = sub.get('keys') or {}
+    p256dh, auth = (keys.get('p256dh') or '').strip(), (keys.get('auth') or '').strip()
+    if not endpoint.startswith('https://') or not p256dh or not auth or len(endpoint) > 2000:
+        return jsonify({'success': False, 'error': 'Invalid subscription'}), 400
+    db.save_push_subscription(current_user.id, endpoint, p256dh, auth, request.headers.get('User-Agent'))
+    return jsonify({'success': True})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+@login_required
+def api_push_unsubscribe():
+    endpoint = ((request.get_json(silent=True) or {}).get('endpoint') or '').strip()
+    if endpoint:
+        db.delete_push_subscription(endpoint, user_id=current_user.id)
+    return jsonify({'success': True})
+
+
+@app.route("/api/push/test", methods=["POST"])
+@login_required
+def api_push_test():
+    """Send a test notification to this user's devices (blocking, so the
+    toggle can say whether it worked)."""
+    if not push.is_configured():
+        return jsonify({'success': False, 'error': 'Push is not configured on the server'}), 503
+    sent, removed, failed = push.send_to_user(db, current_user.id, {
+        'title': 'Notifications are on', 'body': 'New WhatsApp messages will show up here.',
+        'url': '/inbox', 'tag': 'push-test'})
+    return jsonify({'success': sent > 0, 'sent': sent, 'removed': removed, 'failed': failed})
+
+
 @app.route("/inbox")
 @login_required
 def inbox_page():
@@ -3199,8 +3271,14 @@ def whatsapp_webhook():
                             # Handle incoming messages (for replies)
                             if change.get("value") and change["value"].get("messages"):
                                 logger.info(f"📨 Processing {len(change['value']['messages'])} incoming messages")
+                                # WhatsApp profile names, used in the push
+                                # notification when the sender isn't a known customer.
+                                profile_names = {
+                                    c.get("wa_id"): (c.get("profile") or {}).get("name")
+                                    for c in change["value"].get("contacts") or [] if isinstance(c, dict)
+                                }
                                 for message in change["value"]["messages"]:
-                                    process_incoming_message(message)
+                                    process_incoming_message(message, profile_names.get(message.get("from")))
             
             return jsonify({"status": "ok"}), 200
         
@@ -3256,7 +3334,7 @@ def process_message_status(status_data):
         logger.error(f"❌ Error processing status: {e}", exc_info=True)
 
 
-def process_incoming_message(message_data):
+def process_incoming_message(message_data, profile_name=None):
     """Process incoming message (reply) from WhatsApp"""
     try:
         from_number = message_data.get("from")
@@ -3292,14 +3370,22 @@ def process_incoming_message(message_data):
         try:
             inbox_user_id = _get_webhook_user_id()
             if inbox_user_id and from_number:
+                inbox_phone = _normalize_phone_webhook(from_number)
+                inbox_text = reply_text if reply_text is not None else f'[{message_type or "unsupported"} message]'
                 db.add_inbox_message(
                     user_id=inbox_user_id,
-                    phone=_normalize_phone_webhook(from_number),
+                    phone=inbox_phone,
                     direction='inbound',
-                    message_text=reply_text if reply_text is not None else f'[{message_type or "unsupported"} message]',
+                    message_text=inbox_text,
                     message_type=message_type,
                     whatsapp_message_id=message_id,
                 )
+                # Browser notification ("[Image]" shows as "Image"). Runs in
+                # its own thread and never raises, so the webhook is unaffected.
+                push.notify_incoming_message(
+                    db, inbox_user_id, inbox_phone,
+                    inbox_text[1:-1] if inbox_text.startswith('[') and inbox_text.endswith(']') else inbox_text,
+                    message_id=message_id, profile_name=profile_name)
         except Exception as e:
             logger.error(f"Inbox logging failed for incoming message: {e}", exc_info=True)
 

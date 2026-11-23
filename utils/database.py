@@ -460,6 +460,30 @@ class Database:
                 except Exception:
                     pass
 
+            # Browser push subscriptions (one row per device/browser).
+            # endpoint is the push service URL the browser gave us; p256dh and
+            # auth are its encryption keys. Rows are dropped when the push
+            # service answers 404/410 (subscription gone).
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS push_subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    endpoint TEXT NOT NULL UNIQUE,
+                    p256dh TEXT NOT NULL,
+                    auth TEXT NOT NULL,
+                    user_agent TEXT,
+                    created_at TEXT,
+                    last_success_at TEXT
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id)')
+            # Unread inbox badge: only the (few) unread inbound rows are indexed.
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_inbox_unread
+                ON inbox_messages(user_id, phone)
+                WHERE direction = 'inbound' AND read_at IS NULL
+            ''')
+
             # Every per-customer discount code this app has created, so
             # Shopify orders can be matched back to the flow that issued it.
             # code_upper is the match key (codes match case-insensitively).
@@ -1148,6 +1172,54 @@ class Database:
                 (user_id,)
             )
             return cursor.fetchone() is not None
+
+    def count_unread_inbox_conversations(self, user_id):
+        """Number of customers with at least one unread inbound message
+        (the Inbox nav badge). Uses the partial index idx_inbox_unread."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT COUNT(DISTINCT phone) FROM inbox_messages
+                   WHERE user_id = ? AND direction = 'inbound' AND read_at IS NULL''',
+                (user_id,)
+            )
+            return cursor.fetchone()[0] or 0
+
+    # ---- Browser push subscriptions ----
+    def save_push_subscription(self, user_id, endpoint, p256dh, auth, user_agent=None):
+        """Insert or refresh one device's subscription (endpoint is unique)."""
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                '''INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(endpoint) DO UPDATE SET
+                     user_id = excluded.user_id, p256dh = excluded.p256dh,
+                     auth = excluded.auth, user_agent = excluded.user_agent''',
+                (user_id, endpoint, p256dh, auth, (user_agent or '')[:300], now)
+            )
+
+    def get_push_subscriptions(self, user_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?',
+                (user_id,)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def delete_push_subscription(self, endpoint, user_id=None):
+        with self.get_connection() as conn:
+            if user_id is None:
+                conn.execute('DELETE FROM push_subscriptions WHERE endpoint = ?', (endpoint,))
+            else:
+                conn.execute('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?',
+                             (endpoint, user_id))
+
+    def touch_push_subscription(self, endpoint):
+        with self.get_connection() as conn:
+            conn.execute('UPDATE push_subscriptions SET last_success_at = ? WHERE endpoint = ?',
+                         (datetime.now().isoformat(), endpoint))
 
     def mark_inbox_thread_read(self, user_id, phone):
         """Mark all inbound messages in this thread as read."""

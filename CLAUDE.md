@@ -368,6 +368,19 @@ New function to upload raw image bytes (downloaded from Shopify CDN) to WhatsApp
 
 ---
 
+## Browser Push Notifications (incoming WhatsApp messages)
+
+When a customer messages the WhatsApp number, every device that turned on notifications gets a browser notification: the customer's name (or WhatsApp profile name, or number) and the first 80 characters of the text ("Image", "Video" etc. for media). Clicking it opens `/inbox/<phone>`.
+
+- **Setup (once):** `venv/bin/python scripts/generate_vapid_keys.py`, paste the three lines (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) into `.env`, restart. Without both keys push is off and the toggle is hidden. Re-generating keys means every device has to turn notifications on again.
+- **Code:** `utils/push.py` (pywebpush). `/sw.js` (from `static/sw.js`, served at the root) and `/manifest.json` are public. Login-only APIs: `/api/push/config`, `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test`.
+- **Devices:** the `push_subscriptions` table, one row per browser. A 404/410 from the push service deletes the row.
+- **Webhook:** `process_incoming_message` calls `push.notify_incoming_message` after logging to the inbox. The push runs in a daemon thread and never raises. Status events (delivered/read/failed) never push. A Meta retry with the same message id is not pushed twice (in-memory, last 500 ids).
+- **Toggle:** the "Enable notifications" button in the sidebar footer. Clicking it again turns notifications off for that device.
+- **iPhone/iPad:** web push only works after Share → Add to Home Screen, then opening the dashboard from that icon (iOS 16.4+). The toggle says so in a Safari tab.
+- **Inbox nav badge:** the number of customers with unread messages (`count_unread_inbox_conversations`, partial index `idx_inbox_unread`).
+- **Icons:** `static/icons/*.png`. `*.png` is gitignored, so add new icons with `git add -f`.
+
 ## Known Issues / Past Bugs Fixed
 
 | Bug | Cause | Fix |
